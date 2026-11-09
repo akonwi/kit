@@ -40,6 +40,22 @@ export type MessagePage = Schemas["MessagePage"];
 export type BashExecution = Schemas["BashExecution"];
 export type BashExecutionInput = Schemas["BashExecutionInput"];
 export type BashAbortResult = Schemas["BashAbortResult"];
+export type WorkspaceRef = Schemas["WorkspaceRef"];
+export type Annotation = Schemas["Annotation"];
+export type AnnotationAnchor = Schemas["AnnotationAnchor"];
+export type AnnotationPage = Schemas["AnnotationPage"];
+export type AnnotationSummary = Schemas["AnnotationSummary"];
+export type SubmittedAnnotation = Schemas["SubmittedAnnotation"];
+export type DiffAnchor = Schemas["WorkingTreeDiffAnnotationAnchor"];
+export type DiffTargetCatalog = Schemas["DiffTargetCatalog"];
+export type DiffTargetEntry = Schemas["DiffTargetEntry"];
+export type DiffFileSummary = Schemas["DiffFileSummary"];
+export type DiffHunk = Schemas["DiffHunk"];
+export type DiffLine = Schemas["DiffLine"];
+export type FileDiffPage = Schemas["FileDiffPage"];
+export type ObserveDiffInput = Schemas["ObserveDiffInput"];
+export type ReadFileDiffInput = Schemas["ReadFileDiffInput"];
+export type WorkingTreePage = Schemas["WorkingTreePage"];
 
 /** A session event of one kind. */
 export type EventOf<K extends SessionEvent["kind"]> = Extract<SessionEvent, { kind: K }>;

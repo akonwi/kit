@@ -1,6 +1,9 @@
 // The session API over fetch: the bearer token, the server instance, and the
 // protocol on every request, and the contract's error body decoded.
 import {
+  type Annotation,
+  type AnnotationAnchor,
+  type AnnotationPage,
   type AttachmentInfo,
   type AttachmentResolution,
   type BashAbortResult,
@@ -10,6 +13,8 @@ import {
   type ConfigureSessionResult,
   type CreateSessionInput,
   type DeviceInfo,
+  type DiffTargetCatalog,
+  type FileDiffPage,
   type ForkSessionResult,
   type Health,
   type HighlightCodeBlock,
@@ -17,10 +22,12 @@ import {
   type InteractionResponse,
   type MessagePage,
   type ModelCapability,
+  type ObserveDiffInput,
   PROTOCOL_VERSION,
   type PromoteFollowUpsResult,
   type PromptInput,
   type PromptSubmission,
+  type ReadFileDiffInput,
   type RedeemPairingResult,
   type RestoreFollowUpsResult,
   type ServerSettings,
@@ -29,6 +36,7 @@ import {
   type SessionList,
   type SessionSnapshot,
   type TranscriptPage,
+  type WorkingTreePage,
 } from "./types";
 
 /** A declared failure from the session API, by its stable code. */
@@ -249,6 +257,55 @@ export class Api {
   /** Colors code blocks in one batch; a block the server can't color comes back without `highlight`. */
   highlightCode(blocks: HighlightCodeBlock[], signal?: AbortSignal): Promise<HighlightCodeResult> {
     return this.request("POST", "/v1/highlight", { body: { blocks }, signal });
+  }
+
+  /** The comments waiting to go with the next message, each checked against its source. */
+  listAnnotations(id: string, cursor?: string, signal?: AbortSignal): Promise<AnnotationPage> {
+    return this.request("GET", `/v1/sessions/${segment(id)}/annotations`, {
+      signal,
+      query: { cursor, pageSize: 100 },
+    });
+  }
+
+  createAnnotation(id: string, input: { anchor: AnnotationAnchor; body: string }): Promise<Annotation> {
+    return this.request("POST", `/v1/sessions/${segment(id)}/annotations`, { body: input });
+  }
+
+  updateAnnotation(id: string, annotationId: number, body: string): Promise<Annotation> {
+    return this.request("PATCH", `/v1/sessions/${segment(id)}/annotations`, {
+      body: { annotationId, body },
+    });
+  }
+
+  deleteAnnotation(id: string, annotationId: number): Promise<void> {
+    return this.request("DELETE", `/v1/sessions/${segment(id)}/annotations`, { body: { annotationId } });
+  }
+
+  /** What the session's workspace can be compared with: its working tree, branch, and commits. */
+  listDiffTargets(id: string, workspaceId: string, signal?: AbortSignal): Promise<DiffTargetCatalog> {
+    return this.request("POST", `/v1/sessions/${segment(id)}/diff/targets`, {
+      body: { workspaceId },
+      signal,
+    });
+  }
+
+  /** The working tree's changed files against HEAD. */
+  observeWorkingTree(
+    id: string,
+    input: { workspaceId: string; cursor?: string; pageSize?: number },
+    signal?: AbortSignal,
+  ): Promise<WorkingTreePage> {
+    return this.request("POST", `/v1/sessions/${segment(id)}/diff/working-tree`, { body: input, signal });
+  }
+
+  /** The changed files of a target from the catalog. */
+  observeDiff(id: string, input: ObserveDiffInput, signal?: AbortSignal): Promise<WorkingTreePage> {
+    return this.request("POST", `/v1/sessions/${segment(id)}/diff/observations`, { body: input, signal });
+  }
+
+  /** A page of one file's hunks in an observed target. */
+  readFileDiff(id: string, input: ReadFileDiffInput, signal?: AbortSignal): Promise<FileDiffPage> {
+    return this.request("POST", `/v1/sessions/${segment(id)}/diff/files/read`, { body: input, signal });
   }
 
   listDevices(signal?: AbortSignal): Promise<{ devices: DeviceInfo[] }> {

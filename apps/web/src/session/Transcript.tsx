@@ -1,5 +1,7 @@
 // The transcript: messages, grouped tool calls, and markers.
 import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
+import type { SubmittedAnnotation } from "../api/types";
+import { sentLabel } from "../changes/comments";
 import { CodeBlock } from "../markdown/Fence";
 import { Markdown } from "../markdown/Markdown";
 import { copyText } from "../ui/copy";
@@ -36,6 +38,11 @@ export function TranscriptRow(props: { row: Row; last: boolean }) {
             <p class="user-text">{row.text}</p>
           </Show>
           <SentAttachments items={row.attachments} />
+          <Show when={row.comments.length > 0}>
+            <ul class="sent-comments" aria-label="Comments">
+              <For each={row.comments}>{(comment) => <SentComment comment={comment} />}</For>
+            </ul>
+          </Show>
         </div>
       );
     case "assistant":
@@ -93,6 +100,30 @@ export function TranscriptRow(props: { row: Row; last: boolean }) {
         </div>
       );
   }
+}
+
+/** A comment that went with a message: where, what, and the lines as they were sent. */
+function SentComment(props: { comment: SubmittedAnnotation }) {
+  return (
+    <li class="sent-comment">
+      <span
+        class="sent-comment-where mono"
+        title={props.comment.anchor.workingTreeDiff?.path ?? props.comment.anchor.workspaceFile?.path}
+      >
+        <Icon name="comment" size={16} />
+        {sentLabel(props.comment)}
+      </span>
+      <p class="sent-comment-body">{props.comment.body}</p>
+      <Show when={props.comment.preview.text}>
+        <pre class="sent-comment-source">
+          <code>{props.comment.preview.text.replace(/\n$/, "")}</code>
+        </pre>
+      </Show>
+      <Show when={props.comment.preview.truncated}>
+        <span class="muted small">The lines sent were cut short.</span>
+      </Show>
+    </li>
+  );
 }
 
 /**

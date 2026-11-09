@@ -3,16 +3,19 @@
 // are never changed in place once emitted, so the view can key them by
 // identity.
 import type {
+  Annotation,
   FollowUpQueue,
   InteractionRequest,
   SessionEvent,
   SessionInfo,
   SessionSnapshot,
   SessionUsage,
+  SubmittedAnnotation,
   TranscriptContent,
   TranscriptMessage,
+  WorkspaceRef,
 } from "../api/types";
-
+import { type Comment, fromAnnotation, fromSummary, mergeComments } from "../changes/comments";
 import { type ShellRun, shellFromBoundary } from "./shell";
 
 export type ToolStatus = "planned" | "running" | "done" | "notRun";
@@ -42,7 +45,7 @@ export interface Attachment {
 export type TurnEnd = "failed" | "stopped" | "interrupted";
 
 export type Row =
-  | { kind: "user"; id: string; text: string; attachments: Attachment[] }
+  | { kind: "user"; id: string; text: string; attachments: Attachment[]; comments: SubmittedAnnotation[] }
   | { kind: "assistant"; id: string; text: string; attachments: Attachment[] }
   | { kind: "tools"; id: string; tools: ToolCall[] }
   | { kind: "plugin"; id: string; text: string; plugin: string }
@@ -73,6 +76,10 @@ export interface SessionState {
   retryCount?: number;
   hasMoreMessages: boolean;
   previousMessageCursor?: string;
+  /** The session's folder, which its changes are read from. */
+  workspace?: WorkspaceRef;
+  /** Comments waiting to go with the next message, oldest first. */
+  comments: Comment[];
 }
 
 export const WORKING = "Working…";
@@ -113,6 +120,11 @@ export function attachments(content: readonly TranscriptContent[]): Attachment[]
     }
   }
   return result;
+}
+
+/** The comments a sent message carried. */
+export function sentComments(content: readonly TranscriptContent[]): SubmittedAnnotation[] {
+  return content.flatMap((block) => (block.kind === "annotations" ? block.annotations : []));
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -272,13 +284,14 @@ export function transcript(
     const flushText = () => {
       const text = visibleText(visible);
       const media = attachments(visible);
+      const comments = message.role === "user" ? sentComments(visible) : [];
       visible = [];
-      if (!text && media.length === 0) return;
+      if (!text && media.length === 0 && comments.length === 0) return;
       flush();
       const id = segment === 0 ? message.id : `${message.id}-text-${segment}`;
       rows.push(
         message.role === "user"
-          ? { kind: "user", id, text, attachments: media }
+          ? { kind: "user", id, text, attachments: media, comments }
           : { kind: "assistant", id, text, attachments: media },
       );
       segment += 1;
@@ -346,6 +359,10 @@ export class Projection {
   private readonly persistedTools: Set<string>;
   private readonly pending: Set<string>;
   private lastTurn: string | undefined;
+  /** Counts comment events, so a list read across one can tell. */
+  private commentEvents = 0;
+  /** The count at each comment's latest event. */
+  private readonly commentChanged = new Map<number, number>();
   /** The row closing the last turn this stream saw end early. */
   turnEnd: Row | undefined;
 
@@ -408,6 +425,8 @@ export class Projection {
       retryCount: snapshot.providerRetry?.count,
       hasMoreMessages: snapshot.hasMoreMessages ?? false,
       previousMessageCursor: snapshot.previousMessageCursor,
+      workspace: snapshot.workspace,
+      comments: (snapshot.annotations ?? []).map(fromSummary).sort((a, b) => a.id - b.id),
     };
     this.state.status = this.status();
   }
@@ -428,17 +447,41 @@ export class Projection {
     };
   }
 
+  /** A mark to pass to `setComments` with the list read after it. */
+  get commentMark(): number {
+    return this.commentEvents;
+  }
+
   /**
-   * Gives a live user row the attachments its stored message has; the live
-   * event carries only the text. Returns whether the row changed.
+   * Takes a fresh list of the session's comments, read after `mark`. A list
+   * read across a comment event only refreshes the comments it names.
+   */
+  setComments(listed: Annotation[], mark: number): void {
+    const fresh = listed.map((annotation) => fromAnnotation(annotation)).sort((a, b) => a.id - b.id);
+    this.state = {
+      ...this.state,
+      comments: mergeComments(
+        this.state.comments,
+        fresh,
+        mark === this.commentEvents,
+        (id) => (this.commentChanged.get(id) ?? 0) > mark,
+      ),
+    };
+  }
+
+  /**
+   * Gives a live user row the attachments and comments its stored message
+   * has; the live event carries only the text. Returns whether the row changed.
    */
   fillUserRow(message: TranscriptMessage): boolean {
     const id = `live-user-${message.turnId}`;
     const media = attachments(message.content ?? []);
+    const comments = sentComments(message.content ?? []);
     const index = this.state.rows.findIndex((row) => row.id === id);
     const row = this.state.rows[index];
-    if (message.role !== "user" || media.length === 0 || row?.kind !== "user") return false;
-    const filled: Row = { ...row, attachments: media };
+    if (message.role !== "user" || (media.length === 0 && comments.length === 0) || row?.kind !== "user")
+      return false;
+    const filled: Row = { ...row, attachments: media, comments };
     this.state = {
       ...this.state,
       rows: this.state.rows.map((value, position) => (position === index ? filled : value)),
@@ -483,7 +526,7 @@ export class Projection {
           this.userTurns.add(turn);
           next.rows = [
             ...next.rows,
-            { kind: "user", id: `live-user-${turn}`, text: event.text, attachments: [] },
+            { kind: "user", id: `live-user-${turn}`, text: event.text, attachments: [], comments: [] },
           ];
         }
         this.lastTurn = turn;
@@ -611,7 +654,31 @@ export class Projection {
         break;
       case "session.cwd.changed":
         next.info = { ...next.info, cwd: event.workspace.cwd };
+        next.workspace = event.workspace;
         break;
+      case "annotation.created":
+      case "annotation.updated": {
+        this.commentEvents += 1;
+        this.commentChanged.set(event.annotation.id, this.commentEvents);
+        const old = next.comments.find((comment) => comment.id === event.annotation.id);
+        // An edit changes the words, not whether the source moved under them.
+        const comment = fromAnnotation(event.annotation, old?.stale ?? event.annotation.stale === true);
+        if (old?.stale) comment.staleReason = old.staleReason;
+        next.comments = old
+          ? next.comments.map((value) => (value.id === comment.id ? comment : value))
+          : [...next.comments, comment].sort((a, b) => a.id - b.id);
+        break;
+      }
+      case "annotation.deleted":
+        this.commentEvents += 1;
+        next.comments = next.comments.filter((comment) => comment.id !== event.annotationId);
+        break;
+      case "annotation.submitted": {
+        this.commentEvents += 1;
+        const sent = new Set(event.annotationIds);
+        next.comments = next.comments.filter((comment) => !sent.has(comment.id));
+        break;
+      }
       case "session.configuration.changed": {
         const configuration = event.configuration;
         if (configuration.configurationRevision < next.info.configurationRevision) break;

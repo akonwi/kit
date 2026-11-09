@@ -49,7 +49,11 @@ export function codeLines(source: string): string[] {
  * that is out of order, out of the line, or names no role.
  */
 export function coloredLines(source: string, highlight: Highlight): Run[][] | undefined {
-  const lines = codeLines(source);
+  return coloredLineList(codeLines(source), highlight);
+}
+
+/** Lines already split, as a diff's are, colored as `coloredLines` colors a source. */
+export function coloredLineList(lines: readonly string[], highlight: Highlight): Run[][] | undefined {
   if (highlight.lines.length !== lines.length) return undefined;
   const result: Run[][] = [];
   for (const [index, line] of lines.entries()) {

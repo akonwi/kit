@@ -52,6 +52,9 @@
   --color-warn-text: light-dark(#b54a00, #ff9a59);
   --color-danger-text: light-dark(#98181f, #ff9088);
   --color-user-wash: light-dark(#dde5f4, #1c273a);
+  /* Added and removed lines: success and danger at 10%, as on the Mac and iPhone. */
+  --color-diff-added: light-dark(#e6f0e8, #162519);
+  --color-diff-removed: light-dark(#f5e8e9, #271c1b);
 
   --color-danger: var(--color-danger-text);
   /* A switch's off track, as the Mac app draws it. */

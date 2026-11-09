@@ -3,7 +3,7 @@
 // over from a fresh snapshot; a dropped connection reconnects with backoff.
 import { type Api, ApiError, isAbort } from "../api/client";
 import { SSEParser } from "../api/sse";
-import type { SessionEventBatch } from "../api/types";
+import type { Annotation, SessionEventBatch } from "../api/types";
 import { Projection, type SessionState, transcript } from "./projection";
 
 /** The stream can't continue from where it is; start over from a snapshot. */
@@ -64,6 +64,8 @@ export interface Watch {
   resume(): void;
   /** Reads an older page of the transcript into the projection. */
   loadOlder(): Promise<void>;
+  /** Reads the session's comments again, with the server's check of their source. */
+  refreshComments(): Promise<void>;
   stop(): void;
 }
 
@@ -223,6 +225,23 @@ export function watchSession(api: Api, id: string, handlers: WatchHandlers): Wat
       const page = await api.transcriptPage(id, cursor, controller.signal);
       if (projection !== current) return;
       current.prepend(transcript(page.messages), page.hasMoreMessages ?? false, page.previousMessageCursor);
+      publish();
+    },
+    async refreshComments() {
+      const current = projection;
+      if (!current) return;
+      const mark = current.commentMark;
+      const listed: Annotation[] = [];
+      let cursor: string | undefined;
+      // The server keeps at most a few pages; a cursor that never ends is a fault.
+      for (let page = 0; page < 20; page += 1) {
+        const result = await api.listAnnotations(id, cursor, controller.signal);
+        listed.push(...result.entries);
+        cursor = result.nextCursor;
+        if (!cursor) break;
+      }
+      if (projection !== current || cursor) return;
+      current.setComments(listed, mark);
       publish();
     },
     stop: () => controller.abort(),

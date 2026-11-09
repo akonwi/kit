@@ -3,6 +3,7 @@
 // attachments above it.
 import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, useContext } from "solid-js";
 import type { Api } from "../api/client";
+import { type Comment, commentLabel, commentsBlocked } from "../changes/comments";
 import { bytes } from "../ui/format";
 import { Icon, Spinner } from "../ui/icons";
 import { AttachmentsContext, FileTile, Thumbnail } from "./AttachmentViews";
@@ -28,6 +29,10 @@ export interface ComposerProps {
   shell: Shell;
   /** The row a command sent now follows: the last one shown, or "" for none. */
   anchor(): string;
+  /** Shows the Changes screen, where comments are made and moved. */
+  onOpenChanges(): void;
+  /** Checks the comments against their source again. */
+  checkComments(): Promise<void>;
 }
 
 /** The last call still running, which the activity line names. */
@@ -55,7 +60,9 @@ export function Composer(props: ComposerProps) {
   const live = () => props.connection === "live";
   const running = () => Boolean(props.session.activeTurnId);
   const items = () => draft().items();
-  const empty = () => text().trim() === "" && items().length === 0;
+  const comments = () => props.session.comments;
+  const commentProblem = () => commentsBlocked(comments());
+  const empty = () => text().trim() === "" && items().length === 0 && comments().length === 0;
   const uploading = () => !draft().ready();
   const notice = () =>
     draft().notice() ??
@@ -99,17 +106,32 @@ export function Composer(props: ComposerProps) {
   const send = async () => {
     if (shellMode()) return runShell();
     const value = text().trim();
-    if (empty() || uploading() || draft().blocked() || sending() || !live()) return;
+    if (empty() || uploading() || draft().blocked() || commentProblem() || sending() || !live()) return;
     const attachmentIds = draft().ids();
+    // The comments shown when Send was pressed are the ones that go.
+    const annotationIds = comments().map((comment) => comment.id);
     setSending(true);
     setError("");
     try {
+      // Comments go only while their lines are still what they were.
+      if (annotationIds.length > 0) {
+        await props.checkComments();
+        if (commentProblem()) return;
+        const now = comments().map((comment) => comment.id);
+        if (now.length !== annotationIds.length || now.some((id, index) => id !== annotationIds[index])) {
+          setError("The comments changed while sending. Check them and send again.");
+          return;
+        }
+      }
       await props.api.submitPrompt(props.session.info.id, {
         text: value,
         ...(attachmentIds.length > 0 ? { attachmentIds } : {}),
+        ...(annotationIds.length > 0 ? { annotationIds } : {}),
       });
       draft().acknowledge(attachmentIds);
     } catch (failure) {
+      // A comment whose source moved is caught when sent; check them again to show which.
+      if (comments().length > 0) void props.checkComments().catch(() => {});
       if (!props.fail(failure)) {
         const reason = failure instanceof Error ? failure.message : "";
         setError(reason ? `Didn’t send. ${reason}` : "Didn’t send.");
@@ -301,6 +323,30 @@ export function Composer(props: ComposerProps) {
           </div>
         )}
       </Show>
+      <Show when={!shellMode() && commentProblem()}>
+        {(notice) => (
+          <div class="draft-notice" data-tone="warning" role="status">
+            <Icon name="alert" size={16} />
+            <span class="grow">{notice()}</span>
+          </div>
+        )}
+      </Show>
+      <Show when={comments().length > 0 && !shellMode()}>
+        <ul class="comment-chips" aria-label="Comments">
+          <For each={comments()}>
+            {(comment) => (
+              <CommentChip
+                comment={comment}
+                api={props.api}
+                session={props.session}
+                locked={sending()}
+                open={props.onOpenChanges}
+                fail={fail}
+              />
+            )}
+          </For>
+        </ul>
+      </Show>
       <Show
         when={dropping()}
         fallback={
@@ -422,7 +468,11 @@ export function Composer(props: ComposerProps) {
               disabled={
                 shellMode()
                   ? !shellMode()?.command || !live()
-                  : empty() || uploading() || Boolean(draft().blocked()) || !live()
+                  : empty() ||
+                    uploading() ||
+                    Boolean(draft().blocked()) ||
+                    Boolean(commentProblem()) ||
+                    !live()
               }
               aria-label={shellMode() ? "Run" : uploading() ? "Send, after the uploads finish" : "Send"}
             >
@@ -432,6 +482,47 @@ export function Composer(props: ComposerProps) {
         </Switch>
       </form>
     </section>
+  );
+}
+
+/** A comment going with the message: its file and lines, which open Changes, and × to delete it. */
+function CommentChip(props: {
+  comment: Comment;
+  api: Api;
+  session: SessionState;
+  /** A message being sent takes this comment with it, so it can't be deleted now. */
+  locked: boolean;
+  open(): void;
+  fail(failure: unknown, fallback: string): void;
+}) {
+  const [busy, setBusy] = createSignal(false);
+  const label = () => commentLabel(props.comment);
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await props.api.deleteAnnotation(props.session.info.id, props.comment.id);
+    } catch (failure) {
+      props.fail(failure, "Couldn’t delete the comment.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <li class="comment-chip" data-stale={props.comment.stale || undefined}>
+      <button type="button" class="comment-chip-open" onClick={() => props.open()} title={props.comment.body}>
+        <Icon name={props.comment.stale ? "alert" : "comment"} size={16} />
+        <span class="mono">{label()}</span>
+      </button>
+      <button
+        type="button"
+        class="comment-chip-remove"
+        aria-label={`Delete the comment on ${label()}`}
+        disabled={busy() || props.locked}
+        onClick={remove}
+      >
+        <Icon name="close" size={14} />
+      </button>
+    </li>
   );
 }
 

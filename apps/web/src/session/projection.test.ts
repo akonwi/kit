@@ -78,7 +78,7 @@ describe("transcript", () => {
       "t1",
     );
     expect(rows).toEqual([
-      { kind: "user", id: "u1", text: "Fix it", attachments: [] },
+      { kind: "user", id: "u1", text: "Fix it", attachments: [], comments: [] },
       { kind: "assistant", id: "a1", text: "Looking.", attachments: [] },
       {
         kind: "tools",
@@ -184,6 +184,7 @@ describe("Projection", () => {
           { id: "attachment_a", filename: "shot.png", mediaType: "image/png", image: true },
           { id: "attachment_b", filename: "trace.log", mediaType: "text/plain", image: false },
         ],
+        comments: [],
       },
     ]);
     expect(projection.fillUserRow({ ...stored, turnId: "t2" })).toBe(false);
@@ -227,7 +228,7 @@ describe("Projection", () => {
     projection.apply(event({ kind: "turn.completed", turnId: "t1", status: "completed" }), 6000);
 
     expect(projection.session.rows).toEqual([
-      { kind: "user", id: "live-user-t1", text: "Run the tests", attachments: [] },
+      { kind: "user", id: "live-user-t1", text: "Run the tests", attachments: [], comments: [] },
       {
         kind: "tools",
         id: "tools-c1",
@@ -328,5 +329,128 @@ describe("Projection", () => {
     );
     expect(projection.session.info.model).toBe("openai/gpt-5");
     expect(projection.session.info.thinkingLevel).toBe("high");
+  });
+});
+
+describe("comments", () => {
+  const anchor = {
+    kind: "working_tree_diff",
+    workingTreeDiff: {
+      targetId: "difftarget_A",
+      targetRevision: "diffrev_A",
+      path: "src/watch.ts",
+      fileRevision: "diff_file_A",
+      side: "new",
+      startLine: 89,
+      endLine: 91,
+    },
+  };
+  const annotation = (id: number, body: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    sessionId: "s1",
+    anchor,
+    body,
+    preview: { startLine: 89, endLine: 91, text: "a\nb\nc\n" },
+    ...extra,
+  });
+  const summary = (id: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    anchor,
+    bodyPreview: `Start of ${id}`,
+    preview: "a",
+    ...extra,
+  });
+
+  test("starts from the snapshot's comments, which carry only their start", () => {
+    const projection = new Projection(
+      snapshot([], { annotations: [summary(2), summary(1, { stale: true, staleReason: "file_changed" })] }),
+    );
+    expect(
+      projection.session.comments.map((value) => [value.id, value.body, value.complete, value.stale]),
+    ).toEqual([
+      [1, "Start of 1", false, true],
+      [2, "Start of 2", false, false],
+    ]);
+  });
+
+  test("follows comments made, edited, deleted, and sent", () => {
+    const projection = new Projection(snapshot([], { annotations: [summary(1, { stale: true })] }));
+    projection.apply(
+      event({ kind: "annotation.created", annotationId: 2, annotation: annotation(2, "Why?") }),
+    );
+    projection.apply(
+      event({ kind: "annotation.created", annotationId: 3, annotation: annotation(3, "And this?") }),
+    );
+    // An edit keeps the stale mark the server gave before.
+    projection.apply(
+      event({ kind: "annotation.updated", annotationId: 1, annotation: annotation(1, "Edited") }),
+    );
+    expect(
+      projection.session.comments.map((value) => [value.id, value.body, value.complete, value.stale]),
+    ).toEqual([
+      [1, "Edited", true, true],
+      [2, "Why?", true, false],
+      [3, "And this?", true, false],
+    ]);
+    projection.apply(event({ kind: "annotation.deleted", annotationId: 1 }));
+    projection.apply(event({ kind: "annotation.submitted", annotationIds: [2], acceptedMessageId: "m1" }));
+    expect(projection.session.comments.map((value) => value.id)).toEqual([3]);
+  });
+
+  test("a list read across a comment event keeps the comments it doesn't name", () => {
+    const projection = new Projection(snapshot([], { annotations: [summary(1), summary(2)] }));
+    const mark = projection.commentMark;
+    projection.apply(
+      event({ kind: "annotation.created", annotationId: 3, annotation: annotation(3, "New") }),
+    );
+    projection.setComments([annotation(1, "Whole", { stale: true, staleReason: "target_changed" })], mark);
+    expect(projection.session.comments.map((value) => [value.id, value.body, value.stale])).toEqual([
+      [1, "Whole", true],
+      [2, "Start of 2", false],
+      [3, "New", false],
+    ]);
+    // An edit made after the list was asked for keeps its words.
+    const before = projection.commentMark;
+    projection.apply(
+      event({ kind: "annotation.updated", annotationId: 2, annotation: annotation(2, "Newer") }),
+    );
+    projection.setComments([annotation(2, "Older"), annotation(3, "New")], before);
+    expect(projection.session.comments.find((value) => value.id === 2)?.body).toBe("Newer");
+    projection.setComments([annotation(3, "New")], projection.commentMark);
+    expect(projection.session.comments.map((value) => value.id)).toEqual([3]);
+  });
+
+  test("shows the comments a message carried, and fills them into its live row", () => {
+    const sent = {
+      anchor,
+      body: "Why?",
+      originalAnnotationId: 2,
+      preview: { startLine: 89, endLine: 91, text: "a\n" },
+    };
+    const rows = transcript([
+      message({
+        id: "u1",
+        role: "user",
+        turnId: "t1",
+        content: [
+          { kind: "text", text: "Look" },
+          { kind: "annotations", annotations: [sent] },
+        ],
+      }),
+    ]);
+    expect(rows).toEqual([{ kind: "user", id: "u1", text: "Look", attachments: [], comments: [sent] }]);
+
+    const projection = new Projection(snapshot([]));
+    projection.apply(event({ kind: "user.message.added", turnId: "t2", text: "" }));
+    const stored = message({
+      id: "u2",
+      role: "user",
+      turnId: "t2",
+      content: [{ kind: "annotations", annotations: [sent] }],
+    });
+    expect(projection.fillUserRow(stored)).toBe(true);
+    expect(projection.session.rows).toEqual([
+      { kind: "user", id: "live-user-t2", text: "", attachments: [], comments: [sent] },
+    ]);
   });
 });

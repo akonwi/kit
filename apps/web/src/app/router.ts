@@ -32,9 +32,13 @@ window.addEventListener("popstate", () => {
 
 export const route = () => parseRoute(location().pathname, location().hash);
 
-export function navigate(path: string, options: { replace?: boolean } = {}): void {
-  if (options.replace) history.replaceState(null, "", path);
-  else history.pushState(null, "", path);
+/** The page's fragment, such as #changes on a session. */
+export const hash = () => location().hash;
+
+export function navigate(path: string, options: { replace?: boolean; state?: unknown } = {}): void {
+  const state = options.state ?? null;
+  if (options.replace) history.replaceState(state, "", path);
+  else history.pushState(state, "", path);
   setLocation({ pathname: window.location.pathname, hash: window.location.hash });
   window.scrollTo(0, 0);
 }

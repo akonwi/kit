@@ -172,6 +172,7 @@ describe("watchSession", () => {
         id: "live-user-t1",
         text: "Look",
         attachments: [{ id: "attachment_a", filename: "shot.png", mediaType: "image/png", image: true }],
+        comments: [],
       },
     ]);
   });

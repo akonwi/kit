@@ -1,6 +1,6 @@
 // The app: pairing until this browser has a credential, then the session
 // list and sessions.
-import { ErrorBoundary, Match, Switch } from "solid-js";
+import { createMemo, ErrorBoundary, Match, Switch } from "solid-js";
 import { NotPaired, PairingPage } from "../pages/Pairing";
 import { SessionPage } from "../pages/Session";
 import { SessionsPage } from "../pages/Sessions";
@@ -19,6 +19,10 @@ export function App() {
 function Routes() {
   const kit = useKit();
   const current = route;
+  const sessionId = createMemo(() => {
+    const value = current();
+    return value.page === "session" ? value.id : undefined;
+  });
   return (
     <Switch>
       <Match when={current().page === "pair" ? current() : undefined} keyed>
@@ -67,8 +71,9 @@ function Routes() {
           )}
         >
           <Switch>
-            <Match when={current().page === "session" ? current() : undefined} keyed>
-              {(session) => <SessionPage id={session.page === "session" ? session.id : ""} />}
+            {/* Keyed by the session alone: #changes on the same session keeps its page and draft. */}
+            <Match when={sessionId()} keyed>
+              {(id) => <SessionPage id={id} />}
             </Match>
             <Match when={true}>
               <SessionsPage />

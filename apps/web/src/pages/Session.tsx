@@ -15,7 +15,10 @@ import {
 import { ApiError } from "../api/client";
 import type { ModelCapability } from "../api/types";
 import { useKit, useReady } from "../app/kit";
-import { back } from "../app/router";
+import { back, hash, navigate } from "../app/router";
+import { ChangesView, changesProblem, commentCount } from "../changes/Changes";
+import { onWorkingTree } from "../changes/comments";
+import { type ChangeSummary, filesLabel, summarize } from "../changes/diff";
 import { createHighlighter, HighlightContext } from "../markdown/highlight";
 import { AttachmentsContext, AttachmentViewer, type Openable } from "../session/AttachmentViews";
 import { Draft } from "../session/attachments";
@@ -61,6 +64,35 @@ export function SessionPage(props: { id: string }) {
   const [compactionPending, setCompactionPending] = createSignal(false);
   const [outcome, setOutcome] = createSignal<CompactionOutcome>();
   let scroller: HTMLDivElement | undefined;
+
+  // The Changes screen is this page's #changes, so Back and reload keep it.
+  const changesOpen = () => hash() === "#changes";
+  const openChanges = () => {
+    if (!changesOpen()) navigate(`/sessions/${props.id}#changes`, { state: { inApp: true, changes: true } });
+  };
+  const closeChanges = () => {
+    if (history.state?.changes) history.back();
+    else navigate(`/sessions/${props.id}`, { replace: true, state: { inApp: true } });
+  };
+  const refreshComments = () => watch.refreshComments();
+  /**
+   * Reads the comments again with the server's check of their source. The
+   * server holds uncommitted changes for two minutes, so those are read
+   * again first: unchanged files keep their comments.
+   */
+  const checkComments = async () => {
+    const current = state();
+    if (!current || current.comments.length === 0) return;
+    const workspaceId = current.workspace?.workspaceId;
+    if (workspaceId && current.comments.some(onWorkingTree)) {
+      try {
+        await ready.api.observeWorkingTree(props.id, { workspaceId, pageSize: 1 });
+      } catch {
+        // The list says which comments this leaves stale.
+      }
+    }
+    await refreshComments();
+  };
 
   // A fork whose first message didn't start leaves it for this composer.
   const forkFailure = (() => {
@@ -140,8 +172,10 @@ export function SessionPage(props: { id: string }) {
     }
     const away = hiddenAt === undefined ? 0 : Date.now() - hiddenAt;
     hiddenAt = undefined;
-    if (away >= RESUME_AFTER_MS) watch.resume();
-    else watch.wake();
+    if (away >= RESUME_AFTER_MS) {
+      watch.resume();
+      void checkComments().catch(() => {});
+    } else watch.wake();
   };
   const resume = () => watch.resume();
   onMount(() => {
@@ -156,6 +190,15 @@ export function SessionPage(props: { id: string }) {
     document.removeEventListener("resume", resume);
     window.removeEventListener("online", resume);
     document.title = "Kit";
+  });
+
+  // A snapshot's check of the comments may be on changes the server no
+  // longer holds, so the first one is checked again.
+  let checked = false;
+  createEffect(() => {
+    if (checked || !state()) return;
+    checked = true;
+    void checkComments().catch(() => {});
   });
 
   createEffect(() => {
@@ -227,7 +270,7 @@ export function SessionPage(props: { id: string }) {
     <AttachmentsContext.Provider value={{ library, open: setViewing }}>
       <HighlightContext.Provider value={highlighter}>
         <div class="screen session-screen">
-          <header class="bar">
+          <header class="bar" hidden={changesOpen() && Boolean(state())}>
             <button type="button" class="icon-button" aria-label="Back" onClick={back}>
               <Icon name="back" />
             </button>
@@ -243,6 +286,7 @@ export function SessionPage(props: { id: string }) {
                   onCompact={compact}
                   onModelName={setModelName}
                   onOpen={setDialog}
+                  onChanges={openChanges}
                 />
               )}
             </Show>
@@ -259,8 +303,20 @@ export function SessionPage(props: { id: string }) {
             <Match when={state()}>
               {(current) => (
                 <>
+                  {/* The transcript stays while Changes shows, so it keeps its place. */}
+                  <Show when={changesOpen()}>
+                    <ChangesView
+                      api={ready.api}
+                      session={current()}
+                      fail={kit.fail}
+                      refreshComments={refreshComments}
+                      checkComments={checkComments}
+                      onClose={closeChanges}
+                    />
+                  </Show>
                   <div
                     class="transcript"
+                    hidden={changesOpen()}
                     ref={scroller}
                     onScroll={() => {
                       stick = atBottom();
@@ -349,6 +405,8 @@ export function SessionPage(props: { id: string }) {
                         initialError={forkFailure?.error}
                         shell={shell}
                         anchor={() => current().rows.at(-1)?.id ?? ""}
+                        onOpenChanges={openChanges}
+                        checkComments={checkComments}
                       />
                     }
                   >
@@ -386,6 +444,7 @@ interface SessionMenuProps {
   /** Reports the session model's display name once the catalog loads. */
   onModelName(name: string | undefined): void;
   onOpen(dialog: SessionDialog): void;
+  onChanges(): void;
 }
 
 function SessionMenu(props: SessionMenuProps) {
@@ -395,7 +454,29 @@ function SessionMenu(props: SessionMenuProps) {
   const [models, setModels] = createSignal<ModelCapability[]>();
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+  const [changes, setChanges] = createSignal<ChangeSummary | string>();
   let popover: HTMLDivElement | undefined;
+
+  // The working tree's changes, read each time the menu opens.
+  const loadChanges = async () => {
+    const workspaceId = props.session.workspace?.workspaceId;
+    if (!workspaceId) {
+      setChanges("No folder");
+      return;
+    }
+    try {
+      const page = await ready.api.observeWorkingTree(props.session.info.id, { workspaceId, pageSize: 200 });
+      setChanges(summarize(page.files, Boolean(page.nextCursor)));
+    } catch (failure) {
+      if (kit.fail(failure)) return;
+      setChanges(
+        failure instanceof ApiError && failure.code === "not_repository"
+          ? "Not a Git repository"
+          : (changesProblem(failure) ?? "Changes couldn’t be read"),
+      );
+    }
+  };
+  const comments = () => props.session.comments.length;
 
   const loadModels = async () => {
     if (models()) return;
@@ -473,11 +554,44 @@ function SessionMenu(props: SessionMenuProps) {
             setView("main");
             setError("");
             void loadModels();
+            void loadChanges();
           }
         }}
       >
         <Switch>
           <Match when={view() === "main"}>
+            <button type="button" class="menu-action changes-row" onClick={() => act(props.onChanges)}>
+              <Icon name="diff" size={18} />
+              <span class="grow">
+                <span>Changes</span>
+                <span class="mono muted small">
+                  <Switch fallback="Reading…">
+                    <Match when={typeof changes() === "string" && (changes() as string)}>
+                      {(problem) => <span class="changes-row-problem">{problem()}</span>}
+                    </Match>
+                    <Match when={typeof changes() === "object" && (changes() as ChangeSummary)}>
+                      {(summary) => (
+                        <Show when={summary().files > 0} fallback="No changes">
+                          {filesLabel(summary())}
+                          <Show when={summary().counts}>
+                            {(counts) => (
+                              <>
+                                {" "}
+                                <span class="added">+{counts().additions}</span>{" "}
+                                <span class="removed">−{counts().deletions}</span>
+                              </>
+                            )}
+                          </Show>
+                        </Show>
+                      )}
+                    </Match>
+                  </Switch>
+                  <Show when={comments() > 0}> · {commentCount(comments())}</Show>
+                </span>
+              </span>
+              <Icon name="chevRight" size={16} />
+            </button>
+            <hr />
             <Show when={percent() !== undefined}>
               <div class="menu-section context">
                 <span class="line">
