@@ -4,3 +4,15 @@
 # path, and complete text, so each entry excuses exactly one finding and no
 # other change. Remove an entry once the latest release publishes the change
 # it excuses; it no longer matches anything then.
+
+# These operations already returned 409 while a session was being deleted;
+# the contract now declares it with the generic conflict code. The server
+# already sent these statuses, so no client sees a new wire behavior. Remove
+# these lines after the next release publishes the declarations.
+POST /v1/sessions/{sessionID}/attachments added `#/components/schemas/ConflictError` to the `error` response property `oneOf` list for the response status `409`
+POST /v1/sessions/{sessionID}/attachments/resolve added `#/components/schemas/ConflictError` to the `error` response property `oneOf` list for the response status `409`
+GET /v1/sessions/{sessionID}/attachments/{attachmentID} added `#/components/schemas/ConflictError` to the `error` response property `oneOf` list for the response status `409`
+GET /v1/sessions/{sessionID}/files added `#/components/schemas/ConflictError` to the `error` response property `oneOf` list for the response status `409`
+GET /v1/sessions/{sessionID}/workspace added `#/components/schemas/ConflictError` to the `error` response property `oneOf` list for the response status `409`
+POST /v1/sessions/{sessionID}/workspace/directories added `#/components/schemas/ConflictError` to the `error` response property `oneOf` list for the response status `409`
+POST /v1/sessions/{sessionID}/workspace/files/read added `#/components/schemas/ConflictError` to the `error` response property `oneOf` list for the response status `409`

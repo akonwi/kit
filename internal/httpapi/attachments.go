@@ -23,7 +23,11 @@ func attachmentErrors() []ErrorResponse {
 	return []ErrorResponse{
 		{Status: http.StatusBadRequest, Codes: []ErrorCode{ErrorInvalidRequest}},
 		{Status: http.StatusNotFound, Codes: []ErrorCode{ErrorNotFound}},
+		// conflict reports a session that is being deleted.
+		{Status: http.StatusConflict, Codes: []ErrorCode{ErrorConflict}},
 		{Status: http.StatusRequestEntityTooLarge, Codes: []ErrorCode{ErrorLimitExceeded}},
+		// unavailable reports a server that is shutting down its sessions.
+		{Status: http.StatusServiceUnavailable, Codes: []ErrorCode{ErrorUnavailable}},
 		{Status: http.StatusInternalServerError, Codes: []ErrorCode{ErrorInternal}},
 	}
 }

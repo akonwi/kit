@@ -16541,11 +16541,15 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
                         }
@@ -16705,6 +16709,35 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -16899,11 +16932,15 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
                         }
@@ -17063,6 +17100,35 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -17275,11 +17341,15 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
                         }
@@ -17439,6 +17509,35 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -24471,6 +24570,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError",
                           "stale_cursor": "#/components/schemas/WorkspaceStaleCursorError",
                           "stale_file": "#/components/schemas/WorkspaceStaleFileError",
@@ -24487,6 +24587,9 @@
                         },
                         {
                           "$ref": "#/components/schemas/WorkspaceStaleCursorError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
                         },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
@@ -35260,6 +35363,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError",
                           "stale_cursor": "#/components/schemas/WorkspaceStaleCursorError",
                           "stale_file": "#/components/schemas/WorkspaceStaleFileError",
@@ -35276,6 +35380,9 @@
                         },
                         {
                           "$ref": "#/components/schemas/WorkspaceStaleCursorError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
                         },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
@@ -35716,6 +35823,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError",
                           "stale_cursor": "#/components/schemas/WorkspaceStaleCursorError",
                           "stale_file": "#/components/schemas/WorkspaceStaleFileError",
@@ -35732,6 +35840,9 @@
                         },
                         {
                           "$ref": "#/components/schemas/WorkspaceStaleCursorError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
                         },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
@@ -36172,6 +36283,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError",
                           "stale_cursor": "#/components/schemas/WorkspaceStaleCursorError",
                           "stale_file": "#/components/schemas/WorkspaceStaleFileError",
@@ -36188,6 +36300,9 @@
                         },
                         {
                           "$ref": "#/components/schemas/WorkspaceStaleCursorError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
                         },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
