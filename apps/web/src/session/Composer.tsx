@@ -598,7 +598,8 @@ function DraftTile(props: { item: DraftAttachment; draft: Draft }) {
   );
 }
 
-function Activity(props: { session: SessionState }) {
+/** The run's activity line: the call running, the thinking, or the retry. */
+export function Activity(props: { session: SessionState }) {
   const tool = createMemo(() => runningTool(props.session));
   const now = useClock();
   const retryIn = () => {

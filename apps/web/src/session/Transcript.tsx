@@ -1,10 +1,11 @@
 // The transcript: messages, grouped tool calls, and markers.
-import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
+import { createMemo, createSignal, For, Match, onCleanup, Show, Switch, useContext } from "solid-js";
 import type { SubmittedAnnotation } from "../api/types";
 import { sentLabel } from "../changes/comments";
 import { useFiles } from "../files/context";
 import { CodeBlock } from "../markdown/Fence";
 import { Markdown } from "../markdown/Markdown";
+import { UserCaptionContext, useAgents } from "../subagents/context";
 import { copyText } from "../ui/copy";
 import { Icon, Spinner } from "../ui/icons";
 import { ReplyAttachments, SentAttachments } from "./AttachmentViews";
@@ -31,10 +32,14 @@ export function useClock(): () => number {
 
 export function TranscriptRow(props: { row: Row; last: boolean }) {
   const row = props.row;
+  const caption = useContext(UserCaptionContext);
   switch (row.kind) {
     case "user":
       return (
         <div class="message user">
+          <Show when={caption}>
+            <p class="user-caption">{caption}</p>
+          </Show>
           <Show when={row.text}>
             <p class="user-text">{row.text}</p>
           </Show>
@@ -248,6 +253,7 @@ function ToolGroup(props: { tools: ToolCall[]; live: boolean }) {
 
 function ToolRow(props: { tool: ToolCall }) {
   const files = useFiles();
+  const agents = useAgents();
   const presentation = createMemo(() => presentTool(props.tool));
   const [open, setOpen] = createSignal(false);
   const expandable = () =>
@@ -258,6 +264,11 @@ function ToolRow(props: { tool: ToolCall }) {
     const target = presentation().file;
     const path = target && files?.resolve(target.path);
     return path ? { path, line: target.line } : undefined;
+  });
+  // Or the conversation of the subagent it worked with, once the session started one.
+  const agent = createMemo(() => {
+    const name = presentation().agent;
+    return name && agents?.has(name) ? name : undefined;
   });
   return (
     <div class="tool" data-status={props.tool.status} data-failed={props.tool.failed || undefined}>
@@ -286,27 +297,41 @@ function ToolRow(props: { tool: ToolCall }) {
         </button>
         <Show when={presentation().chip}>
           {(chip) => (
-            <Show
-              when={file()}
+            <Switch
               fallback={
                 <span class="chip" data-path={presentation().path || undefined}>
                   <span>{chip()}</span>
                 </span>
               }
             >
-              {(target) => (
-                <button
-                  type="button"
-                  class="chip"
-                  data-path={presentation().path || undefined}
-                  data-link
-                  title={`Open ${target().path}`}
-                  onClick={() => files?.open(target().path, target().line)}
-                >
-                  <span>{chip()}</span>
-                </button>
-              )}
-            </Show>
+              <Match when={file()}>
+                {(target) => (
+                  <button
+                    type="button"
+                    class="chip"
+                    data-path={presentation().path || undefined}
+                    data-link
+                    title={`Open ${target().path}`}
+                    onClick={() => files?.open(target().path, target().line)}
+                  >
+                    <span>{chip()}</span>
+                  </button>
+                )}
+              </Match>
+              <Match when={agent()}>
+                {(name) => (
+                  <button
+                    type="button"
+                    class="chip"
+                    data-link
+                    title={`Show ${name()}’s conversation`}
+                    onClick={() => agents?.open(name())}
+                  >
+                    <span>{chip()}</span>
+                  </button>
+                )}
+              </Match>
+            </Switch>
           )}
         </Show>
         <span class="facts">

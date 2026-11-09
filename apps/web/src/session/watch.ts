@@ -66,6 +66,8 @@ export interface Watch {
   loadOlder(): Promise<void>;
   /** Reads the session's comments again, with the server's check of their source. */
   refreshComments(): Promise<void>;
+  /** Reads the subagents' roster again, such as after changing or dismissing one. */
+  refreshSubagents(): Promise<void>;
   stop(): void;
 }
 
@@ -136,6 +138,7 @@ export function watchSession(api: Api, id: string, handlers: WatchHandlers): Wat
           const updated = acceptBatch(batch, id, stream, cursor);
           if (updated <= cursor) continue;
           let refresh = false;
+          let subagentsChanged = false;
           const now = Date.now();
           const userTurns: string[] = [];
           for (const event of batch.events ?? []) {
@@ -144,6 +147,7 @@ export function watchSession(api: Api, id: string, handlers: WatchHandlers): Wat
             projection.apply(event, live ? now : undefined);
             cursor = event.sequence;
             refresh ||= live && (event.kind === "turn.completed" || event.kind === "compaction.completed");
+            subagentsChanged ||= event.kind === "subagent.changed";
             if (event.kind === "user.message.added" && event.turnId) userTurns.push(event.turnId);
           }
           cursor = updated;
@@ -162,6 +166,14 @@ export function watchSession(api: Api, id: string, handlers: WatchHandlers): Wat
             snapshotCursor = cursor;
           } else {
             for (const turn of userTurns) void fillUserRow(projection, turn, signal);
+            // The event names a change; the snapshot says what the subagents are now.
+            if (subagentsChanged) {
+              const latest = await api.getSession(id, signal);
+              if (latest.eventStreamId !== stream || (latest.eventCursor ?? 0) < cursor) {
+                throw new Resync("The stream moved on while reading the subagents.");
+              }
+              projection.setSubagents(latest.subagentConversations ?? []);
+            }
           }
           publish();
         }
@@ -242,6 +254,15 @@ export function watchSession(api: Api, id: string, handlers: WatchHandlers): Wat
       }
       if (projection !== current || cursor) return;
       current.setComments(listed, mark);
+      publish();
+    },
+    async refreshSubagents() {
+      const current = projection;
+      if (!current) return;
+      const snapshot = await api.getSession(id, controller.signal);
+      // A newer snapshot or stream brings its own roster.
+      if (projection !== current) return;
+      current.setSubagents(snapshot.subagentConversations ?? []);
       publish();
     },
     stop: () => controller.abort(),

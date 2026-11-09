@@ -22,6 +22,7 @@ the build.
 | `src/changes`    | Diffs, line comments, and the comments' staleness                           |
 | `src/files`      | Open File search and the file viewer with comments                          |
 | `src/scratchpad` | The scratchpad editor, its autosave, and conflict review                    |
+| `src/subagents`  | The agent strip, subagent transcripts kept live, and the agent bar          |
 | `src/pages`      | Pairing, Sessions, Session                                                  |
 | `src/styles`     | Mica with Kit's palette and radii, and the app stylesheet                   |
 | `scripts`        | Bundling, the embedded build, the dev server, API type generation           |

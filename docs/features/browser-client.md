@@ -67,8 +67,12 @@ controls. It needs the server to be reachable; it does not work offline.
   typing and when you leave. If the shared copy changes while you have
   unsaved edits, your draft stays, and **Review changes** shows both so you
   can keep yours or take the shared copy.
-
-It does not show subagents. Use the TUI or the Mac app for those.
+- When the agent starts subagents, a strip under the session's title lists
+  Main and each subagent with its status: failed or interrupted ones first,
+  then working or queued ones, then idle ones. Tap one, or the agent's name on
+  a **Start agent** call, to see its conversation as it works. Its results go
+  to the main agent, so a subagent's view has no composer. Its menu changes
+  its thinking level, its model once its work finishes, and dismisses it.
 
 When a page returns from the background or the network comes back, it takes
 a fresh snapshot of the session. If the server restarts with a different

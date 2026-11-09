@@ -39,6 +39,8 @@ export interface ToolPresentation {
   path: boolean;
   /** The file the call worked on, and the line it started at, which the chip opens. */
   file?: { path: string; line?: number };
+  /** The subagent the call worked with, whose conversation the chip opens. */
+  agent?: string;
   facts: Fact[];
   icon: ToolIcon;
   /** Whether the row shows how long the call ran. */
@@ -51,6 +53,20 @@ const INTERACTION_TOOLS = new Set([
   "select_from_user",
   "guided_questions",
 ]);
+
+/** A subagent call's title by its action, as the Apple clients name them. */
+const SUBAGENT_TITLES: Record<string, string> = {
+  start: "Start agent",
+  run: "Start agent",
+  spawn: "Start agent",
+  message: "Message agent",
+  send: "Message agent",
+  ask: "Ask agent",
+  wait: "Wait for agent",
+  cancel: "Cancel agent",
+  dismiss: "Dismiss agent",
+  inspect: "Inspect agent",
+};
 
 function parse(text: string | undefined): Record<string, unknown> {
   if (!text) return {};
@@ -130,7 +146,12 @@ export function presentTool(tool: ToolCall): ToolPresentation {
     title: string,
     chip: string | undefined,
     icon: ToolIcon,
-    options: { path?: boolean; timed?: boolean; file?: ToolPresentation["file"] } = {},
+    options: {
+      path?: boolean;
+      timed?: boolean;
+      file?: ToolPresentation["file"];
+      agent?: string;
+    } = {},
   ): ToolPresentation => ({
     title,
     chip,
@@ -139,6 +160,7 @@ export function presentTool(tool: ToolCall): ToolPresentation {
     path: options.path ?? false,
     timed: options.timed ?? false,
     ...(options.file ? { file: options.file } : {}),
+    ...(options.agent ? { agent: options.agent } : {}),
   });
 
   if (kind === "bash") {
@@ -250,8 +272,25 @@ export function presentTool(tool: ToolCall): ToolPresentation {
       return presentation("Read scratchpad", undefined, "note");
     case "activate_skill":
       return presentation("Load skill", text("name"), "skill");
-    case "subagent":
-      return presentation("Agent", text("agent"), "agent", { timed: true });
+    case "subagent": {
+      const agent = text("agent");
+      const action = text("action")?.toLowerCase();
+      const link = tool.status === "notRun" ? undefined : agent;
+      if (action === "inspect_request") return presentation("Inspect request", text("receipt"), "agent");
+      if (action === "list_agents") return presentation("List agents", undefined, "agent");
+      const title = action ? SUBAGENT_TITLES[action] : undefined;
+      // A start or a message returns at once; waiting and asking take as long as the agent.
+      const timed = action === "wait" || action === "ask";
+      return presentation(title ?? "Agent", agent, "agent", { timed, agent: link });
+    }
+    case "subagent_inbox":
+      return presentation("Check inbox", undefined, "agent");
+    case "subagent_send":
+      return presentation("Message sibling", text("agent"), "agent");
+    case "subagent_reply":
+      return presentation("Reply", text("receipt"), "agent");
+    case "subagent_inspect":
+      return presentation("Inspect request", text("receipt"), "agent");
     case "show_image":
     case "inspect_image":
       return presentation(kind === "show_image" ? "Show image" : "Inspect image", text("path"), "image", {

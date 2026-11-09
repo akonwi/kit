@@ -61,6 +61,15 @@ export type WorkspaceFileRead = Schemas["WorkspaceFileRead"];
 export type ReadWorkspaceFileInput = Schemas["ReadWorkspaceFileInput"];
 export type Scratchpad = Schemas["Scratchpad"];
 export type UpdateScratchpadInput = Schemas["UpdateScratchpadInput"];
+export type SubagentDefinition = Schemas["SubagentDefinition"];
+export type SubagentConversation = Schemas["SubagentConversation"];
+export type SubagentTranscript = Schemas["SubagentTranscript"];
+export type SubagentLiveEvent = Schemas["SubagentLiveEvent"];
+export type SubagentLiveEventPage = Schemas["SubagentLiveEventPage"];
+export type SubagentOperationInput = Schemas["SubagentOperationInput"];
+export type SubagentOperationResult = Schemas["SubagentOperationResult"];
+export type ConfigureSubagentInput = Schemas["ConfigureSubagentInput"];
+export type ConfigureSubagentResult = Schemas["ConfigureSubagentResult"];
 
 /** A session event of one kind. */
 export type EventOf<K extends SessionEvent["kind"]> = Extract<SessionEvent, { kind: K }>;

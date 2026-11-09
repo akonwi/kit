@@ -11,6 +11,8 @@ import {
   type BashExecutionInput,
   type CompactSessionResult,
   type ConfigureSessionResult,
+  type ConfigureSubagentInput,
+  type ConfigureSubagentResult,
   type CreateSessionInput,
   type DeviceInfo,
   type DiffTargetCatalog,
@@ -38,6 +40,10 @@ import {
   type SessionInfo,
   type SessionList,
   type SessionSnapshot,
+  type SubagentLiveEventPage,
+  type SubagentOperationInput,
+  type SubagentOperationResult,
+  type SubagentTranscript,
   type TranscriptPage,
   type UpdateScratchpadInput,
   type WorkingTreePage,
@@ -347,6 +353,49 @@ export class Api {
     signal?: AbortSignal,
   ): Promise<WorkspaceFileRead> {
     return this.request("POST", `/v1/sessions/${segment(id)}/workspace/files/read`, { body: input, signal });
+  }
+
+  /** A page of a subagent's stored conversation, newest first unless `before` is given. */
+  subagentTranscript(
+    id: string,
+    conversation: string,
+    before?: string,
+    signal?: AbortSignal,
+  ): Promise<SubagentTranscript> {
+    return this.request("GET", `/v1/sessions/${segment(id)}/subagents/${segment(conversation)}/transcript`, {
+      signal,
+      query: { before },
+    });
+  }
+
+  /** A subagent's live events after `after` on its stream, as far as the server keeps them. */
+  subagentEvents(
+    id: string,
+    conversation: string,
+    stream: string,
+    after: number,
+    signal?: AbortSignal,
+  ): Promise<SubagentLiveEventPage> {
+    return this.request("GET", `/v1/sessions/${segment(id)}/subagents/${segment(conversation)}/events`, {
+      signal,
+      query: { stream: stream || undefined, after: after || undefined },
+    });
+  }
+
+  /** Changes a subagent's model or thinking at the conversation's generation. */
+  configureSubagent(
+    id: string,
+    conversation: string,
+    input: ConfigureSubagentInput,
+  ): Promise<ConfigureSubagentResult> {
+    return this.request("POST", `/v1/sessions/${segment(id)}/subagents/${segment(conversation)}/configure`, {
+      body: input,
+    });
+  }
+
+  /** One subagent operation, such as dismissing a conversation. */
+  operateSubagent(id: string, input: SubagentOperationInput): Promise<SubagentOperationResult> {
+    return this.request("POST", `/v1/sessions/${segment(id)}/subagents`, { body: input });
   }
 
   listDevices(signal?: AbortSignal): Promise<{ devices: DeviceInfo[] }> {

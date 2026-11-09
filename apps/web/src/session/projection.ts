@@ -11,6 +11,7 @@ import type {
   SessionInfo,
   SessionSnapshot,
   SessionUsage,
+  SubagentConversation,
   SubmittedAnnotation,
   TranscriptContent,
   TranscriptMessage,
@@ -84,6 +85,8 @@ export interface SessionState {
   comments: Comment[];
   /** The newest copy of the scratchpad the session shares with its forks. */
   scratchpad?: Scratchpad;
+  /** The subagents' conversations, as the latest snapshot listed them. */
+  subagents: SubagentConversation[];
 }
 
 export const WORKING = "Working…";
@@ -432,6 +435,7 @@ export class Projection {
       workspace: snapshot.workspace,
       scratchpad: snapshot.scratchpad,
       comments: (snapshot.annotations ?? []).map(fromSummary).sort((a, b) => a.id - b.id),
+      subagents: snapshot.subagentConversations ?? [],
     };
     this.state.status = this.status();
   }
@@ -472,6 +476,11 @@ export class Projection {
         (id) => (this.commentChanged.get(id) ?? 0) > mark,
       ),
     };
+  }
+
+  /** Takes the subagents' conversations from a snapshot read after `subagent.changed`. */
+  setSubagents(conversations: SubagentConversation[]): void {
+    this.state = { ...this.state, subagents: conversations };
   }
 
   /**

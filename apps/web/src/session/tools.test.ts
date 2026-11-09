@@ -35,6 +35,38 @@ describe("presentTool", () => {
     expect(presentTool(call({ name: "read", arguments: '{"path":"c.ts"}' })).file).toEqual({ path: "c.ts" });
   });
 
+  test("titles a subagent call by its action, linking the agent it worked with", () => {
+    expect(
+      presentTool(call({ name: "subagent", arguments: '{"action":"start","agent":"reviewer","task":"x"}' })),
+    ).toEqual({
+      title: "Start agent",
+      chip: "reviewer",
+      icon: "agent",
+      facts: [],
+      path: false,
+      timed: false,
+      agent: "reviewer",
+    });
+    const wait = presentTool(call({ name: "subagent", arguments: '{"action":"wait","agent":"tester"}' }));
+    expect([wait.title, wait.timed, wait.agent]).toEqual(["Wait for agent", true, "tester"]);
+    expect(
+      presentTool(call({ name: "subagent", arguments: '{"action":"ask","agent":"tester"}' })).title,
+    ).toBe("Ask agent");
+    // A call that didn't run started nothing to open.
+    expect(
+      presentTool(
+        call({ name: "subagent", status: "notRun", arguments: '{"action":"dismiss","agent":"tester"}' }),
+      ),
+    ).toEqual({
+      title: "Dismiss agent",
+      chip: "tester",
+      icon: "agent",
+      facts: [],
+      path: false,
+      timed: false,
+    });
+  });
+
   test("counts an edit's changed lines", () => {
     const edit = presentTool(
       call({
