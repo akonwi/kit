@@ -31,6 +31,8 @@ export interface ComposerProps {
   anchor(): string;
   /** Shows the Changes screen, where comments are made and moved. */
   onOpenChanges(): void;
+  /** Opens a file in the session's folder at its lines. */
+  onOpenFile(path: string, line?: number, end?: number): void;
   /** Checks the comments against their source again. */
   checkComments(): Promise<void>;
 }
@@ -340,7 +342,11 @@ export function Composer(props: ComposerProps) {
                 api={props.api}
                 session={props.session}
                 locked={sending()}
-                open={props.onOpenChanges}
+                open={() =>
+                  comment.anchor.workspaceFile
+                    ? props.onOpenFile(comment.path, comment.startLine, comment.endLine)
+                    : props.onOpenChanges()
+                }
                 fail={fail}
               />
             )}
@@ -485,7 +491,10 @@ export function Composer(props: ComposerProps) {
   );
 }
 
-/** A comment going with the message: its file and lines, which open Changes, and × to delete it. */
+/**
+ * A comment going with the message: its file and lines, which open the file
+ * or Changes where it was made, and × to delete it.
+ */
 function CommentChip(props: {
   comment: Comment;
   api: Api;

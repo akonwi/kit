@@ -1966,25 +1966,46 @@ dialog.viewer > .viewer-stage[data-kind="diagram"] {
   gap: 0.25rem;
 }
 
-.tool-group-toggle,
+/* A tool call's row. Its toggle covers the whole row, so a tap anywhere
+   shows the call's detail; a chip naming a file sits above it and opens
+   the file. */
 .tool-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   inline-size: 100%;
   min-block-size: 1.75rem;
-  block-size: auto;
   padding: 0.125rem 0;
-  border: 0;
-  background: transparent;
   color: var(--color-text);
   font-size: var(--text-ui);
-  font-weight: 400;
   line-height: 1.25rem;
-  justify-content: flex-start;
+}
+
+.tool-toggle,
+.chip[data-link] {
+  block-size: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
   text-align: start;
   &:hover:not(:disabled) {
     background: transparent;
+  }
+}
+
+.tool-toggle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
   }
   &:disabled {
     cursor: default;
@@ -1992,9 +2013,37 @@ dialog.viewer > .viewer-stage[data-kind="diagram"] {
   }
 }
 
+.chip[data-link] {
+  position: relative;
+  z-index: 1;
+  justify-content: flex-start;
+  & span {
+    color: var(--color-accent);
+  }
+  &:hover span {
+    border-color: var(--color-accent);
+  }
+}
+
 .tool-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   gap: 0.375rem;
+  inline-size: 100%;
+  min-block-size: 1.75rem;
+  block-size: auto;
+  padding: 0.125rem 0;
+  border: 0;
+  background: transparent;
   color: var(--color-text-muted);
+  font-size: var(--text-ui);
+  font-weight: 400;
+  line-height: 1.25rem;
+  text-align: start;
+  &:hover:not(:disabled) {
+    background: transparent;
+  }
 }
 
 .tool-icon {
@@ -2917,20 +2966,39 @@ m-combobox {
   border-block-end: 1px solid var(--color-border);
 }
 
-/* A file's header: it opens and closes the file, and stays in view over its lines. */
-.diff-file-head {
+/* A file's header stays in view over its lines. Its main button opens and
+   closes the file; a readable file has a button that opens it whole. */
+.diff-file-bar {
   position: sticky;
   top: 0;
   z-index: 1;
   display: flex;
   align-items: center;
+  background: var(--color-surface-raised);
+  &[data-open] {
+    border-block-end: 1px solid var(--color-border);
+  }
+  &:has(.diff-open) .diff-file-head {
+    padding-inline-end: 0.25rem;
+  }
+  & .diff-open {
+    flex-shrink: 0;
+    margin-inline-end: 0.375rem;
+    color: var(--color-text-muted);
+  }
+}
+
+.diff-file-head {
+  display: flex;
+  flex: 1;
+  min-inline-size: 0;
+  align-items: center;
   gap: 0.5rem;
-  inline-size: 100%;
   min-block-size: 2.5rem;
   padding: 0.5rem 1rem 0.5rem 0.75rem;
   border: 0;
   border-radius: 0;
-  background: var(--color-surface-raised);
+  background: transparent;
   color: var(--color-text);
   font-size: var(--text-code);
   font-weight: 400;
@@ -2941,14 +3009,11 @@ m-combobox {
   &[aria-disabled="true"] {
     cursor: default;
     &:hover {
-      background: var(--color-surface-raised);
+      background: transparent;
     }
   }
   & > .icon {
     color: var(--color-text-muted);
-  }
-  &[aria-expanded="true"] {
-    border-block-end: 1px solid var(--color-border);
   }
 }
 
@@ -3224,6 +3289,21 @@ m-combobox {
   }
 }
 
+button.sent-comment-where {
+  align-self: flex-start;
+  block-size: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  &:hover:not(:disabled) {
+    background: transparent;
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+}
+
 .sent-comment-body {
   margin: 0;
   font-size: var(--text-ui);
@@ -3241,4 +3321,257 @@ m-combobox {
   background: var(--color-surface-raised);
   font-size: 0.75rem;
   line-height: 1.125rem;
+}
+
+/* --- files ------------------------------------------------------- */
+
+.file-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar .file-mode {
+  flex-shrink: 0;
+  & label {
+    flex: none;
+    padding-inline: 0.625rem;
+  }
+}
+
+/* A file's lines scroll both ways; the numbers stay at the start, and notes
+   and the editor stay the width of the view. */
+.file-view {
+  flex: 1;
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  container-type: inline-size;
+  & .empty .spinner {
+    vertical-align: -2px;
+    margin-inline-end: 0.375rem;
+  }
+}
+
+.file-lines {
+  inline-size: max-content;
+  min-inline-size: 100%;
+  padding-block: 0.5rem 1rem;
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-size: var(--text-code);
+  line-height: 1.25rem;
+  .file-view[data-wrap] & {
+    inline-size: auto;
+  }
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: var(--gutter, 5ch) 1fr;
+  &[data-marked] {
+    background: var(--color-accent-wash);
+    box-shadow: inset 2px 0 0 var(--color-accent);
+    & .file-num {
+      color: var(--color-accent);
+      font-weight: 600;
+    }
+  }
+  &[data-selected] .file-num {
+    background: var(--color-accent);
+    color: var(--color-on-accent, #ffffff);
+    font-weight: 600;
+  }
+}
+
+.file-num {
+  position: sticky;
+  inset-inline-start: 0;
+  display: flex;
+  justify-content: flex-end;
+  block-size: auto;
+  min-block-size: 1.25rem;
+  padding: 0 0.75rem 0 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  text-align: end;
+  .file-row[data-marked] & {
+    background: var(--color-accent-wash);
+  }
+  &:hover:not(:disabled) {
+    background: var(--color-fill-hover);
+  }
+  &:focus-visible {
+    outline-offset: -2px;
+  }
+}
+
+.file-code {
+  padding-inline-end: 1rem;
+  white-space: pre;
+  .file-view[data-wrap] & {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+.file-inset,
+.file-notes,
+.file-note {
+  position: sticky;
+  inset-inline-start: 0;
+  inline-size: 100cqi;
+  font-family: var(--font-body);
+}
+
+.file-notes {
+  padding-block-start: 0.375rem;
+}
+
+.file-note {
+  margin: 0;
+  padding: 0.75rem 1rem;
+}
+
+.file-inset .comment-editor {
+  margin-block: 0.25rem;
+}
+
+.file-preview {
+  padding: 1rem;
+  font-size: var(--text-field);
+  line-height: 1.5;
+}
+
+/* Open File: a search field over the folder's files, best match first. */
+dialog.open-file {
+  @media (max-width: 40rem) {
+    block-size: calc(100dvh - 3rem);
+  }
+  & .modal-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+  }
+  & > footer {
+    padding: 0;
+  }
+}
+
+.open-file-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0 var(--space-md) 0.75rem;
+  background: var(--color-surface-overlay);
+  border-block-end: 1px solid var(--color-border);
+  & > .icon {
+    position: absolute;
+    inset-inline-start: calc(var(--space-md) + 0.75rem);
+    inset-block-start: 0.875rem;
+    color: var(--color-text-muted);
+    pointer-events: none;
+  }
+  & input {
+    inline-size: 100%;
+    min-block-size: 2.75rem;
+    padding-inline-start: 2.25rem;
+    font-size: var(--text-field);
+  }
+}
+
+.open-file-results {
+  display: flex;
+  flex-direction: column;
+  padding: 0.375rem 0.5rem;
+}
+
+.open-file-result {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.625rem;
+  inline-size: 100%;
+  block-size: auto;
+  min-block-size: 3.25rem;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 400;
+  text-align: start;
+  &:hover:not(:disabled) {
+    background: transparent;
+  }
+  & > .icon {
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+  }
+  & .grow {
+    display: flex;
+    flex-direction: column;
+  }
+  &[data-active],
+  &[data-active]:hover:not(:disabled) {
+    background: var(--color-fill-hover);
+  }
+  & mark {
+    background: transparent;
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+}
+
+.open-file-name {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.open-file-dir {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  overflow-wrap: anywhere;
+  & mark {
+    color: inherit;
+  }
+}
+
+.open-file-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 2rem 1rem;
+  text-align: center;
+  &.muted {
+    display: block;
+  }
+  & .spinner {
+    vertical-align: -2px;
+    margin-inline-end: 0.375rem;
+  }
+}
+
+.open-file-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.75rem var(--space-md) calc(1rem + var(--safe-bottom));
+  border-block-start: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  & .icon {
+    flex-shrink: 0;
+    margin-block-start: 0.0625rem;
+  }
 }

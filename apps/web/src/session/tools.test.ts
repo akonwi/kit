@@ -19,7 +19,20 @@ describe("presentTool", () => {
       facts: [],
       path: true,
       timed: false,
+      file: { path: "src/stream.ts", line: 210 },
     });
+  });
+
+  test("names the file an edit or write worked on, which opens at the top", () => {
+    expect(
+      presentTool(call({ name: "edit", arguments: '{"path":"a.ts","oldText":"a","newText":"b"}' })).file,
+    ).toEqual({
+      path: "a.ts",
+    });
+    expect(presentTool(call({ name: "write", arguments: '{"path":"b.ts","content":"x"}' })).file).toEqual({
+      path: "b.ts",
+    });
+    expect(presentTool(call({ name: "read", arguments: '{"path":"c.ts"}' })).file).toEqual({ path: "c.ts" });
   });
 
   test("counts an edit's changed lines", () => {

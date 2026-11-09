@@ -28,6 +28,8 @@ export interface ChangesProps {
   refreshComments(): Promise<void>;
   /** Reads uncommitted changes again, then the comments. */
   checkComments(): Promise<void>;
+  /** Opens a file as it is now. */
+  onOpenFile(path: string): void;
   onClose(): void;
 }
 
@@ -243,6 +245,7 @@ export function ChangesView(props: ChangesProps) {
       setEditing(undefined);
       setSelection(value);
     },
+    clearSelection: () => setSelection(undefined),
     replacing,
     setReplacing,
     editing,
@@ -251,6 +254,7 @@ export function ChangesView(props: ChangesProps) {
       setEditing(value);
     },
     reobserve: () => void observe(),
+    openFile: (path) => props.onOpenFile(path),
     refreshComments,
     fail,
   };
@@ -360,7 +364,7 @@ export function ChangesView(props: ChangesProps) {
                   <section class="changes-elsewhere" aria-label="Comments on other changes">
                     <p class="eyebrow">Comments on other changes</p>
                     <For each={byFile().elsewhere}>
-                      {(comment) => <Note review={review} comment={comment} showPath />}
+                      {(comment) => <Note desk={review} comment={comment} showPath />}
                     </For>
                   </section>
                 </Show>

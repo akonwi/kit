@@ -19,6 +19,10 @@ import { back, hash, navigate } from "../app/router";
 import { ChangesView, changesProblem, commentCount } from "../changes/Changes";
 import { onWorkingTree } from "../changes/comments";
 import { type ChangeSummary, filesLabel, summarize } from "../changes/diff";
+import { FilesContext } from "../files/context";
+import { FileView } from "../files/FileView";
+import { type FileLocation, fileHash, folderPath, parseFileHash } from "../files/file";
+import { OpenFileSheet } from "../files/OpenFile";
 import { createHighlighter, HighlightContext } from "../markdown/highlight";
 import { AttachmentsContext, AttachmentViewer, type Openable } from "../session/AttachmentViews";
 import { Draft } from "../session/attachments";
@@ -73,6 +77,26 @@ export function SessionPage(props: { id: string }) {
   const closeChanges = () => {
     if (history.state?.changes) history.back();
     else navigate(`/sessions/${props.id}`, { replace: true, state: { inApp: true } });
+  };
+  // A file is this page's #file=…, so Back returns to where it was opened from.
+  const fileLocation = createMemo(() => parseFileHash(hash()), undefined, {
+    equals: (a, b) => a?.path === b?.path && a?.line === b?.line && a?.end === b?.end,
+  });
+  const [choosingFile, setChoosingFile] = createSignal(false);
+  const openFile = (location: FileLocation) => {
+    setChoosingFile(false);
+    navigate(`/sessions/${props.id}${fileHash(location)}`, { state: { inApp: true, file: true } });
+  };
+  const closeFile = () => {
+    if (history.state?.file) history.back();
+    else navigate(`/sessions/${props.id}`, { replace: true, state: { inApp: true } });
+  };
+  const files = {
+    resolve: (path: string) => {
+      const cwd = state()?.workspace?.cwd ?? state()?.info.cwd;
+      return cwd ? folderPath(path, cwd, home) : undefined;
+    },
+    open: (path: string, line?: number, end?: number) => openFile({ path, line, end }),
   };
   const refreshComments = () => watch.refreshComments();
   /**
@@ -269,169 +293,200 @@ export function SessionPage(props: { id: string }) {
   return (
     <AttachmentsContext.Provider value={{ library, open: setViewing }}>
       <HighlightContext.Provider value={highlighter}>
-        <div class="screen session-screen">
-          <header class="bar" hidden={changesOpen() && Boolean(state())}>
-            <button type="button" class="icon-button" aria-label="Back" onClick={back}>
-              <Icon name="back" />
-            </button>
-            <div class="bar-title">
-              <h1>{state()?.info.name || (state() ? "Untitled session" : "")}</h1>
-              <p class="mono muted">{state() ? displayPath(state()?.info.cwd ?? "", home) : ""}</p>
-            </div>
-            <Show when={state()}>
-              {(current) => (
-                <SessionMenu
-                  session={current()}
-                  compactionPending={compactionPending()}
-                  onCompact={compact}
-                  onModelName={setModelName}
-                  onOpen={setDialog}
-                  onChanges={openChanges}
-                />
-              )}
-            </Show>
-          </header>
-          <Switch>
-            <Match when={missing()}>
-              <div class="empty-state">
-                <p>This session isn’t on the server anymore.</p>
-                <button type="button" onClick={back}>
-                  Back to sessions
-                </button>
+        <FilesContext.Provider value={files}>
+          <div class="screen session-screen">
+            <header class="bar" hidden={(changesOpen() || Boolean(fileLocation())) && Boolean(state())}>
+              <button type="button" class="icon-button" aria-label="Back" onClick={back}>
+                <Icon name="back" />
+              </button>
+              <div class="bar-title">
+                <h1>{state()?.info.name || (state() ? "Untitled session" : "")}</h1>
+                <p class="mono muted">{state() ? displayPath(state()?.info.cwd ?? "", home) : ""}</p>
               </div>
-            </Match>
-            <Match when={state()}>
-              {(current) => (
-                <>
-                  {/* The transcript stays while Changes shows, so it keeps its place. */}
-                  <Show when={changesOpen()}>
-                    <ChangesView
-                      api={ready.api}
-                      session={current()}
-                      fail={kit.fail}
-                      refreshComments={refreshComments}
-                      checkComments={checkComments}
-                      onClose={closeChanges}
-                    />
-                  </Show>
-                  <div
-                    class="transcript"
-                    hidden={changesOpen()}
-                    ref={scroller}
-                    onScroll={() => {
-                      stick = atBottom();
-                    }}
-                  >
-                    <Show when={current().hasMoreMessages}>
-                      <button type="button" class="load-older" disabled={loadingOlder()} onClick={loadOlder}>
-                        {loadingOlder() ? "Loading…" : "Show earlier messages"}
-                      </button>
-                    </Show>
-                    <Show when={rows().length > 0} fallback={<p class="empty">No messages yet.</p>}>
-                      <For each={rows()}>
-                        {(row, index) => <TranscriptRow row={row} last={index() === rows().length - 1} />}
-                      </For>
-                    </Show>
-                  </div>
-                  <Show when={outcome()}>
-                    {(value) => (
-                      <div
-                        class="feedback"
-                        data-tone={value().tone}
-                        role={value().tone === "error" ? "alert" : "status"}
-                      >
-                        <Icon name={value().tone === "error" ? "alertCircle" : "info"} size={16} />
-                        <span class="grow">
-                          <strong>{value().title}</strong>
-                          <Show when={"detail" in value() && (value() as { detail: string }).detail}>
-                            {(detail) => <span class="muted small">{detail()}</span>}
-                          </Show>
-                        </span>
-                        <Show when={"retry" in value() && (value() as { retry: boolean }).retry}>
-                          <button type="button" data-size="small" onClick={compact}>
-                            Retry
-                          </button>
-                        </Show>
-                        <button
-                          type="button"
-                          class="icon-button small"
-                          aria-label="Dismiss"
-                          onClick={() => showOutcome(undefined)}
-                        >
-                          <Icon name="close" size={16} />
-                        </button>
-                      </div>
-                    )}
-                  </Show>
-                  <RenameDialog
-                    api={ready.api}
+              <Show when={state()}>
+                {(current) => (
+                  <SessionMenu
                     session={current()}
-                    open={dialog() === "rename"}
-                    onClose={() => setDialog(undefined)}
+                    compactionPending={compactionPending()}
+                    onCompact={compact}
+                    onModelName={setModelName}
+                    onOpen={setDialog}
+                    onChanges={openChanges}
+                    onOpenFile={() => setChoosingFile(true)}
                   />
-                  <ForkDialog
-                    api={ready.api}
-                    session={current()}
-                    open={dialog() === "fork"}
-                    onClose={() => setDialog(undefined)}
-                  />
-                  <DetailsSheet
-                    api={ready.api}
-                    session={current()}
-                    home={home}
-                    modelName={modelName()}
-                    open={dialog() === "details"}
-                    onClose={() => setDialog(undefined)}
-                  />
-                  <DeleteDialog
-                    api={ready.api}
-                    session={current()}
-                    open={dialog() === "delete"}
-                    onClose={() => setDialog(undefined)}
-                  />
-                  {/* Keyed by id: each request gets a fresh dock, with no answer or
-                  busy state carried over from the one before. */}
-                  <Show
-                    when={interactionId()}
-                    keyed
-                    fallback={
-                      <Composer
+                )}
+              </Show>
+            </header>
+            <Switch>
+              <Match when={missing()}>
+                <div class="empty-state">
+                  <p>This session isn’t on the server anymore.</p>
+                  <button type="button" onClick={back}>
+                    Back to sessions
+                  </button>
+                </div>
+              </Match>
+              <Match when={state()}>
+                {(current) => (
+                  <>
+                    {/* The transcript stays while Changes shows, so it keeps its place. */}
+                    <Show when={changesOpen()}>
+                      <ChangesView
                         api={ready.api}
                         session={current()}
-                        connection={connection()}
                         fail={kit.fail}
-                        reconnect={() => watch.wake()}
-                        draft={draft}
-                        initialError={forkFailure?.error}
-                        shell={shell}
-                        anchor={() => current().rows.at(-1)?.id ?? ""}
-                        onOpenChanges={openChanges}
+                        refreshComments={refreshComments}
                         checkComments={checkComments}
+                        onOpenFile={(path) => openFile({ path })}
+                        onClose={closeChanges}
                       />
-                    }
-                  >
-                    {(_id) => (
-                      <Show when={interaction()}>
-                        {(request) => (
-                          <InteractionDock
-                            api={ready.api}
-                            sessionId={props.id}
-                            interaction={request()}
-                            fail={kit.fail}
-                          />
-                        )}
+                    </Show>
+                    <Show when={fileLocation()}>
+                      {(location) => (
+                        <FileView
+                          api={ready.api}
+                          session={current()}
+                          location={location()}
+                          fail={kit.fail}
+                          refreshComments={refreshComments}
+                          onClose={closeFile}
+                        />
+                      )}
+                    </Show>
+                    <div
+                      class="transcript"
+                      hidden={changesOpen() || Boolean(fileLocation())}
+                      ref={scroller}
+                      onScroll={() => {
+                        stick = atBottom();
+                      }}
+                    >
+                      <Show when={current().hasMoreMessages}>
+                        <button
+                          type="button"
+                          class="load-older"
+                          disabled={loadingOlder()}
+                          onClick={loadOlder}
+                        >
+                          {loadingOlder() ? "Loading…" : "Show earlier messages"}
+                        </button>
                       </Show>
-                    )}
-                  </Show>
-                </>
-              )}
-            </Match>
-            <Match when={true}>
-              <p class="empty">Loading…</p>
-            </Match>
-          </Switch>
-          <AttachmentViewer attachment={viewing()} onClose={() => setViewing(undefined)} />
-        </div>
+                      <Show when={rows().length > 0} fallback={<p class="empty">No messages yet.</p>}>
+                        <For each={rows()}>
+                          {(row, index) => <TranscriptRow row={row} last={index() === rows().length - 1} />}
+                        </For>
+                      </Show>
+                    </div>
+                    <Show when={outcome()}>
+                      {(value) => (
+                        <div
+                          class="feedback"
+                          data-tone={value().tone}
+                          role={value().tone === "error" ? "alert" : "status"}
+                        >
+                          <Icon name={value().tone === "error" ? "alertCircle" : "info"} size={16} />
+                          <span class="grow">
+                            <strong>{value().title}</strong>
+                            <Show when={"detail" in value() && (value() as { detail: string }).detail}>
+                              {(detail) => <span class="muted small">{detail()}</span>}
+                            </Show>
+                          </span>
+                          <Show when={"retry" in value() && (value() as { retry: boolean }).retry}>
+                            <button type="button" data-size="small" onClick={compact}>
+                              Retry
+                            </button>
+                          </Show>
+                          <button
+                            type="button"
+                            class="icon-button small"
+                            aria-label="Dismiss"
+                            onClick={() => showOutcome(undefined)}
+                          >
+                            <Icon name="close" size={16} />
+                          </button>
+                        </div>
+                      )}
+                    </Show>
+                    <RenameDialog
+                      api={ready.api}
+                      session={current()}
+                      open={dialog() === "rename"}
+                      onClose={() => setDialog(undefined)}
+                    />
+                    <ForkDialog
+                      api={ready.api}
+                      session={current()}
+                      open={dialog() === "fork"}
+                      onClose={() => setDialog(undefined)}
+                    />
+                    <DetailsSheet
+                      api={ready.api}
+                      session={current()}
+                      home={home}
+                      modelName={modelName()}
+                      open={dialog() === "details"}
+                      onClose={() => setDialog(undefined)}
+                    />
+                    <OpenFileSheet
+                      api={ready.api}
+                      sessionId={props.id}
+                      folder={displayPath(current().workspace?.cwd ?? current().info.cwd, home)}
+                      open={choosingFile()}
+                      fail={kit.fail}
+                      onOpen={(path) => openFile({ path })}
+                      onClose={() => setChoosingFile(false)}
+                    />
+                    <DeleteDialog
+                      api={ready.api}
+                      session={current()}
+                      open={dialog() === "delete"}
+                      onClose={() => setDialog(undefined)}
+                    />
+                    {/* Keyed by id: each request gets a fresh dock, with no answer or
+                  busy state carried over from the one before. */}
+                    <Show
+                      when={interactionId()}
+                      keyed
+                      fallback={
+                        <Composer
+                          api={ready.api}
+                          session={current()}
+                          connection={connection()}
+                          fail={kit.fail}
+                          reconnect={() => watch.wake()}
+                          draft={draft}
+                          initialError={forkFailure?.error}
+                          shell={shell}
+                          anchor={() => current().rows.at(-1)?.id ?? ""}
+                          onOpenChanges={openChanges}
+                          onOpenFile={(path, line, end) => openFile({ path, line, end })}
+                          checkComments={checkComments}
+                        />
+                      }
+                    >
+                      {(_id) => (
+                        <Show when={interaction()}>
+                          {(request) => (
+                            <InteractionDock
+                              api={ready.api}
+                              sessionId={props.id}
+                              interaction={request()}
+                              fail={kit.fail}
+                            />
+                          )}
+                        </Show>
+                      )}
+                    </Show>
+                  </>
+                )}
+              </Match>
+              <Match when={true}>
+                <p class="empty">Loading…</p>
+              </Match>
+            </Switch>
+            <AttachmentViewer attachment={viewing()} onClose={() => setViewing(undefined)} />
+          </div>
+        </FilesContext.Provider>
       </HighlightContext.Provider>
     </AttachmentsContext.Provider>
   );
@@ -445,6 +500,7 @@ interface SessionMenuProps {
   onModelName(name: string | undefined): void;
   onOpen(dialog: SessionDialog): void;
   onChanges(): void;
+  onOpenFile(): void;
 }
 
 function SessionMenu(props: SessionMenuProps) {
@@ -590,6 +646,15 @@ function SessionMenu(props: SessionMenuProps) {
                 </span>
               </span>
               <Icon name="chevRight" size={16} />
+            </button>
+            <button
+              type="button"
+              class="menu-action"
+              disabled={!props.session.workspace}
+              onClick={() => act(props.onOpenFile)}
+            >
+              <Icon name="file" size={18} />
+              <span class="grow">Open File…</span>
             </button>
             <hr />
             <Show when={percent() !== undefined}>

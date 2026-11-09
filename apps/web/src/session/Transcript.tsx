@@ -2,6 +2,7 @@
 import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
 import type { SubmittedAnnotation } from "../api/types";
 import { sentLabel } from "../changes/comments";
+import { useFiles } from "../files/context";
 import { CodeBlock } from "../markdown/Fence";
 import { Markdown } from "../markdown/Markdown";
 import { copyText } from "../ui/copy";
@@ -102,17 +103,48 @@ export function TranscriptRow(props: { row: Row; last: boolean }) {
   }
 }
 
-/** A comment that went with a message: where, what, and the lines as they were sent. */
+/**
+ * A comment that went with a message: where, what, and the lines as they
+ * were sent. Its place opens the file at those lines as the file is now; a
+ * comment on removed lines opens the file at the top.
+ */
 function SentComment(props: { comment: SubmittedAnnotation }) {
+  const files = useFiles();
+  const anchor = () => props.comment.anchor.workspaceFile ?? props.comment.anchor.workingTreeDiff;
+  const target = createMemo(() => {
+    const where = anchor();
+    const path = where && files?.resolve(where.path);
+    if (!path || !where) return undefined;
+    const removed = "side" in where && where.side === "old";
+    return removed ? { path } : { path, line: where.startLine, end: where.endLine };
+  });
+  const label = () => (
+    <>
+      <Icon name="comment" size={16} />
+      {sentLabel(props.comment)}
+    </>
+  );
   return (
     <li class="sent-comment">
-      <span
-        class="sent-comment-where mono"
-        title={props.comment.anchor.workingTreeDiff?.path ?? props.comment.anchor.workspaceFile?.path}
+      <Show
+        when={target()}
+        fallback={
+          <span class="sent-comment-where mono" title={anchor()?.path}>
+            {label()}
+          </span>
+        }
       >
-        <Icon name="comment" size={16} />
-        {sentLabel(props.comment)}
-      </span>
+        {(value) => (
+          <button
+            type="button"
+            class="sent-comment-where mono"
+            title={`Open ${anchor()?.path}`}
+            onClick={() => files?.open(value().path, value().line, value().end)}
+          >
+            {label()}
+          </button>
+        )}
+      </Show>
       <p class="sent-comment-body">{props.comment.body}</p>
       <Show when={props.comment.preview.text}>
         <pre class="sent-comment-source">
@@ -215,39 +247,66 @@ function ToolGroup(props: { tools: ToolCall[]; live: boolean }) {
 }
 
 function ToolRow(props: { tool: ToolCall }) {
+  const files = useFiles();
   const presentation = createMemo(() => presentTool(props.tool));
   const [open, setOpen] = createSignal(false);
   const expandable = () =>
     props.tool.status !== "notRun" &&
     Boolean(props.tool.output || props.tool.arguments || resultFiles(props.tool).length > 0);
+  // The chip opens the file the call worked on, when it's in the session's folder.
+  const file = createMemo(() => {
+    const target = presentation().file;
+    const path = target && files?.resolve(target.path);
+    return path ? { path, line: target.line } : undefined;
+  });
   return (
     <div class="tool" data-status={props.tool.status} data-failed={props.tool.failed || undefined}>
-      <button
-        type="button"
-        class="tool-row"
-        aria-expanded={expandable() ? open() : undefined}
-        disabled={!expandable()}
-        onClick={() => setOpen(!open())}
-      >
-        <span class="tool-icon">
-          <Switch fallback={<Icon name={presentation().icon} size={16} />}>
-            <Match when={props.tool.status === "running"}>
-              <Spinner size={14} />
-            </Match>
-            <Match when={props.tool.status === "notRun"}>
-              <Icon name="prohibit" size={16} />
-            </Match>
-            <Match when={props.tool.failed}>
-              <Icon name="alert" size={16} class="danger" />
-            </Match>
-          </Switch>
-        </span>
-        <span class="tool-title">{presentation().title}</span>
+      <div class="tool-row">
+        <button
+          type="button"
+          class="tool-toggle"
+          aria-expanded={expandable() ? open() : undefined}
+          disabled={!expandable()}
+          onClick={() => setOpen(!open())}
+        >
+          <span class="tool-icon">
+            <Switch fallback={<Icon name={presentation().icon} size={16} />}>
+              <Match when={props.tool.status === "running"}>
+                <Spinner size={14} />
+              </Match>
+              <Match when={props.tool.status === "notRun"}>
+                <Icon name="prohibit" size={16} />
+              </Match>
+              <Match when={props.tool.failed}>
+                <Icon name="alert" size={16} class="danger" />
+              </Match>
+            </Switch>
+          </span>
+          <span class="tool-title">{presentation().title}</span>
+        </button>
         <Show when={presentation().chip}>
           {(chip) => (
-            <span class="chip" data-path={presentation().path || undefined}>
-              <span>{chip()}</span>
-            </span>
+            <Show
+              when={file()}
+              fallback={
+                <span class="chip" data-path={presentation().path || undefined}>
+                  <span>{chip()}</span>
+                </span>
+              }
+            >
+              {(target) => (
+                <button
+                  type="button"
+                  class="chip"
+                  data-path={presentation().path || undefined}
+                  data-link
+                  title={`Open ${target().path}`}
+                  onClick={() => files?.open(target().path, target().line)}
+                >
+                  <span>{chip()}</span>
+                </button>
+              )}
+            </Show>
           )}
         </Show>
         <span class="facts">
@@ -261,7 +320,7 @@ function ToolRow(props: { tool: ToolCall }) {
             <Duration tool={props.tool} />
           </Show>
         </span>
-      </button>
+      </div>
       <Show when={open()}>
         <div class="tool-detail">
           <Show

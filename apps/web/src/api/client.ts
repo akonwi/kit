@@ -28,15 +28,18 @@ import {
   type PromptInput,
   type PromptSubmission,
   type ReadFileDiffInput,
+  type ReadWorkspaceFileInput,
   type RedeemPairingResult,
   type RestoreFollowUpsResult,
   type ServerSettings,
   type SessionActivityEntry,
+  type SessionFileIndex,
   type SessionInfo,
   type SessionList,
   type SessionSnapshot,
   type TranscriptPage,
   type WorkingTreePage,
+  type WorkspaceFileRead,
 } from "./types";
 
 /** A declared failure from the session API, by its stable code. */
@@ -306,6 +309,20 @@ export class Api {
   /** A page of one file's hunks in an observed target. */
   readFileDiff(id: string, input: ReadFileDiffInput, signal?: AbortSignal): Promise<FileDiffPage> {
     return this.request("POST", `/v1/sessions/${segment(id)}/diff/files/read`, { body: input, signal });
+  }
+
+  /** The session folder's files and directories, up to the server's bound. */
+  fileIndex(id: string, signal?: AbortSignal): Promise<SessionFileIndex> {
+    return this.request("GET", `/v1/sessions/${segment(id)}/files`, { signal });
+  }
+
+  /** A file in the session's folder, as text, up to the server's bound. */
+  readWorkspaceFile(
+    id: string,
+    input: ReadWorkspaceFileInput,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceFileRead> {
+    return this.request("POST", `/v1/sessions/${segment(id)}/workspace/files/read`, { body: input, signal });
   }
 
   listDevices(signal?: AbortSignal): Promise<{ devices: DeviceInfo[] }> {

@@ -37,6 +37,8 @@ export interface ToolPresentation {
   chip?: string;
   /** Whether the chip leads with a path, whose end is kept when it's cut. */
   path: boolean;
+  /** The file the call worked on, and the line it started at, which the chip opens. */
+  file?: { path: string; line?: number };
   facts: Fact[];
   icon: ToolIcon;
   /** Whether the row shows how long the call ran. */
@@ -128,7 +130,7 @@ export function presentTool(tool: ToolCall): ToolPresentation {
     title: string,
     chip: string | undefined,
     icon: ToolIcon,
-    options: { path?: boolean; timed?: boolean } = {},
+    options: { path?: boolean; timed?: boolean; file?: ToolPresentation["file"] } = {},
   ): ToolPresentation => ({
     title,
     chip,
@@ -136,6 +138,7 @@ export function presentTool(tool: ToolCall): ToolPresentation {
     facts,
     path: options.path ?? false,
     timed: options.timed ?? false,
+    ...(options.file ? { file: options.file } : {}),
   });
 
   if (kind === "bash") {
@@ -152,9 +155,9 @@ export function presentTool(tool: ToolCall): ToolPresentation {
   switch (kind) {
     case "read": {
       const path = text("path");
+      const start = Math.max(1, typeof args.offset === "number" ? Math.floor(args.offset) : 1);
       let chip = path;
       if (done && path) {
-        const start = Math.max(1, typeof args.offset === "number" ? args.offset : 1);
         const truncated = /\n\[truncated\]\n?$/.test(tool.output);
         const shown = lines(truncated ? tool.output.replace(/\n\[truncated\]\n?$/, "") : tool.output).length;
         chip =
@@ -162,13 +165,20 @@ export function presentTool(tool: ToolCall): ToolPresentation {
           (shown > 0 ? `:${start}–${start + shown - 1}` : " · empty") +
           (truncated ? " · truncated" : "");
       }
-      return presentation("Read file", chip, "file", { path: true });
+      return presentation("Read file", chip, "file", {
+        path: true,
+        file: path ? { path, ...(start > 1 ? { line: start } : {}) } : undefined,
+      });
     }
     case "write": {
       const content = typeof args.content === "string" ? args.content : undefined;
       const count = content === undefined ? undefined : lines(content).length;
       const title = count === undefined ? "Write file" : `Write ${count === 1 ? "1 line" : `${count} lines`}`;
-      return presentation(title, text("path") ?? fallback(), "filePlus", { path: true });
+      const path = text("path");
+      return presentation(title, path ?? fallback(), "filePlus", {
+        path: true,
+        file: path ? { path } : undefined,
+      });
     }
     case "edit":
     case "edit_scratchpad": {
@@ -204,7 +214,11 @@ export function presentTool(tool: ToolCall): ToolPresentation {
           : edits.length === 1
             ? "Edit 1 section"
             : `Edit ${edits.length} sections`;
-      return presentation(title, text("path") ?? fallback(), "edit", { path: true });
+      const path = text("path");
+      return presentation(title, path ?? fallback(), "edit", {
+        path: true,
+        file: path ? { path } : undefined,
+      });
     }
     case "grep": {
       const matches = count("matchCount");

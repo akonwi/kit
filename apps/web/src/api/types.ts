@@ -56,6 +56,9 @@ export type FileDiffPage = Schemas["FileDiffPage"];
 export type ObserveDiffInput = Schemas["ObserveDiffInput"];
 export type ReadFileDiffInput = Schemas["ReadFileDiffInput"];
 export type WorkingTreePage = Schemas["WorkingTreePage"];
+export type SessionFileIndex = Schemas["SessionFileIndex"];
+export type WorkspaceFileRead = Schemas["WorkspaceFileRead"];
+export type ReadWorkspaceFileInput = Schemas["ReadWorkspaceFileInput"];
 
 /** A session event of one kind. */
 export type EventOf<K extends SessionEvent["kind"]> = Extract<SessionEvent, { kind: K }>;

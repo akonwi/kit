@@ -55,6 +55,8 @@
   /* Added and removed lines: success and danger at 10%, as on the Mac and iPhone. */
   --color-diff-added: light-dark(#e6f0e8, #162519);
   --color-diff-removed: light-dark(#f5e8e9, #271c1b);
+  /* A line opened to: the accent washed into the surface. */
+  --color-accent-wash: light-dark(#eaf0fd, #122036);
 
   --color-danger: var(--color-danger-text);
   /* A switch's off track, as the Mac app draws it. */
