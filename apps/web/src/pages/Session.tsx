@@ -24,6 +24,7 @@ import { FileView } from "../files/FileView";
 import { type FileLocation, fileHash, folderPath, parseFileHash } from "../files/file";
 import { OpenFileSheet } from "../files/OpenFile";
 import { createHighlighter, HighlightContext } from "../markdown/highlight";
+import { createPadHandle, ScratchpadView } from "../scratchpad/ScratchpadView";
 import { AttachmentsContext, AttachmentViewer, type Openable } from "../session/AttachmentViews";
 import { Draft } from "../session/attachments";
 import { Composer } from "../session/Composer";
@@ -78,6 +79,23 @@ export function SessionPage(props: { id: string }) {
     if (history.state?.changes) history.back();
     else navigate(`/sessions/${props.id}`, { replace: true, state: { inApp: true } });
   };
+  // The scratchpad is this page's #scratchpad. Its draft lives as long as the page.
+  const scratchpad = createPadHandle(ready.api, props.id, kit.fail);
+  const padOpen = () => hash() === "#scratchpad";
+  const openPad = () => {
+    if (!padOpen())
+      navigate(`/sessions/${props.id}#scratchpad`, { state: { inApp: true, scratchpad: true } });
+  };
+  const closePad = () => {
+    if (history.state?.scratchpad) history.back();
+    else navigate(`/sessions/${props.id}`, { replace: true, state: { inApp: true } });
+  };
+  createEffect(() => {
+    const record = state()?.scratchpad;
+    if (record) scratchpad.pad.observe(record);
+  });
+  // Another screen covers the transcript and the bar above it.
+  const covered = () => changesOpen() || Boolean(fileLocation()) || padOpen();
   // A file is this page's #file=…, so Back returns to where it was opened from.
   const fileLocation = createMemo(() => parseFileHash(hash()), undefined, {
     equals: (a, b) => a?.path === b?.path && a?.line === b?.line && a?.end === b?.end,
@@ -295,7 +313,7 @@ export function SessionPage(props: { id: string }) {
       <HighlightContext.Provider value={highlighter}>
         <FilesContext.Provider value={files}>
           <div class="screen session-screen">
-            <header class="bar" hidden={(changesOpen() || Boolean(fileLocation())) && Boolean(state())}>
+            <header class="bar" hidden={covered() && Boolean(state())}>
               <button type="button" class="icon-button" aria-label="Back" onClick={back}>
                 <Icon name="back" />
               </button>
@@ -313,6 +331,7 @@ export function SessionPage(props: { id: string }) {
                     onOpen={setDialog}
                     onChanges={openChanges}
                     onOpenFile={() => setChoosingFile(true)}
+                    onScratchpad={openPad}
                   />
                 )}
               </Show>
@@ -353,9 +372,12 @@ export function SessionPage(props: { id: string }) {
                         />
                       )}
                     </Show>
+                    <Show when={padOpen()}>
+                      <ScratchpadView handle={scratchpad} session={current()} onClose={closePad} />
+                    </Show>
                     <div
                       class="transcript"
-                      hidden={changesOpen() || Boolean(fileLocation())}
+                      hidden={covered()}
                       ref={scroller}
                       onScroll={() => {
                         stick = atBottom();
@@ -442,41 +464,45 @@ export function SessionPage(props: { id: string }) {
                       open={dialog() === "delete"}
                       onClose={() => setDialog(undefined)}
                     />
-                    {/* Keyed by id: each request gets a fresh dock, with no answer or
+                    {/* The scratchpad has no composer; it's hidden, not removed, so
+                  nothing being written or uploaded is lost. */}
+                    <div class="dock-slot" hidden={padOpen()}>
+                      {/* Keyed by id: each request gets a fresh dock, with no answer or
                   busy state carried over from the one before. */}
-                    <Show
-                      when={interactionId()}
-                      keyed
-                      fallback={
-                        <Composer
-                          api={ready.api}
-                          session={current()}
-                          connection={connection()}
-                          fail={kit.fail}
-                          reconnect={() => watch.wake()}
-                          draft={draft}
-                          initialError={forkFailure?.error}
-                          shell={shell}
-                          anchor={() => current().rows.at(-1)?.id ?? ""}
-                          onOpenChanges={openChanges}
-                          onOpenFile={(path, line, end) => openFile({ path, line, end })}
-                          checkComments={checkComments}
-                        />
-                      }
-                    >
-                      {(_id) => (
-                        <Show when={interaction()}>
-                          {(request) => (
-                            <InteractionDock
-                              api={ready.api}
-                              sessionId={props.id}
-                              interaction={request()}
-                              fail={kit.fail}
-                            />
-                          )}
-                        </Show>
-                      )}
-                    </Show>
+                      <Show
+                        when={interactionId()}
+                        keyed
+                        fallback={
+                          <Composer
+                            api={ready.api}
+                            session={current()}
+                            connection={connection()}
+                            fail={kit.fail}
+                            reconnect={() => watch.wake()}
+                            draft={draft}
+                            initialError={forkFailure?.error}
+                            shell={shell}
+                            anchor={() => current().rows.at(-1)?.id ?? ""}
+                            onOpenChanges={openChanges}
+                            onOpenFile={(path, line, end) => openFile({ path, line, end })}
+                            checkComments={checkComments}
+                          />
+                        }
+                      >
+                        {(_id) => (
+                          <Show when={interaction()}>
+                            {(request) => (
+                              <InteractionDock
+                                api={ready.api}
+                                sessionId={props.id}
+                                interaction={request()}
+                                fail={kit.fail}
+                              />
+                            )}
+                          </Show>
+                        )}
+                      </Show>
+                    </div>
                   </>
                 )}
               </Match>
@@ -501,6 +527,7 @@ interface SessionMenuProps {
   onOpen(dialog: SessionDialog): void;
   onChanges(): void;
   onOpenFile(): void;
+  onScratchpad(): void;
 }
 
 function SessionMenu(props: SessionMenuProps) {
@@ -656,6 +683,12 @@ function SessionMenu(props: SessionMenuProps) {
               <Icon name="file" size={18} />
               <span class="grow">Open File…</span>
             </button>
+            <Show when={!props.session.info.temporary}>
+              <button type="button" class="menu-action" onClick={() => act(props.onScratchpad)}>
+                <Icon name="note" size={18} />
+                <span class="grow">Scratchpad</span>
+              </button>
+            </Show>
             <hr />
             <Show when={percent() !== undefined}>
               <div class="menu-section context">

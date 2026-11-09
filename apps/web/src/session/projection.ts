@@ -6,6 +6,7 @@ import type {
   Annotation,
   FollowUpQueue,
   InteractionRequest,
+  Scratchpad,
   SessionEvent,
   SessionInfo,
   SessionSnapshot,
@@ -16,6 +17,7 @@ import type {
   WorkspaceRef,
 } from "../api/types";
 import { type Comment, fromAnnotation, fromSummary, mergeComments } from "../changes/comments";
+import { newerScratchpad } from "../scratchpad/pad";
 import { type ShellRun, shellFromBoundary } from "./shell";
 
 export type ToolStatus = "planned" | "running" | "done" | "notRun";
@@ -80,6 +82,8 @@ export interface SessionState {
   workspace?: WorkspaceRef;
   /** Comments waiting to go with the next message, oldest first. */
   comments: Comment[];
+  /** The newest copy of the scratchpad the session shares with its forks. */
+  scratchpad?: Scratchpad;
 }
 
 export const WORKING = "Working…";
@@ -426,6 +430,7 @@ export class Projection {
       hasMoreMessages: snapshot.hasMoreMessages ?? false,
       previousMessageCursor: snapshot.previousMessageCursor,
       workspace: snapshot.workspace,
+      scratchpad: snapshot.scratchpad,
       comments: (snapshot.annotations ?? []).map(fromSummary).sort((a, b) => a.id - b.id),
     };
     this.state.status = this.status();
@@ -651,6 +656,9 @@ export class Projection {
         break;
       case "session.name.changed":
         next.info = { ...next.info, name: event.sessionName };
+        break;
+      case "scratchpad.changed":
+        if (newerScratchpad(event.scratchpad, next.scratchpad)) next.scratchpad = event.scratchpad;
         break;
       case "session.cwd.changed":
         next.info = { ...next.info, cwd: event.workspace.cwd };

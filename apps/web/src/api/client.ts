@@ -31,6 +31,7 @@ import {
   type ReadWorkspaceFileInput,
   type RedeemPairingResult,
   type RestoreFollowUpsResult,
+  type Scratchpad,
   type ServerSettings,
   type SessionActivityEntry,
   type SessionFileIndex,
@@ -38,6 +39,7 @@ import {
   type SessionList,
   type SessionSnapshot,
   type TranscriptPage,
+  type UpdateScratchpadInput,
   type WorkingTreePage,
   type WorkspaceFileRead,
 } from "./types";
@@ -83,6 +85,8 @@ interface RequestOptions {
   protocol?: boolean;
   /** Health is the one call made before the instance is known. */
   instance?: boolean;
+  /** Lets the request finish after the page goes away; its body must stay small. */
+  keepalive?: boolean;
 }
 
 export class Api {
@@ -316,6 +320,26 @@ export class Api {
     return this.request("GET", `/v1/sessions/${segment(id)}/files`, { signal });
   }
 
+  /** The scratchpad the session shares with its forks. */
+  getScratchpad(id: string, signal?: AbortSignal): Promise<Scratchpad> {
+    return this.request("GET", `/v1/sessions/${segment(id)}/scratchpad`, { signal });
+  }
+
+  /**
+   * Replaces the scratchpad if it is still at `expectedRevision`. A newer
+   * copy fails with `scratchpad_revision_conflict` carrying that copy.
+   */
+  updateScratchpad(
+    id: string,
+    input: UpdateScratchpadInput,
+    options: { keepalive?: boolean } = {},
+  ): Promise<Scratchpad> {
+    return this.request("PUT", `/v1/sessions/${segment(id)}/scratchpad`, {
+      body: input,
+      keepalive: options.keepalive,
+    });
+  }
+
   /** A file in the session's folder, as text, up to the server's bound. */
   readWorkspaceFile(
     id: string,
@@ -386,6 +410,7 @@ export class Api {
         headers,
         body,
         signal: options.signal,
+        keepalive: options.keepalive,
         credentials: "omit",
         cache: "no-store",
       });

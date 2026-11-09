@@ -59,6 +59,8 @@ export type WorkingTreePage = Schemas["WorkingTreePage"];
 export type SessionFileIndex = Schemas["SessionFileIndex"];
 export type WorkspaceFileRead = Schemas["WorkspaceFileRead"];
 export type ReadWorkspaceFileInput = Schemas["ReadWorkspaceFileInput"];
+export type Scratchpad = Schemas["Scratchpad"];
+export type UpdateScratchpadInput = Schemas["UpdateScratchpadInput"];
 
 /** A session event of one kind. */
 export type EventOf<K extends SessionEvent["kind"]> = Extract<SessionEvent, { kind: K }>;

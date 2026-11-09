@@ -62,9 +62,13 @@ controls. It needs the server to be reachable; it does not work offline.
   A file also opens from a Read or Edit tool call, a row in Changes, and a
   comment. It shows the source, colored by the server, or Markdown as a
   preview, and takes comments on its lines like Changes.
+- **Scratchpad**, in the session menu, edits the Markdown notes a session
+  shares with its forks and the agent. It saves a moment after you stop
+  typing and when you leave. If the shared copy changes while you have
+  unsaved edits, your draft stays, and **Review changes** shows both so you
+  can keep yours or take the shared copy.
 
-It does not show the scratchpad or subagents. Use the TUI or the Mac app for
-those.
+It does not show subagents. Use the TUI or the Mac app for those.
 
 When a page returns from the background or the network comes back, it takes
 a fresh snapshot of the session. If the server restarts with a different

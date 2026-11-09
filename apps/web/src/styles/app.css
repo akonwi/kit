@@ -3575,3 +3575,161 @@ dialog.open-file {
     margin-block-start: 0.0625rem;
   }
 }
+
+/* --- scratchpad -------------------------------------------------- */
+
+/* The composer and dock step aside while the scratchpad shows. */
+.dock-slot {
+  display: contents;
+  &[hidden] {
+    display: none;
+  }
+}
+
+.pad-subtitle {
+  color: var(--color-text-muted);
+  &[data-tone="warn"] {
+    color: var(--color-warn-text);
+  }
+  &[data-tone="danger"] {
+    color: var(--color-danger-text);
+  }
+}
+
+.pad-retry,
+.pad-conflict button,
+.pad-actions-row button {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  font-weight: 400;
+}
+
+.pad-retry {
+  font-size: 0.8125rem;
+}
+
+.pad {
+  flex: 1;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pad-conflict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.75rem 1rem 0;
+  padding: 0.625rem 0.75rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-size: var(--text-ui);
+  line-height: 1.25rem;
+  & p {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0;
+  }
+  & .icon {
+    flex-shrink: 0;
+    margin-block-start: 0.125rem;
+    color: var(--color-warn-text);
+  }
+  & button {
+    margin-inline-start: 1.5rem;
+    font-size: 0.8125rem;
+  }
+}
+
+/* 16px text, so a phone doesn't zoom in when the field takes focus. */
+.pad-field {
+  flex: 1;
+  min-block-size: 0;
+  inline-size: 100%;
+  padding: 0.75rem 1rem 1rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-field);
+  line-height: 1.5rem;
+  font-variant-ligatures: none;
+  resize: none;
+  outline: none;
+  overscroll-behavior: contain;
+  &::placeholder {
+    color: var(--color-text-muted);
+  }
+}
+
+.pad-review {
+  flex: 1;
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-block: 0.5rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-variant-ligatures: none;
+}
+
+.pad-line {
+  display: flex;
+  padding-inline: 1rem 0.75rem;
+  &[data-kind="shared"] {
+    background: var(--color-diff-removed);
+    & .pad-sign {
+      color: var(--color-danger-text);
+    }
+  }
+  &[data-kind="draft"] {
+    background: var(--color-diff-added);
+    & .pad-sign {
+      color: var(--color-success-text);
+    }
+  }
+}
+
+.pad-sign {
+  flex-shrink: 0;
+  inline-size: 1.125rem;
+}
+
+.pad-text {
+  flex: 1;
+  min-inline-size: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pad-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.75rem calc(var(--safe-bottom) + 0.75rem);
+  background: var(--color-frame);
+  border-block-start: 1px solid var(--color-border);
+  & button {
+    font-size: var(--text-ui);
+  }
+  & > button {
+    font-weight: 600;
+  }
+}
+
+.pad-actions-row {
+  display: flex;
+  gap: 0.5rem;
+  & button {
+    flex: 1;
+  }
+  & .pad-replace {
+    flex: 1.4;
+    color: var(--color-danger-text);
+  }
+}

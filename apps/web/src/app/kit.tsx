@@ -5,6 +5,7 @@ import { Api, ApiError } from "../api/client";
 import { type Health, PROTOCOL_VERSION } from "../api/types";
 import { type Credential, clearCredential, loadCredential, saveCredential } from "../auth/credential";
 import { shouldReload } from "../auth/reload";
+import { forgetDrafts } from "../scratchpad/pad";
 
 /** Why this browser shows the pairing page. */
 export type UnpairedReason = "none" | "signedOut" | "revoked";
@@ -75,6 +76,8 @@ export function KitProvider(props: { children: JSX.Element }) {
   const unpair = (reason: UnpairedReason) => {
     generation += 1;
     clearCredential();
+    // Unsaved scratchpad drafts are the session's text; they leave with the pairing.
+    forgetDrafts();
     current = undefined;
     setPhase({ kind: "unpaired", reason });
   };

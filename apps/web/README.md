@@ -12,16 +12,20 @@ the build.
 
 ## Layout
 
-| Path           | Owns                                                                        |
-| -------------- | --------------------------------------------------------------------------- |
-| `src/api`      | Requests, headers, errors, the SSE parser, generated `schema.ts`            |
-| `src/auth`     | The device credential and the reload-once rule                              |
-| `src/session`  | Event projection, the stream watch, transcript, composer, interaction docks |
-| `src/markdown` | Markdown rendered from mdast as elements, never HTML; Mermaid through Pele  |
-| `src/pages`    | Pairing, Sessions, Session                                                  |
-| `src/styles`   | Mica with Kit's palette and radii, and the app stylesheet                   |
-| `scripts`      | Bundling, the embedded build, the dev server, API type generation           |
-| `public`       | The manifest, icons, and favicon served at the root                         |
+| Path             | Owns                                                                        |
+| ---------------- | --------------------------------------------------------------------------- |
+| `src/api`        | Requests, headers, errors, the SSE parser, generated `schema.ts`            |
+| `src/auth`       | The device credential and the reload-once rule                              |
+| `src/session`    | Event projection, the stream watch, transcript, composer, interaction docks |
+| `src/markdown`   | Markdown rendered from mdast as elements, never HTML; Mermaid through Pele  |
+| `src/figures`    | Kit's data figures, parsed and drawn as the other clients draw them         |
+| `src/changes`    | Diffs, line comments, and the comments' staleness                           |
+| `src/files`      | Open File search and the file viewer with comments                          |
+| `src/scratchpad` | The scratchpad editor, its autosave, and conflict review                    |
+| `src/pages`      | Pairing, Sessions, Session                                                  |
+| `src/styles`     | Mica with Kit's palette and radii, and the app stylesheet                   |
+| `scripts`        | Bundling, the embedded build, the dev server, API type generation           |
+| `public`         | The manifest, icons, and favicon served at the root                         |
 
 ## Developing
 
