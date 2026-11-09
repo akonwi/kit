@@ -186,6 +186,13 @@ Full-width transcript (also View › Full-Width Transcript) lets them fill wide
 panes, and Markdown file previews follow the transcript. The composer keeps its
 centred column at either setting.
 
+On macOS 26 and later, the window frame (the session sidebar or top tabs, the
+session bar, and the gaps between tiles) and the Settings section list are
+Liquid Glass under the theme's frame colour, while tiles stay opaque
+([ADR 0064](../../docs/adrs/0064-draw-the-macos-window-frame-on-liquid-glass.md)).
+Settings › Appearance › Window glass turns it off. Reduce Transparency and
+macOS 15 always draw the opaque frame.
+
 ## Development and validation
 
 The macOS client uses the committed, tag-filtered generated OpenAPI client in the shared `KitClient` module (`apps/apple/KitShared`). After changing `api/kit-session.openapi.json`:

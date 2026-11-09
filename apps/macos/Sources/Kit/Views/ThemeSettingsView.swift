@@ -3,6 +3,7 @@ import SwiftUI
 struct ThemeSettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var storedConfiguration = ""
+    @AppStorage(WindowGlass.storageKey) private var windowGlass = WindowGlass.defaultValue
     let library: NativeThemeLibrary
 
     private var configuration: ThemeConfiguration { .decode(storedConfiguration) }
@@ -18,6 +19,16 @@ struct ThemeSettingsView: View {
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 }.labelsHidden().pickerStyle(.segmented).frame(width: 220)
+            }
+            if WindowGlass.available {
+                Toggle(isOn: $windowGlass) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Window glass")
+                        Text("Lets the desktop show softly through the sidebar and the frame around tiles. Tiles stay solid. Off while Reduce Transparency is on.")
+                            .font(.kit(size: 12)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }.toggleStyle(FormSwitchStyle(trailing: true))
             }
             HStack(alignment: .top, spacing: 16) {
                 themeCard(dark: false)

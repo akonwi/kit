@@ -41,7 +41,7 @@ struct SessionWindowRoot: View {
         }
         .environment(\.mica, theme)
         .foregroundStyle(theme.text)
-        .background(theme.frame)
+        .background(WindowBackdrop(color: theme.frame))
         .tint(theme.accent)
         .preferredColorScheme(theme.dark ? .dark : .light)
         .ignoresSafeArea(.container, edges: .top)

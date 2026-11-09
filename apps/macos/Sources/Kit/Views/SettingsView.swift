@@ -25,7 +25,7 @@ struct SettingsView: View {
                 section("Models", icon: .stack, id: "models", theme: theme)
                 section("Providers", icon: .plugsConnected, id: "providers", theme: theme)
                 Spacer()
-            }.padding(12).padding(.top, 16).frame(width: 170).background(theme.raised)
+            }.padding(12).padding(.top, 16).frame(width: 170).background(WindowBackdrop(color: theme.raised))
             Rectangle().fill(theme.border).frame(width: 1)
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
