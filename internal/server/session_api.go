@@ -448,7 +448,7 @@ func (s runtimeSessionService) ListDirectory(ctx context.Context, sessionID stri
 		return protocol.DirectoryPage{}, err
 	}
 	if current.CWD != record.CWD {
-		return protocol.DirectoryPage{}, &kitworkspace.Error{Code: kitworkspace.StaleWorkspace, Message: "the session workspace changed"}
+		return protocol.DirectoryPage{}, staleWorkspaceError(workspaces.Ref(sessionID, current.CWD))
 	}
 	return result, nil
 }
@@ -483,9 +483,17 @@ func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID 
 		return protocol.WorkspaceFileRead{}, err
 	}
 	if current.CWD != record.CWD {
-		return protocol.WorkspaceFileRead{}, &kitworkspace.Error{Code: kitworkspace.StaleWorkspace, Message: "the session workspace changed"}
+		return protocol.WorkspaceFileRead{}, staleWorkspaceError(workspaces.Ref(sessionID, current.CWD))
 	}
 	return result, nil
+}
+
+// staleWorkspaceError reports a session whose workspace changed during a
+// read, with the current workspace the operation declares in its details.
+func staleWorkspaceError(current protocol.WorkspaceRef) error {
+	return &kitworkspace.Error{Code: kitworkspace.StaleWorkspace, Message: "the session workspace changed", Details: map[string]string{
+		"currentWorkspaceId": current.WorkspaceID, "currentWorkspaceState": string(current.State),
+	}}
 }
 
 func (s runtimeSessionService) ListDiffTargets(ctx context.Context, sessionID string, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
@@ -2927,7 +2935,7 @@ func hostFileAPIError(err error) error {
 }
 
 // internalAPIErrorCausedBy reports an internal error, logging its cause.
-func internalAPIErrorCausedBy(cause error) error {
+func internalAPIErrorCausedBy(cause error) *httpapi.APIError {
 	failure := httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
 	failure.Cause = cause
 	return failure
@@ -3116,24 +3124,90 @@ func subagentAPIError(err error) error {
 	return apiErr
 }
 
+// writeSessionError writes err in the ADR-0034 error body. Failures that a
+// handler has not already projected are classified by sessionAPIError.
 func writeSessionError(writer http.ResponseWriter, err error) {
+	apiError := sessionAPIError(err)
+	if apiError.StatusCode >= http.StatusInternalServerError || apiError.Cause != nil && apiError.StatusCode == http.StatusUnprocessableEntity {
+		logged := err
+		if apiError.Cause != nil {
+			logged = apiError.Cause
+		}
+		reportRequestError(writer, apiError.StatusCode, logged)
+	}
+	httpapi.WriteError(writer, apiError)
+}
+
+// sessionErrorClass maps one session-domain failure onto a status and the
+// generic code ADR 0034 assigns it.
+type sessionErrorClass struct {
+	target  error
+	status  int
+	code    httpapi.ErrorCode
+	message string
+}
+
+// sessionErrorClasses are checked in order. Messages are fixed so wrapped
+// causes never reach clients; invalid input keeps its full text because it
+// names the rule the request broke.
+var sessionErrorClasses = []sessionErrorClass{
+	{kitsession.ErrNotFound, http.StatusNotFound, httpapi.ErrorNotFound, "not found"},
+	{kitsession.ErrInteractionNotFound, http.StatusNotFound, httpapi.ErrorNotFound, kitsession.ErrInteractionNotFound.Error()},
+	{subagent.ErrNotFound, http.StatusNotFound, httpapi.ErrorNotFound, "subagent not found"},
+	{kitannotation.ErrNotFound, http.StatusNotFound, httpapi.ErrorNotFound, kitannotation.ErrNotFound.Error()},
+	{kitsession.ErrTranscriptCursorUnavailable, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrTranscriptCursorUnavailable.Error()},
+	{kitsession.ErrBusy, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrBusy.Error()},
+	{kitsession.ErrReloadBusy, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrReloadBusy.Error()},
+	{kitsession.ErrConfigureBusy, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrConfigureBusy.Error()},
+	{kitsession.ErrConfigurationConflict, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrConfigurationConflict.Error()},
+	{kitsession.ErrDeleteBusy, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrDeleteBusy.Error()},
+	{kitsession.ErrRunNotAbortable, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrRunNotAbortable.Error()},
+	{kitsession.ErrBashBusy, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrBashBusy.Error()},
+	{kitsession.ErrBashNotAbortable, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrBashNotAbortable.Error()},
+	{kitsession.ErrInteractionSettled, http.StatusConflict, httpapi.ErrorConflict, kitsession.ErrInteractionSettled.Error()},
+	{subagent.ErrConflict, http.StatusConflict, httpapi.ErrorConflict, subagent.ErrConflict.Error()},
+	{subagent.ErrNotCancelable, http.StatusConflict, httpapi.ErrorConflict, subagent.ErrNotCancelable.Error()},
+	{subagent.ErrDismissed, http.StatusConflict, httpapi.ErrorConflict, subagent.ErrDismissed.Error()},
+	{kitannotation.ErrStale, http.StatusConflict, httpapi.ErrorConflict, "the annotation is out of date; refresh the file or diff and try again"},
+	{kitsession.ErrPluginNotificationCapacity, http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, kitsession.ErrPluginNotificationCapacity.Error()},
+	{kitsession.ErrInteractionCapacity, http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, kitsession.ErrInteractionCapacity.Error()},
+	{subagent.ErrQueueFull, http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, "subagent queue is full"},
+	{kitannotation.ErrCapacity, http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, kitannotation.ErrCapacity.Error()},
+	{kitsession.ErrClosed, http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "session is unavailable"},
+	{subagent.ErrClosed, http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "subagent is unavailable"},
+	{kitsession.ErrInvalidInput, http.StatusBadRequest, httpapi.ErrorInvalidRequest, ""},
+	{kitsession.ErrNotTemporary, http.StatusBadRequest, httpapi.ErrorInvalidRequest, ""},
+	{kitsession.ErrTemporary, http.StatusBadRequest, httpapi.ErrorInvalidRequest, ""},
+	{subagent.ErrInvalidInput, http.StatusBadRequest, httpapi.ErrorInvalidRequest, ""},
+	{subagent.ErrTemporaryUnavailable, http.StatusBadRequest, httpapi.ErrorInvalidRequest, "subagents are unavailable in a temporary session"},
+	{errInvalidSessionRequest, http.StatusBadRequest, httpapi.ErrorInvalidRequest, ""},
+}
+
+// genericErrorCodes names the ADR-0034 generic code for each status a session
+// failure can take.
+var genericErrorCodes = map[int]httpapi.ErrorCode{
+	http.StatusBadRequest: httpapi.ErrorInvalidRequest, http.StatusForbidden: httpapi.ErrorForbidden,
+	http.StatusNotFound: httpapi.ErrorNotFound, http.StatusConflict: httpapi.ErrorConflict,
+	http.StatusRequestEntityTooLarge: httpapi.ErrorLimitExceeded, http.StatusUnprocessableEntity: httpapi.ErrorUnprocessable,
+	http.StatusTooManyRequests: httpapi.ErrorCapacityExceeded, http.StatusServiceUnavailable: httpapi.ErrorUnavailable,
+}
+
+// sessionAPIError projects a failure that no operation-specific mapper
+// claimed into the declared error body. Workspace and plugin command failures
+// keep their domain codes, which the operations that produce them declare.
+// Annotation evidence and diff failures reach here only from operations that
+// declare no evidence or diff codes, so they keep their status under its
+// generic code.
+func sessionAPIError(err error) *httpapi.APIError {
 	var apiError *httpapi.APIError
 	if errors.As(err, &apiError) {
-		if apiError.StatusCode >= http.StatusInternalServerError || apiError.Cause != nil && apiError.StatusCode == http.StatusUnprocessableEntity {
-			logged := err
-			if apiError.Cause != nil {
-				logged = apiError.Cause
-			}
-			reportRequestError(writer, apiError.StatusCode, logged)
-		}
-		httpapi.WriteError(writer, apiError)
-		return
+		return apiError
 	}
 	if errors.Is(err, kitsession.ErrCompactionFailed) {
 		// The cause can reflect provider text, so it is logged but not returned.
-		reportRequestError(writer, http.StatusUnprocessableEntity, err)
-		httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUnprocessableEntity, httpapi.ErrorUnprocessable, kitsession.ErrCompactionFailed.Error(), nil))
-		return
+		failure := httpapi.NewAPIError(http.StatusUnprocessableEntity, httpapi.ErrorUnprocessable, kitsession.ErrCompactionFailed.Error(), nil)
+		failure.Cause = err
+		return failure
 	}
 	var evidenceErr *kitannotation.EvidenceError
 	if errors.As(err, &evidenceErr) {
@@ -3148,15 +3222,10 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 		case kitannotation.EvidenceLimit:
 			status = http.StatusRequestEntityTooLarge
 		}
-		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": evidenceErr.Kind, "message": protocol.SanitizeErrorMessage(evidenceErr.Error(), http.StatusText(status))}})
-		return
+		return httpapi.NewAPIError(status, genericErrorCodes[status], evidenceErr.Error(), nil)
 	}
 	var diffErr *kitworkingdiff.Error
 	if errors.As(err, &diffErr) {
-		if diffErr.Validate() != nil {
-			writeJSON(writer, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-			return
-		}
 		status := map[protocol.DiffErrorCode]int{
 			kitworkingdiff.InvalidPath: http.StatusBadRequest, kitworkingdiff.NotRepository: http.StatusNotFound,
 			kitworkingdiff.UnsupportedRepository: http.StatusUnprocessableEntity, kitworkingdiff.StaleWorkspace: http.StatusConflict,
@@ -3165,15 +3234,13 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 			kitworkingdiff.LimitExceeded: http.StatusRequestEntityTooLarge, kitworkingdiff.CapacityExceeded: http.StatusTooManyRequests,
 			kitworkingdiff.RepositoryUnavailable: http.StatusServiceUnavailable, kitworkingdiff.Unavailable: http.StatusServiceUnavailable,
 		}[diffErr.Code]
-		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": diffErr.Code, "message": protocol.SanitizeErrorMessage(diffErr.Message, http.StatusText(status)), "details": diffErr.Details}})
-		return
+		if diffErr.Validate() != nil || status == 0 {
+			return internalAPIErrorCausedBy(err)
+		}
+		return httpapi.NewAPIError(status, genericErrorCodes[status], diffErr.Message, nil)
 	}
 	var workspaceErr *kitworkspace.Error
 	if errors.As(err, &workspaceErr) {
-		if validationErr := workspaceErr.Validate(); validationErr != nil {
-			writeJSON(writer, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-			return
-		}
 		status := map[protocol.WorkspaceErrorCode]int{
 			kitworkspace.InvalidPath: http.StatusBadRequest, kitworkspace.NotFound: http.StatusNotFound,
 			kitworkspace.NotDirectory: http.StatusBadRequest, kitworkspace.NotFile: http.StatusBadRequest,
@@ -3183,46 +3250,35 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 			kitworkspace.StaleCursor: http.StatusConflict, kitworkspace.LimitExceeded: http.StatusRequestEntityTooLarge,
 			kitworkspace.CapacityExceeded: http.StatusTooManyRequests, kitworkspace.Unavailable: http.StatusServiceUnavailable,
 		}[workspaceErr.Code]
-		if status == 0 {
-			status = http.StatusInternalServerError
+		if workspaceErr.Validate() != nil || status == 0 {
+			return internalAPIErrorCausedBy(err)
 		}
-		body := map[string]any{"code": workspaceErr.Code, "message": protocol.SanitizeErrorMessage(workspaceErr.Message, http.StatusText(status))}
 		// Codes declared without details must omit the member, not send null.
+		var details any
 		if len(workspaceErr.Details) > 0 {
-			body["details"] = workspaceErr.Details
+			details = workspaceErr.Details
 		}
-		writeJSON(writer, status, map[string]any{"error": body})
-		return
+		return httpapi.NewAPIError(status, httpapi.ErrorCode(workspaceErr.Code), workspaceErr.Message, details)
 	}
-	status := http.StatusInternalServerError
-	message := "internal server error"
 	switch {
 	case errors.Is(err, kitsession.ErrPluginCommandUnavailable):
-		writeJSON(writer, http.StatusConflict, map[string]any{"error": map[string]string{"code": protocol.PluginCommandUnavailable, "message": kitsession.ErrPluginCommandUnavailable.Error()}})
-		return
+		return httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorCode(protocol.PluginCommandUnavailable), kitsession.ErrPluginCommandUnavailable.Error(), nil)
 	case errors.Is(err, kitsession.ErrPluginCommandFailed):
-		writeJSON(writer, http.StatusUnprocessableEntity, map[string]any{"error": map[string]string{"code": protocol.PluginCommandFailed, "message": kitsession.ErrPluginCommandFailed.Error()}})
-		return
-	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInteractionNotFound), errors.Is(err, subagent.ErrNotFound), errors.Is(err, kitannotation.ErrNotFound):
-		status = http.StatusNotFound
-		message = err.Error()
-	case errors.Is(err, kitsession.ErrTranscriptCursorUnavailable), errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed), errors.Is(err, kitannotation.ErrStale):
-		status = http.StatusConflict
-		message = err.Error()
-	case errors.Is(err, kitsession.ErrPluginNotificationCapacity), errors.Is(err, kitsession.ErrInteractionCapacity), errors.Is(err, subagent.ErrQueueFull), errors.Is(err, kitannotation.ErrCapacity):
-		status = http.StatusTooManyRequests
-		message = err.Error()
-	case errors.Is(err, kitsession.ErrClosed), errors.Is(err, subagent.ErrClosed):
-		status = http.StatusServiceUnavailable
-		message = err.Error()
-	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, kitsession.ErrNotTemporary), errors.Is(err, kitsession.ErrTemporary), errors.Is(err, subagent.ErrInvalidInput), errors.Is(err, subagent.ErrTemporaryUnavailable), errors.Is(err, errInvalidSessionRequest):
-		status = http.StatusBadRequest
-		message = err.Error()
+		return httpapi.NewAPIError(http.StatusUnprocessableEntity, httpapi.ErrorCode(protocol.PluginCommandFailed), kitsession.ErrPluginCommandFailed.Error(), nil)
 	}
-	if status >= http.StatusInternalServerError {
-		reportRequestError(writer, status, err)
+	for _, class := range sessionErrorClasses {
+		if !errors.Is(err, class.target) {
+			continue
+		}
+		message := class.message
+		if message == "" {
+			message = err.Error()
+		}
+		failure := httpapi.NewAPIError(class.status, class.code, message, nil)
+		failure.Cause = err
+		return failure
 	}
-	writeJSON(writer, status, map[string]string{"error": message})
+	return internalAPIErrorCausedBy(err)
 }
 
 // annotationAPIError projects annotation operation failures into ADR-0034 envelopes.
