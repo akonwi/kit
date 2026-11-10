@@ -1,8 +1,9 @@
 # Migrating a plugin from protocol version 1 to version 2
 
 Kit runs plugins whose manifest has no `protocolVersion` as protocol
-version 1. Version 1 will be removed in a later release, so move each plugin
-to [version 2](v2.md). Most plugins need only the manifest and `initialize`
+version 1, and a session that loads one shows a warning naming it and linking
+here. Version 1 will be removed in a later release, so move each plugin to
+[version 2](v2.md). Most plugins need only the manifest and `initialize`
 changes; the rest applies only to plugins that use what version 2 removes.
 
 ## Every plugin

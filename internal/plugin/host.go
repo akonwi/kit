@@ -125,6 +125,7 @@ type Host struct {
 	diagnostics          []string
 	cleanupDiagnostics   []string
 	discoveryDiagnostics []Diagnostic
+	versionOne           []string // IDs of planned installations speaking protocol version 1
 	reportedFailures     map[InstanceID]struct{}
 	closeErr             error
 	wake                 chan struct{}
@@ -302,7 +303,13 @@ func (h *Host) Instances() []InstanceStatus {
 // Dedicated plugin diagnostics/dismissal UI can consume richer state later.
 func (h *Host) Warnings() []string {
 	h.mu.Lock()
-	messages := append([]string(nil), h.cleanupDiagnostics...)
+	var messages []string
+	// The version 1 notice goes first so the aggregate's bound never cuts
+	// its link.
+	if len(h.versionOne) > 0 {
+		messages = append(messages, versionOneWarning(h.versionOne))
+	}
+	messages = append(messages, h.cleanupDiagnostics...)
 	messages = append(messages, h.diagnostics...)
 	for _, diagnostic := range h.discoveryDiagnostics {
 		messages = append(messages, diagnostic.Message)
@@ -320,6 +327,27 @@ func (h *Host) Warnings() []string {
 		return nil
 	}
 	return []string{diagnosticMessage(fmt.Errorf("Plugins: %s", strings.Join(messages, "; ")))}
+}
+
+// MigrationGuideURL is the guide a version 1 plugin's warning points to.
+const MigrationGuideURL = "https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md"
+
+// versionOneWarning names the plugins still speaking protocol version 1. It
+// names at most five, so the warning stays short enough to keep its link.
+func versionOneWarning(ids []string) string {
+	names := ids
+	if len(ids) > 5 {
+		names = append(append([]string(nil), ids[:4]...), fmt.Sprintf("%d others", len(ids)-4))
+	}
+	subject := names[0] + " uses"
+	switch len(names) {
+	case 1:
+	case 2:
+		subject = names[0] + " and " + names[1] + " use"
+	default:
+		subject = strings.Join(names[:len(names)-1], ", ") + ", and " + names[len(names)-1] + " use"
+	}
+	return fmt.Sprintf("%s plugin protocol version 1, which a later Kit release removes. Migrate to version 2: %s", subject, MigrationGuideURL)
 }
 
 func (h *Host) addDiagnostic(message string)        { h.recordDiagnostic(message, false) }
@@ -472,11 +500,23 @@ func (h *Host) reconcile(view hostView) {
 			}
 			return
 		}
+		plan := append(users, result.Installations...)
+		overflow := len(plan) > 128
+		if overflow {
+			plan = plan[:128]
+		}
+		var versionOne []string
+		for _, installation := range plan {
+			if installation.ProtocolVersion() == 1 {
+				versionOne = append(versionOne, installation.Manifest.ID)
+			}
+		}
 		h.mu.Lock()
 		if h.closed || h.view.epoch != view.epoch || h.view.projectEpoch != view.projectEpoch {
 			h.mu.Unlock()
 			return
 		}
+		h.versionOne = versionOne
 		var retained []Diagnostic
 		if !includeUser {
 			for _, diagnostic := range h.discoveryDiagnostics {
@@ -497,9 +537,8 @@ func (h *Host) reconcile(view hostView) {
 			h.diagnostics = nil
 		}
 		h.mu.Unlock()
-		h.plan = append(users, result.Installations...)
-		if len(h.plan) > 128 {
-			h.plan = h.plan[:128]
+		h.plan = plan
+		if overflow {
 			h.addDiagnostic("session plugin installation limit (128) exceeded")
 		}
 		h.planEpoch = view.epoch

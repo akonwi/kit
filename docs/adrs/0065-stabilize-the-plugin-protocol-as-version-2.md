@@ -244,9 +244,8 @@ fixtures, not a library.
 
 Version 2 ships alongside version 1. The version 1 specification and schemas
 stay at their current paths and URLs, unchanged, while Kit supports version 1.
-Once the personal plugins in `dot-kit`
-use version 2, a version 1 manifest produces a session warning naming the
-plugin and the migration guide. A final stage removes version 1: Kit rejects a
+Meanwhile, a session that loads version 1 plugins shows a warning naming them
+and the migration guide. A final stage removes version 1: Kit rejects a
 manifest without `"protocolVersion": 2` with a diagnostic, and the version 1
 specification, implementation profile, and schemas leave the repository.
 
