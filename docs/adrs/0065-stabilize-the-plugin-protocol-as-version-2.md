@@ -235,6 +235,8 @@ in-memory Kit so plugins can test their handlers.
 Kit's built-in `kit-customization` skill tells models that a TypeScript
 plugin copies `sdk/plugin/kit-plugin.ts` from the Kit repository at the
 release tag of the running Kit version.
+The file's `KIT_RELEASE` constant names the release it belongs to; each
+release sets it as a step of the release process.
 
 There is no maintained helper for other languages. The specification and
 schema are enough to write one, and the repository's Python fixtures are test

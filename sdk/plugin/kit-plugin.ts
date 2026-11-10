@@ -33,6 +33,13 @@
 /** The plugin protocol version this file speaks. */
 export const PROTOCOL_VERSION = 2;
 
+/**
+ * The Kit release this file belongs to, such as `"0.59.0"`. Each release sets
+ * it, so a copy taken from tag `vX.Y.Z` says `"X.Y.Z"`; it is `"unreleased"`
+ * before the first release that includes the helper.
+ */
+export const KIT_RELEASE: string = "unreleased";
+
 /** How long stopping waits for a setup that is still running. */
 const SETUP_STOP_GRACE_MS = 1500;
 

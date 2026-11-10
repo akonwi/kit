@@ -8,7 +8,8 @@ later with type stripping. `kit-plugin-testing.ts` runs a plugin's setup
 against an in-memory Kit for tests.
 
 Plugins copy both files from the Kit repository at the release tag of the Kit
-they run; nothing is published to a package registry. The repository's
+they run; nothing is published to a package registry. A copy's `KIT_RELEASE`
+names the release it came from. The repository's
 [`ui-api-demo`](../../.kit/plugins/ui-api-demo) fixture uses the helper
 through a link instead of a copy.
 

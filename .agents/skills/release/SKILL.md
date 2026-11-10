@@ -49,6 +49,12 @@ Kit's command line and server); see `apps/cli/README.md`. A release candidate
    shipped code; do not claim outstanding checks have passed. The workflow
    requires this file and publishes it verbatim.
 
+   Set `KIT_RELEASE` in `sdk/plugin/kit-plugin.ts` to `"X.Y.Z"`, without the
+   `v`. Plugins copy the helper from the release tag, and this constant tells
+   them which release their copy came from. A release candidate sets the
+   stable version it is a candidate for, so promotion can tag the same commit.
+   Commit it with the release notes.
+
    Validate before publishing:
    ```sh
    gofmt -l .

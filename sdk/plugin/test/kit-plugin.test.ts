@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { startTestPlugin } from "../kit-plugin-testing.ts";
-import { ErrorCode, isTryLater, type Kit, KitError, t } from "../kit-plugin.ts";
+import { ErrorCode, isTryLater, KIT_RELEASE, type Kit, KitError, t } from "../kit-plugin.ts";
+
+test("KIT_RELEASE is a stable release version, or unreleased", () => {
+  expect(KIT_RELEASE).toMatch(/^(unreleased|\d+\.\d+\.\d+)$/);
+});
 
 describe("initialization", () => {
   test("setup runs after Kit's initialize is answered and sees the session", async () => {
