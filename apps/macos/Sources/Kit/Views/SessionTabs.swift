@@ -48,6 +48,10 @@ enum SessionChrome {
     static let rowHeight: CGFloat = 44
     /// The session bar below top tabs.
     static let compactRowHeight: CGFloat = 32
+    /// Where the sidebar's toggle starts, after the traffic lights: their
+    /// 16 pt inset (`TrafficLightPlacement.leading`), the 68 pt they take,
+    /// and a 6 pt gap, as top tabs leave.
+    static let sidebarToggleLeading: CGFloat = 16 + 68 + 6
 }
 
 /// Side-tab layout: session tabs as a tree of families, each session under
@@ -56,20 +60,20 @@ struct SessionSidebar: View {
     @Environment(\.mica) private var theme
     let model: SessionWindowModel
     @Binding var placement: SessionTabPlacement
-    @State private var drag = SessionTreeDrag()
+    /// Tracks a row being dragged, and where each row sits.
+    @State var drag = SessionTreeDrag()
 
     var body: some View {
         let rows = model.rows
         let dragged = drag.family(in: rows)
         let numbers = model.tabNumberHints(.side)
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                ChromeIconButton(icon: .plus, help: "New session tab (⌘T)") { model.openLauncher() }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: SessionChrome.rowHeight)
-            .background(WindowTitlebarRegion())
+            // The title row, under the sidebar's toggle and New tab
+            // (`SessionSidebarChrome`), which keep their places as it hides.
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: SessionChrome.rowHeight)
+                .background(WindowTitlebarRegion())
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
@@ -95,12 +99,15 @@ struct SessionSidebar: View {
             .padding(.leading, 8).padding(.trailing, 4)
             .frame(height: 32)
         }
-        .padding(.horizontal, 8).padding(.bottom, 10)
-        .frame(width: 248)
+        .padding(.horizontal, Self.inset).padding(.bottom, 10)
         .background(DragCancellation(active: drag.id != nil) { drag.cancel() })
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Session tabs")
     }
+
+    /// Space between the sidebar's edges and its rows. The trailing inset is
+    /// the gap before the tiles, where the resize handle sits.
+    static let inset: CGFloat = 8
 }
 
 /// A family being dragged among its siblings in the sidebar.

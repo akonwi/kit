@@ -75,6 +75,55 @@ import Testing
         #expect(abs(after.inset - before.inset) <= 1)
     }
 
+    /// A pane that stays wider than the reading column, as while the session
+    /// sidebar is dragged, keeps its rows as they are: they only recentre. A
+    /// pane that narrows the column builds and measures its rows again.
+    @Test func resizingAPaneAroundTheColumnRebuildsRowsOnlyWhenTheColumnChanges() async throws {
+        let theme = MicaTheme(dark: false)
+        let prose = String(repeating: "A long paragraph that wraps differently at each width. ", count: 30)
+        let input = NativeTranscript(messages: (0..<12).map { TranscriptMessage(id: "m\($0)", role: "assistant", text: prose, tools: []) },
+            hasHistory: false, historyLoading: false, historyError: nil, active: false,
+            presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
+            resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: theme)
+        let adapter = NativeTranscriptCoordinator(input)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1200, height: 500))
+        window.contentView = adapter.scroll
+        window.orderFront(nil)
+        defer { adapter.stop(); window.close() }
+        adapter.receive(input)
+        try await eventually { adapter.table.bounds.height > 2_000 }
+        try await Task.sleep(for: .milliseconds(100))
+        func visible() -> [Int: (configuration: UUID, height: CGFloat)] {
+            let range = adapter.table.rows(in: adapter.scroll.contentView.bounds)
+            var rows: [Int: (configuration: UUID, height: CGFloat)] = [:]
+            for row in range.location..<NSMaxRange(range) {
+                if let cell = adapter.table.view(atColumn: 0, row: row, makeIfNecessary: false) as? NativeTranscriptCell {
+                    rows[row] = (cell.configuration, adapter.table.rect(ofRow: row).height)
+                }
+            }
+            return rows
+        }
+        let before = visible()
+        try #require(!before.isEmpty)
+
+        window.setContentSize(NSSize(width: 960, height: 500))
+        adapter.scroll.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(adapter.table.bounds.width == 960)
+        let wide = visible()
+        #expect(wide.keys.sorted() == before.keys.sorted())
+        for (row, value) in before {
+            #expect(wide[row]?.configuration == value.configuration, "row \(row)")
+            #expect(wide[row]?.height == value.height, "row \(row)")
+        }
+
+        // At 700 pt the column narrows to 636 pt, and the prose wraps taller.
+        window.setContentSize(NSSize(width: 700, height: 500))
+        let row = try #require(before.keys.min())
+        try await eventually { (visible()[row]?.height ?? 0) > before[row]!.height + 20 }
+        #expect(visible()[row]?.configuration != before[row]?.configuration)
+    }
+
     /// The composer keeps its 844 pt column in a full-width transcript.
     @Test(arguments: [false, true])
     func theComposerKeepsItsColumn(fullWidth: Bool) async throws {

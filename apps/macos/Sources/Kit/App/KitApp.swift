@@ -92,6 +92,7 @@ struct KitApp: App {
             SessionCommands(windows: windows)
             TileCommands()
             TranscriptCommands()
+            SidebarCommands()
         }
         Settings {
             SettingsView(themeLibrary: themeLibrary, windows: windows)
@@ -202,6 +203,21 @@ private struct TranscriptCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Toggle("Full-Width Transcript", isOn: $fullWidth)
+        }
+    }
+}
+
+/// View › Hide Sidebar (⌘S), in the place macOS keeps it. It hides or shows
+/// the focused window's session sidebar, with session tabs in the sidebar.
+private struct SidebarCommands: Commands {
+    @FocusedValue(\.sessionWindow) private var window
+    @AppStorage(SessionTabPlacement.storageKey) private var placement = SessionTabPlacement.side
+
+    var body: some Commands {
+        CommandGroup(replacing: .sidebar) {
+            Button(SessionSidebarCommand.title(hidden: window?.sidebarHidden == true)) { window?.toggleSidebar() }
+                .keyboardShortcut(SessionSidebarCommand.shortcut)
+                .disabled(!SessionSidebarCommand.enabled(window: window, placement: placement))
         }
     }
 }

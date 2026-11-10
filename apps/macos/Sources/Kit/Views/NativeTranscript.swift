@@ -487,8 +487,17 @@ struct NativeTranscript: NSViewRepresentable {
         let newWidth = scroll.contentSize.width
         let newHeight = scroll.contentSize.height
         if abs(newWidth - width) > 0.5 {
+            let rows = TranscriptLayout.rowWidth(pane: newWidth, fullWidth: input.fullWidth)
+            let measured = TranscriptLayout.rowWidth(pane: width, fullWidth: input.fullWidth)
             width = newWidth
-            invalidateHeights()
+            if rows != measured {
+                invalidateHeights()
+            } else {
+                // The reading column keeps its width, so rows keep their
+                // heights and only recentre, as when a sidebar is dragged.
+                table.frame.size.width = newWidth
+                table.tableColumns[0].width = newWidth
+            }
         }
         if newHeight != viewport {
             viewport = newHeight

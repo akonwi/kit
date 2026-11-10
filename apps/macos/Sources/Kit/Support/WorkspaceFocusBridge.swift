@@ -130,6 +130,17 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in self?.sync() }
         }
 
+        /// Moves the keyboard to the focused pane's target unless a view in
+        /// a visible tile holds it. The window, or a view enclosing the
+        /// tiles (the hosting view, which keeps SwiftUI's own focus), doesn't
+        /// count.
+        func reclaimKeyboard() {
+            guard let window, let workspace, !overlayOpen(), Self.isVisible(self) else { return }
+            if let responder = window.firstResponder as? NSView, responder.window === window,
+               !isDescendant(of: responder), case .tile = region(of: responder), Self.isVisible(responder) { return }
+            if let target = targetView(for: workspace.selected) { move(window, to: target) }
+        }
+
         /// Moves the first responder to the focused pane's target.
         func sync() {
             guard let window, let workspace, !overlayOpen(), Self.isVisible(self) else { return }
@@ -256,6 +267,16 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
 
     /// Live bridges, so markers can report themselves without a reference.
     @MainActor static let bridges = NSHashTable<BridgeView>.weakObjects()
+
+    /// Gives the keyboard to `window`'s focused pane once SwiftUI has
+    /// applied the current change, unless a view in a tile holds it. Chrome
+    /// that goes away, as the hidden sidebar's rows do, would otherwise
+    /// leave nothing able to type into.
+    @MainActor static func reclaimKeyboard(in window: NSWindow) {
+        DispatchQueue.main.async {
+            for bridge in bridges.allObjects where bridge.window === window { bridge.reclaimKeyboard() }
+        }
+    }
 }
 
 /// Marks the view whose AppKit content should take the keyboard when its

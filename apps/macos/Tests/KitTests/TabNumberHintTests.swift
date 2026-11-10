@@ -115,6 +115,41 @@ struct TabNumberHintTriggerTests {
         #expect(trigger.shown)
     }
 
+    @Test func commandHeldAloneForTheHoldDelayIsAHoldUntilAKeyAClickOrItsRelease() throws {
+        #expect(TabNumberHintTrigger.holdDelay == .milliseconds(300))
+        var trigger = TabNumberHintTrigger()
+        // A key before the hold delay is a shortcut, not a hold, even once hints show.
+        var hold = try arm(&trigger)
+        trigger.delayElapsed(hold)
+        trigger.keyPressed()
+        trigger.holdDelayElapsed(hold)
+        #expect(trigger.shown)
+        #expect(!trigger.holding)
+        #expect(trigger.modifiersChanged([]) == nil)
+
+        // Each way a hold ends: a key or a click (which keep the hints),
+        // releasing ⌘, or leaving the window.
+        for end in ["key", "click", "release", "leave"] {
+            hold = try arm(&trigger)
+            trigger.delayElapsed(hold)
+            #expect(!trigger.holding)
+            trigger.holdDelayElapsed(hold)
+            #expect(trigger.holding)
+            switch end {
+            case "key": trigger.keyPressed()
+            case "click": trigger.mousePressed()
+            case "release": trigger.modifiersChanged([])
+            default: trigger.windowResignedKey()
+            }
+            #expect(!trigger.holding, "\(end)")
+            #expect(trigger.shown == (end == "key" || end == "click"), "\(end)")
+            // Still holding ⌘ doesn't make it a hold again.
+            trigger.holdDelayElapsed(hold)
+            #expect(!trigger.holding, "\(end)")
+            trigger.modifiersChanged([])
+        }
+    }
+
     @Test func aPendingShowEndsWhenTheWindowStopsBeingKey() throws {
         var trigger = TabNumberHintTrigger()
         let show = try arm(&trigger)
@@ -245,6 +280,43 @@ private actor IdleClient: SessionClient {
         model.tabHints.liveModifiers = { [] }
         try await Task.sleep(for: .milliseconds(200))
         #expect(numbered(model, .side, hints: true) == [])
+    }
+
+    @Test func holdingCommandPeeksTheHiddenSidebarUntilAKeyAndNotUnderADialog() async throws {
+        let model = model(["a", "b"], selected: "a")
+        let store = try #require(model.store(for: model.selectedTab, client: IdleClient()))
+        defer { model.closeAll() }
+        model.tabHints.delay = .zero
+        model.tabHints.holdDelay = .zero
+        model.tabHints.liveModifiers = { .command }
+        func hold() async throws {
+            model.tabHints.modifiersChanged(.command)
+            try await eventually { model.tabHints.holding }
+        }
+        // With the sidebar showing, there's nothing to peek.
+        try await hold()
+        #expect(!model.sidebarPeek.showing)
+        model.tabHints.modifiersChanged([])
+
+        model.setSidebarHidden(true)
+        try await hold()
+        #expect(model.sidebarPeek.showing)
+        #expect(numbered(model, .side, hints: true) == ["1 A", "2 B"])
+        // ⌘2 closes it at once.
+        model.tabHints.keyPressed()
+        #expect(!model.sidebarPeek.showing)
+        model.tabHints.modifiersChanged([])
+
+        // Releasing ⌘ closes it, unless the pointer moved onto it.
+        try await hold()
+        model.sidebarPeek.pointer(onSidebar: true)
+        model.tabHints.modifiersChanged([])
+        #expect(model.sidebarPeek.showing)
+        model.sidebarPeek.close()
+
+        store.ui.palette = true
+        try await hold()
+        #expect(!model.sidebarPeek.showing)
     }
 
     // MARK: Presentation

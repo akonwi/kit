@@ -206,13 +206,15 @@ import Testing
     @Test func registryCapturesTabsAndForgetsClosedWindows() {
         let url = temporaryURL()
         defer { try? FileManager.default.removeItem(at: url) }
-        let registry = SessionWindowRegistry(restoration: WindowRestorationStore(url: url))
+        let registry = SessionWindowRegistry(restoration: WindowRestorationStore(url: url),
+                                             sidebarDefaults: SessionSidebarDefaults(defaults: TestDefaults.make()))
         let request = SessionWindowRequest(windowID: UUID())
         let model = registry.model(for: request)
         #expect(registry.model(for: request) === model)
         model.open(id("a"))
         model.open(id("b"))
-        #expect(registry.restoration.windows == [.init(id: request.windowID, sessions: [id("a"), id("b")], selected: id("b"))])
+        #expect(registry.restoration.windows == [.init(id: request.windowID, sessions: [id("a"), id("b")], selected: id("b"),
+                                                       sidebar: SessionSidebarLayout())])
 
         let window = NSWindow(testContentRect: .zero, styleMask: [.titled, .closable])
         registry.attach(model, to: window)

@@ -132,6 +132,28 @@ private struct FocusHarness: View {
         #expect(fixture.responder == "scratchpad")
     }
 
+    @Test func chromeThatGoesAwayGivesTheKeyboardToTheFocusedPane() async throws {
+        let fixture = try await Fixture()
+        fixture.workspace.select(.scratchpad)
+        try await fixture.settle()
+        // A sidebar row holds the keyboard: SwiftUI keeps its focus in the
+        // hosting view enclosing the tiles.
+        fixture.window.makeFirstResponder(fixture.host)
+        try await fixture.settle()
+        #expect(fixture.window.firstResponder === fixture.host)
+        // Hiding the sidebar takes the row away.
+        WorkspaceFocusBridge.reclaimKeyboard(in: fixture.window)
+        try await fixture.settle()
+        #expect(fixture.responder == "scratchpad")
+
+        // A view in a tile keeps the keyboard it holds.
+        fixture.window.makeFirstResponder(fixture.editor("file:a.swift"))
+        try await fixture.settle()
+        WorkspaceFocusBridge.reclaimKeyboard(in: fixture.window)
+        try await fixture.settle()
+        #expect(fixture.responder == "file:a.swift")
+    }
+
     @Test func clickingIntoATilesViewFocusesThatTile() async throws {
         let fixture = try await Fixture()
         fixture.workspace.select(.scratchpad)

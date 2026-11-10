@@ -3,8 +3,8 @@ import Observation
 
 /// Restoration intent only: which windows were open, their session tabs in
 /// order, each window's selected session, each open session's tile layout,
-/// the sidebar's collapsed families, and each tab's last known title, to name
-/// tabs whose server can't be reached. Server data, credentials, and drafts
+/// the sidebar's collapsed families, width and visibility, and each tab's
+/// last known title, to name tabs whose server can't be reached. Server data, credentials, and drafts
 /// have separate owners.
 @MainActor @Observable
 final class WindowRestorationStore {
@@ -20,16 +20,20 @@ final class WindowRestorationStore {
         var collapsed: Set<String> = []
         /// The titles tabs last showed.
         var titles: [SessionIdentity: String] = [:]
+        /// The sidebar's width and visibility. Windows saved before the
+        /// sidebar could change have none, and start as new windows do.
+        var sidebar: SessionSidebarLayout?
 
         init(id: UUID, sessions: [SessionIdentity], selected: SessionIdentity?,
              layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = [],
-             titles: [SessionIdentity: String] = [:]) {
+             titles: [SessionIdentity: String] = [:], sidebar: SessionSidebarLayout? = nil) {
             self.id = id
             self.sessions = sessions
             self.selected = selected
             self.layouts = layouts
             self.collapsed = collapsed
             self.titles = titles
+            self.sidebar = sidebar
         }
 
         private struct Layout: Codable {
@@ -40,7 +44,7 @@ final class WindowRestorationStore {
             var session: SessionIdentity
             var title: String
         }
-        private enum CodingKeys: String, CodingKey { case id, sessions, selected, layouts, collapsed, titles }
+        private enum CodingKeys: String, CodingKey { case id, sessions, selected, layouts, collapsed, titles, sidebar }
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -55,6 +59,8 @@ final class WindowRestorationStore {
             // rather than costing the window.
             let named = (try? container.decodeIfPresent([Title].self, forKey: .titles)) ?? []
             titles = Dictionary(named.map { ($0.session, $0.title) }) { first, _ in first }
+            // So is the sidebar's layout.
+            sidebar = try? container.decodeIfPresent(SessionSidebarLayout.self, forKey: .sidebar)
         }
 
         func encode(to encoder: any Encoder) throws {
@@ -68,6 +74,7 @@ final class WindowRestorationStore {
             if !collapsed.isEmpty { try container.encode(collapsed.sorted(), forKey: .collapsed) }
             let named = sessions.compactMap { session in titles[session].map { Title(session: session, title: $0) } }
             if !named.isEmpty { try container.encode(named, forKey: .titles) }
+            try container.encodeIfPresent(sidebar, forKey: .sidebar)
         }
     }
     /// Version 1 saved one session per window, grouped by native window tabs.
@@ -156,7 +163,7 @@ final class WindowRestorationStore {
             let titles = window.titles.filter { members.contains($0.key) && !$0.value.isEmpty }
                 .mapValues { String($0.prefix(maximumTitleLength)) }
             return Window(id: window.id, sessions: members, selected: selected, layouts: layouts, collapsed: collapsed,
-                          titles: titles)
+                          titles: titles, sidebar: window.sidebar)
         }
     }
 
@@ -175,7 +182,7 @@ final class WindowRestorationStore {
     func save() {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            // Layouts, collapsed families, and titles are optional fields
+            // Layouts, collapsed families, titles, and the sidebar are optional fields
             // of version 2, which earlier builds ignore. Earlier builds name
             // the local server `local-v2`, so after a downgrade they restore
             // windows but can't attach their tabs.

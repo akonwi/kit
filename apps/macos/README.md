@@ -117,7 +117,12 @@ under the one it came from, or shown in a strip along the top; the toggle beside
 switches between them. Open windows, their tabs, and each tab's tile layout restore on launch. Without a
 saved layout, Kit shows the session launcher rather than selecting a session
 itself. Cmd+T opens the launcher in a new tab, Cmd+W closes the tab, Cmd+1–9
-select tabs by position, and Cmd+Shift+[ and ] move between them. Opening a session that
+select tabs by position, and Cmd+Shift+[ and ] move between them. Drag the sidebar's
+edge to resize it between 200 and 400 points; double-click the edge to reset it, or
+let go short of 120 points to hide it. Cmd+S (View > Hide Sidebar) or the toggle
+beside the traffic lights hides and shows it, and each window keeps its own. While
+it is hidden, resting on the toggle or holding Cmd alone for 0.3 seconds shows it
+over the tiles, with its tab numbers while Cmd is held. Opening a session that
 another window already shows brings that window forward. Search matches session names and paths;
 arrow keys navigate and Return opens. New session accepts a working directory,
 optional name, model, and thinking level.

@@ -5,14 +5,25 @@ import SwiftUI
 /// ⌘ alone has been held for `delay`, until it is released. A key pressed
 /// before then cancels them, so ⌘ shortcuts don't flash numbers; once shown,
 /// they stay through ⌘ shortcuts until ⌘ is released.
+///
+/// ⌘ held alone for `holdDelay`, with no key or click in between, is also
+/// a hold, which peeks a hidden sidebar so its numbers show. A key or a
+/// click ends the hold, as does releasing ⌘; hints outlast it.
 struct TabNumberHintTrigger: Equatable {
     static let delay: Duration = .milliseconds(100)
+    /// How long ⌘ alone is held before it is a hold: longer than for
+    /// hints, as a sidebar sliding over the tiles is more to see.
+    static let holdDelay: Duration = .milliseconds(300)
     /// The modifiers that can change what a numbered key does.
     static let modifiers: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
 
     private(set) var shown = false
     /// The show waiting for the delay. A newer one replaces it.
     private(set) var pending: Int?
+    /// Whether ⌘ alone has been held for `holdDelay`, with nothing pressed.
+    private(set) var holding = false
+    /// The hold waiting for `holdDelay`.
+    private(set) var pendingHold: Int?
     private var held: NSEvent.ModifierFlags = []
     private var generation = 0
 
@@ -25,12 +36,14 @@ struct TabNumberHintTrigger: Equatable {
         guard now == .command else {
             shown = false
             pending = nil
+            endHold()
             return nil
         }
         // Caps Lock or Fn changing under ⌘ leaves hints as they are.
         guard held != .command else { return nil }
         generation += 1
         pending = generation
+        pendingHold = generation
         return generation
     }
 
@@ -43,8 +56,15 @@ struct TabNumberHintTrigger: Equatable {
     }
 
     /// A key pressed while ⌘ is held. Before the delay, it's a shortcut.
+    /// It ends a hold either way.
     mutating func keyPressed() {
         pending = nil
+        endHold()
+    }
+
+    /// A click while ⌘ is held. It leaves hints as they are and ends a hold.
+    mutating func mousePressed() {
+        endHold()
     }
 
     mutating func delayElapsed(_ generation: Int) {
@@ -53,11 +73,23 @@ struct TabNumberHintTrigger: Equatable {
         shown = true
     }
 
+    mutating func holdDelayElapsed(_ generation: Int) {
+        guard pendingHold == generation else { return }
+        pendingHold = nil
+        holding = true
+    }
+
+    private mutating func endHold() {
+        pendingHold = nil
+        holding = false
+    }
+
     /// The window stopped being key. Returning with ⌘ still down shows
     /// nothing until ⌘ is pressed again.
     mutating func windowResignedKey() {
         shown = false
         pending = nil
+        endHold()
         held = []
     }
 }
@@ -67,8 +99,15 @@ struct TabNumberHintTrigger: Equatable {
 @MainActor @Observable
 final class TabNumberHints {
     private(set) var shown = false
+    /// Whether ⌘ alone has been held long enough to peek a hidden sidebar,
+    /// with no key or click since.
+    private(set) var holding = false
     /// How long ⌘ alone is held before hints show.
     @ObservationIgnored var delay: Duration = TabNumberHintTrigger.delay
+    /// How long ⌘ alone is held before it is a hold.
+    @ObservationIgnored var holdDelay: Duration = TabNumberHintTrigger.holdDelay
+    /// Called as a hold begins and ends.
+    @ObservationIgnored var onHold: @MainActor (Bool) -> Void = { _ in }
     /// The modifiers held now. Menus and drags track their own events, so
     /// ⌘ can be released without this window seeing it.
     @ObservationIgnored var liveModifiers: @MainActor () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
@@ -77,6 +116,7 @@ final class TabNumberHints {
     @ObservationIgnored nonisolated(unsafe) private var monitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var menuObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var reveal: Task<Void, Never>?
+    @ObservationIgnored private var hold: Task<Void, Never>?
 
     init() {}
 
@@ -102,6 +142,7 @@ final class TabNumberHints {
                     // Every event carries the modifiers held when it happened.
                     self.modifiersSeen(event.modifierFlags)
                     if event.type == .keyDown { self.keyPressed() }
+                    if event.type == .leftMouseDown || event.type == .rightMouseDown { self.mousePressed() }
                 }
             }
             return event
@@ -135,6 +176,14 @@ final class TabNumberHints {
                 self.trigger.delayElapsed(generation)
                 self.sync()
             }
+            hold?.cancel()
+            hold = Task { [weak self, holdDelay] in
+                try? await Task.sleep(for: holdDelay)
+                guard !Task.isCancelled, let self else { return }
+                self.trigger.modifiersSeen(self.liveModifiers())
+                self.trigger.holdDelayElapsed(generation)
+                self.sync()
+            }
         }
         sync()
     }
@@ -149,6 +198,11 @@ final class TabNumberHints {
         sync()
     }
 
+    func mousePressed() {
+        trigger.mousePressed()
+        sync()
+    }
+
     func windowResignedKey() {
         trigger.windowResignedKey()
         sync()
@@ -159,6 +213,14 @@ final class TabNumberHints {
         if trigger.pending == nil {
             reveal?.cancel()
             reveal = nil
+        }
+        if trigger.pendingHold == nil {
+            hold?.cancel()
+            hold = nil
+        }
+        if trigger.holding != holding {
+            holding = trigger.holding
+            onHold(holding)
         }
         guard trigger.shown != shown else { return }
         if trigger.shown {

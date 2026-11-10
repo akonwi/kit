@@ -19,12 +19,16 @@ final class SessionWindowRegistry: NSObject {
     private var models: [UUID: WeakModel] = [:]
     let restoration: WindowRestorationStore
     let servers: ServerDirectory
+    /// The sidebar layout last set in any window, for windows without their own.
+    let sidebarDefaults: SessionSidebarDefaults
     var terminating = false
     private var restored = false
 
-    init(restoration: WindowRestorationStore = WindowRestorationStore(), servers: ServerDirectory = .inert()) {
+    init(restoration: WindowRestorationStore = WindowRestorationStore(), servers: ServerDirectory = .inert(),
+         sidebarDefaults: SessionSidebarDefaults = SessionSidebarDefaults()) {
         self.restoration = restoration
         self.servers = servers
+        self.sidebarDefaults = sidebarDefaults
         super.init()
         servers.serverRenamed = { [weak self] name, newName in
             for model in self?.liveModels ?? [] { model.serverRenamed(from: name, to: newName) }
@@ -70,8 +74,9 @@ final class SessionWindowRegistry: NSObject {
         let saved = restoration.window(request.windowID)
         let model = SessionWindowModel(id: request.windowID, servers: servers, sessions: saved?.sessions ?? [], selected: saved?.selected,
                                        layouts: saved?.layouts ?? [:], collapsed: saved?.collapsed ?? [],
-                                       titles: saved?.titles ?? [:])
+                                       titles: saved?.titles ?? [:], sidebar: saved?.sidebar ?? sidebarDefaults.load())
         model.onChange = { [weak self] in self?.capture($0) }
+        model.onSidebarChange = { [sidebarDefaults] in sidebarDefaults.save($0) }
         models[request.windowID] = WeakModel(model)
         return model
     }
@@ -92,11 +97,12 @@ final class SessionWindowRegistry: NSObject {
     }
 
     /// Records a window's tabs, their tile layouts and titles, and its
-    /// collapsed families as restoration intent.
+    /// sidebar and collapsed families as restoration intent.
     func capture(_ model: SessionWindowModel) {
         guard !terminating else { return }
         restoration.update(.init(id: model.id, sessions: model.sessions, selected: model.selectedSession,
-                                 layouts: model.layouts, collapsed: model.collapsed, titles: model.titles))
+                                 layouts: model.layouts, collapsed: model.collapsed, titles: model.titles,
+                                 sidebar: model.sidebar))
     }
 
     /// Records every window's intent before quitting, including layout

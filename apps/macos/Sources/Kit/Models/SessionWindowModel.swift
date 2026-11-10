@@ -90,9 +90,26 @@ final class SessionWindowModel: Identifiable {
     let id: UUID
     let servers: ServerDirectory
     private(set) var tabs: [SessionTab]
-    private(set) var selectedTabID: UUID
+    private(set) var selectedTabID: UUID {
+        // Choosing a tab closes a peeking sidebar.
+        didSet { if selectedTabID != oldValue { sidebarPeek.close() } }
+    }
     /// Sessions whose children the sidebar hides.
     private(set) var collapsed: Set<String>
+    /// The sidebar's width, with In Sidebar placement. Kept apart from
+    /// `sidebarHidden` so views that only show or hide don't follow a drag.
+    private(set) var sidebarWidth: CGFloat
+    /// Whether the sidebar is hidden, with In Sidebar placement.
+    private(set) var sidebarHidden: Bool
+    /// The sidebar's width and whether it is hidden.
+    var sidebar: SessionSidebarLayout { SessionSidebarLayout(width: sidebarWidth, hidden: sidebarHidden) }
+    /// The hidden sidebar, shown over the tiles while its toggle is hovered.
+    let sidebarPeek: SessionSidebarPeek
+    /// Counts the times hiding the sidebar asked for keyboard focus to move
+    /// to the selected tile, so a row that held it doesn't strand it.
+    private(set) var sidebarFocusHandoffs = 0
+    /// Called after the sidebar's layout is set, to remember it for new windows.
+    @ObservationIgnored var onSidebarChange: (SessionSidebarLayout) -> Void = { _ in }
     /// The launcher tab whose new session form is open over the window.
     var creatingIn: SessionTab?
     /// The rename or delete a tab's menu asked for, while its sheet is open.
@@ -114,11 +131,15 @@ final class SessionWindowModel: Identifiable {
 
     init(id: UUID, servers: ServerDirectory = .inert(), sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil,
          layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = [],
-         titles: [SessionIdentity: String] = [:], sleep: @escaping Sleeper = realTimeSleeper) {
+         titles: [SessionIdentity: String] = [:], sidebar: SessionSidebarLayout = SessionSidebarLayout(),
+         sleep: @escaping Sleeper = realTimeSleeper) {
         self.id = id
         self.sleeper = sleep
         self.servers = servers
         self.collapsed = collapsed
+        sidebarWidth = sidebar.width
+        sidebarHidden = sidebar.hidden
+        sidebarPeek = SessionSidebarPeek(sleep: sleep)
         let tabs = sessions.isEmpty
             ? [SessionTab(identity: Self.launcherIdentity(servers), servers: servers)]
             : sessions.map { identity in
@@ -129,6 +150,7 @@ final class SessionWindowModel: Identifiable {
             }
         self.tabs = tabs
         selectedTabID = (selected.flatMap { identity in tabs.first { $0.identity == identity } } ?? tabs[0]).id
+        tabHints.onHold = { [weak self] held in self?.commandHeld(held) }
     }
 
     /// A new launcher, on the server last chosen in a launcher.
@@ -297,6 +319,68 @@ final class SessionWindowModel: Identifiable {
         guard let tab = tab(for: identity) else { return }
         tab.store?.sessionDeleted(identity)
         requestClose(tab, from: placement)
+    }
+
+    /// Hides the sidebar, or shows it again.
+    func toggleSidebar() {
+        setSidebarHidden(!sidebarHidden)
+    }
+
+    /// Hides or shows the sidebar. Either closes a peek; hiding hands the
+    /// keyboard to the selected tile.
+    func setSidebarHidden(_ hidden: Bool) {
+        sidebarPeek.close()
+        guard hidden != sidebarHidden else { return }
+        sidebarHidden = hidden
+        if hidden { sidebarFocusHandoffs += 1 }
+        commitSidebar()
+    }
+
+    /// Follows a drag of the sidebar's edge to `width`, in whole points
+    /// within its limits. The width is remembered when the drag ends.
+    func dragSidebar(to width: CGFloat) {
+        let clamped = SessionSidebarLayout.clamped(width.rounded())
+        if clamped != sidebarWidth { sidebarWidth = clamped }
+    }
+
+    /// Ends a drag of the sidebar's edge that began at `start`. Letting go
+    /// short of `hidingWidth` hides the sidebar at the width it had before.
+    func endSidebarDrag(at width: CGFloat, from start: CGFloat) {
+        if width < SessionSidebarLayout.hidingWidth {
+            sidebarWidth = SessionSidebarLayout.clamped(start.rounded())
+            setSidebarHidden(true)
+        } else {
+            sidebarWidth = SessionSidebarLayout.clamped(width.rounded())
+            commitSidebar()
+        }
+    }
+
+    /// Sets the sidebar's width, within its limits.
+    func setSidebarWidth(_ width: CGFloat) {
+        sidebarWidth = SessionSidebarLayout.clamped(width)
+        commitSidebar()
+    }
+
+    /// Holding ⌘ alone peeks the hidden sidebar, so the tab numbers show,
+    /// unless a dialog has the keyboard.
+    func commandHeld(_ held: Bool) {
+        sidebarPeek.command(held: held && sidebarHidden && !dialogCoversTabs)
+    }
+
+    /// Whether a tab the user isn't looking at waits for an answer, which
+    /// the hidden sidebar's toggle points out.
+    var hiddenTabNeedsAnswer: Bool {
+        Self.needsAnswer(tabs.map { ($0.id, $0.status) }, selected: selectedTabID)
+    }
+
+    /// Whether a tab other than the selected one waits for an answer.
+    static func needsAnswer(_ tabs: [(id: UUID, status: SessionTabStatus)], selected: UUID) -> Bool {
+        tabs.contains { $0.id != selected && $0.status == .awaitingResponse }
+    }
+
+    private func commitSidebar() {
+        onSidebarChange(sidebar)
+        onChange(self)
     }
 
     /// Shows or hides a session's children in the sidebar, by its tree key.

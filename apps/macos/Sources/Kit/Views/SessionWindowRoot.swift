@@ -81,12 +81,10 @@ struct SessionWindowRoot: View {
     @ViewBuilder private func workspace(model: SessionWindowModel, tab: SessionTab, theme: MicaTheme) -> some View {
         switch placement {
         case .side:
-            HStack(spacing: 0) {
-                SessionSidebar(model: model, placement: $placement)
-                VStack(spacing: 0) {
-                    SessionBar(tab: tab)
-                    tile(model: model, tab: tab, theme: theme)
-                }
+            SessionSideLayout(model: model, placement: $placement) {
+                SessionBar(tab: tab)
+            } tiles: {
+                tile(model: model, tab: tab, theme: theme)
             }
         case .top:
             VStack(spacing: 0) {
