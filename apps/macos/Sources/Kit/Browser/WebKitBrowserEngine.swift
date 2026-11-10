@@ -92,7 +92,12 @@ import WebKit
     }
 
     // Navigations from Kit's own controls are the person's.
-    func load(_ url: URL) { explicitNavigation = true; webView.load(URLRequest(url: url)) }
+    func load(_ url: URL, referrer: URL?) {
+        explicitNavigation = true
+        var request = URLRequest(url: url)
+        if let referrer { request.setValue(referrer.absoluteString, forHTTPHeaderField: "Referer") }
+        webView.load(request)
+    }
     func goBack() { explicitNavigation = true; webView.goBack() }
     func goForward() { explicitNavigation = true; webView.goForward() }
     func reload() {
@@ -209,6 +214,10 @@ import WebKit
 
 extension WebKitBrowserEngine: WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+        if let link = newTabLink(for: action) {
+            emit(.openLink(link.url, referrer: link.referrer, select: link.select))
+            return .cancel
+        }
         let mainFrame = action.targetFrame?.isMainFrame != false
         // Real input, not the navigation's type: a script can click a link.
         let clicked = self.webView.recentlyInteracted || (mainFrame && explicitNavigation)
@@ -236,6 +245,25 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
         return .cancel
     }
 
+    /// The middle button in a navigation's buttons. WebKit gives them as a
+    /// mask, as `NSEvent.pressedMouseButtons` does, not a button number.
+    static let middleButton = 1 << 2
+
+    /// The web link and the new tab's focus, when the person activated a
+    /// link asking for a new tab, as by ⌘-clicking it. A link the person
+    /// didn't just use, as a page's script clicks, or one that downloads,
+    /// goes ahead as usual. Each use of the page opens one tab at most.
+    private func newTabLink(for action: WKNavigationAction) -> (url: URL, referrer: URL?, select: Bool)? {
+        guard action.navigationType == .linkActivated, !action.shouldPerformDownload,
+              let url = action.request.url, BrowserAddress.isWeb(url),
+              case .newTab(let select) = BrowserLinkDisposition(modifiers: action.modifierFlags,
+                                                                middleButton: action.buttonNumber & Self.middleButton != 0),
+              webView.takeLinkGesture() else { return nil }
+        // WebKit has already applied the page's referrer policy.
+        let referrer = action.request.value(forHTTPHeaderField: "Referer").flatMap(URL.init(string:))
+        return (url, referrer, select)
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         let disposition = (response.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? ""
         guard !response.canShowMIMEType || disposition.lowercased().hasPrefix("attachment") else { return .allow }
@@ -261,6 +289,8 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         userNavigation = false
+        // The person's use of the page that left can't open the next one's links.
+        self.webView.endLinkGesture()
         restartedSinceCommit = false
         dialogsSuppressed = false
         downloadsSuppressed = false
@@ -318,6 +348,7 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
         // or was stopped by the tab.
         if error.domain == "WebKitErrorDomain" && error.code == 102 { return }
         userNavigation = false
+        self.webView.endLinkGesture()
         // Report the address that failed, before the view falls back to the
         // previous page's; the tab keeps its own address when there is none.
         emit(.failed(url: error.userInfo[NSURLErrorFailingURLErrorKey] as? URL, message: error.localizedDescription))
@@ -330,6 +361,17 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
 extension WebKitBrowserEngine: WKUIDelegate {
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        // The link menu's Open Link in New Tab opens it behind, as ⇧⌘-click does.
+        if self.webView.takeBackgroundLinkRequest(), let url = action.request.url, BrowserAddress.isWeb(url) {
+            let referrer = action.request.value(forHTTPHeaderField: "Referer").flatMap(URL.init(string:))
+            emit(.openLink(url, referrer: referrer, select: false))
+            return nil
+        }
+        // A link that opens a window, ⌘-clicked, opens as any ⌘-clicked link does.
+        if let link = newTabLink(for: action) {
+            emit(.openLink(link.url, referrer: link.referrer, select: link.select))
+            return nil
+        }
         let child = WebKitBrowserEngine(configuration: configuration, downloadFolder: downloadFolder)
         // A window the person's click opened carries the click, so the
         // download it may turn into is theirs.
@@ -656,7 +698,26 @@ private final class KitWebView: WKWebView {
         lastInteraction.map { Date().timeIntervalSince($0) < Self.activationWindow } ?? false
     }
 
-    func interacted() { if !agentInput { lastInteraction = Date() } }
+    func interacted() {
+        guard !agentInput else { return }
+        lastInteraction = Date()
+        linkGesture = lastInteraction
+    }
+
+    /// The person's latest click or key press, until a link it activated
+    /// opens a new tab, so each opens one at most.
+    private var linkGesture: Date?
+
+    /// Ends the person's latest use of the page for opening links, as when
+    /// the page leaves.
+    func endLinkGesture() { linkGesture = nil }
+
+    /// Whether the person just clicked or pressed a key in the page,
+    /// ending it, so a link they asked to open in a new tab may open one.
+    func takeLinkGesture() -> Bool {
+        defer { linkGesture = nil }
+        return linkGesture.map { Date().timeIntervalSince($0) < Self.activationWindow } ?? false
+    }
 
     /// Gives a window the page opened the person's recent click or key
     /// press that opened it.
@@ -671,6 +732,7 @@ private final class KitWebView: WKWebView {
 
     func deliverAgentInput(_ deliver: () throws -> Void) rethrows {
         lastInteraction = nil
+        linkGesture = nil
         agentInput = true
         defer { agentInput = false }
         try deliver()
@@ -705,5 +767,56 @@ private final class KitWebView: WKWebView {
               let step = BrowserHistoryStep(mouseButton: event.buttonNumber) else { return }
         pressedHistoryButton = nil
         historyButtonClicked?(step)
+    }
+
+    // MARK: Link menu
+
+    /// WebKit's link menu item that opens the link in a new window.
+    static let openLinkInNewWindow = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierOpenLinkInNewWindow")
+    /// Passes on the menu's Open Link in New Tab, noting it was chosen.
+    private var menuForwarder: MenuForwarder?
+    /// When the person chose Open Link in New Tab, until the window it
+    /// asks for is opened.
+    private var backgroundLinkRequest: Date?
+
+    /// A page's windows open as tabs, so the link menu's Open Link in New
+    /// Window is Open Link in New Tab. WebKit still opens the link; Kit
+    /// notes the choice so its tab opens behind.
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        menuForwarder = nil
+        guard let item = menu.items.first(where: { $0.identifier == Self.openLinkInNewWindow }) else { return }
+        item.title = "Open Link in New Tab"
+        let forwarder = MenuForwarder(target: item.target, action: item.action) { [weak self] in
+            self?.backgroundLinkRequest = Date()
+        }
+        item.target = forwarder
+        item.action = #selector(MenuForwarder.forward(_:))
+        menuForwarder = forwarder
+    }
+
+    /// Whether the person just chose Open Link in New Tab, ending it.
+    func takeBackgroundLinkRequest() -> Bool {
+        defer { backgroundLinkRequest = nil }
+        return backgroundLinkRequest.map { Date().timeIntervalSince($0) < 2 } ?? false
+    }
+}
+
+/// Sends a menu item's action on to the target it had, after telling Kit.
+@MainActor private final class MenuForwarder: NSObject {
+    private weak var target: AnyObject?
+    private let action: Selector?
+    private let chosen: () -> Void
+
+    init(target: AnyObject?, action: Selector?, chosen: @escaping () -> Void) {
+        self.target = target
+        self.action = action
+        self.chosen = chosen
+    }
+
+    @objc func forward(_ sender: NSMenuItem) {
+        chosen()
+        guard let action else { return }
+        NSApp.sendAction(action, to: target, from: sender)
     }
 }

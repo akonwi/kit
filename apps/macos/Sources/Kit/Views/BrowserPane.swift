@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// A browser tab's pane: a toolbar with navigation, the address field, and
-/// Open in default browser over the page. The page draws with its own
+/// A browser tab's pane: a toolbar with navigation, the address field, Copy
+/// Address, and Open in default browser over the page. The page draws with its own
 /// colours; a page that can't load shows Kit's message instead.
 ///
 /// A mouse's back and forward buttons step through the tab's history
@@ -58,6 +58,9 @@ private struct BrowserToolbar: View {
     let tab: BrowserTab
     @Binding var draft: String
     @FocusState private var addressFocused: Bool
+    /// The copy of the address the field is confirming; 0 when none.
+    @State private var confirmedCopy = 0
+    private var copied: Bool { confirmedCopy != 0 }
 
     var body: some View {
         let page = tab.page
@@ -73,11 +76,13 @@ private struct BrowserToolbar: View {
                     .disabled(tab.url == nil)
             }
             address.padding(.leading, 6)
+            BrowserToolbarButton(icon: .copy, size: 13, help: "Copy Address") { tab.copyAddress() }
+                .disabled(tab.copyableAddress == nil)
+                .padding(.leading, 2)
             BrowserToolbarButton(icon: .arrowSquareOut, help: "Open in Default Browser") {
                 if let url = tab.url { NSWorkspace.shared.open(url) }
             }
             .disabled(tab.url.map(BrowserAddress.isWeb) != true)
-            .padding(.leading, 2)
         }
         .padding(.horizontal, 8)
         .frame(height: 38)
@@ -101,6 +106,15 @@ private struct BrowserToolbar: View {
             // Let the new tab's field mount before it takes the keyboard.
             try? await Task.sleep(for: .milliseconds(50))
             addressFocused = true
+        }
+        // A copy made while the toolbar shows is confirmed, and another
+        // starts the confirmation again; one made while hidden isn't.
+        .onChange(of: tab.addressCopies) { _, copies in confirmedCopy = copies }
+        .task(id: confirmedCopy) {
+            guard confirmedCopy != 0 else { return }
+            try? await Task.sleep(for: BrowserTab.copyConfirmation)
+            guard !Task.isCancelled else { return }
+            confirmedCopy = 0
         }
     }
 
@@ -127,8 +141,25 @@ private struct BrowserToolbar: View {
                     .lineLimit(1).truncationMode(.tail)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
+                    .padding(.trailing, copied ? 70 : 0)
             }
         }
+        .overlay(alignment: .trailing) {
+            if copied {
+                HStack(spacing: 4) {
+                    IconView(.check, size: 11)
+                    Text("Copied").font(.kit(size: 11))
+                }
+                .foregroundStyle(theme.muted)
+                .padding(.leading, 8)
+                .background(theme.raised)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Address copied")
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: copied)
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 26, maxHeight: 26)
         .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))

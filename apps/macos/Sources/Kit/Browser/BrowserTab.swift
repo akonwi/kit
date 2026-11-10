@@ -6,6 +6,9 @@ import Observation
 enum BrowserTabRequest {
     /// The page opened a window: show `tab` beside the one that opened it.
     case openTab(BrowserTab)
+    /// The person asked to open a link in a new tab beside this one, from
+    /// a page that sends `referrer`, brought to the front when `select` is true.
+    case openLink(URL, referrer: URL?, select: Bool)
     /// The page asked to close.
     case close
     case downloadFinished(file: URL, source: URL?)
@@ -71,6 +74,14 @@ final class BrowserTab: Identifiable {
     /// Receives an authorization's redirect; the tab closes once it has.
     @ObservationIgnored var redirectReceiver: BrowserRedirectReceiver?
     @ObservationIgnored var opener = BrowserTabOpener.user
+    /// The tab whose link or window opened this one, if it's still open
+    /// beside it, so tabs it opens next follow this one in order.
+    @ObservationIgnored var openedFrom: UUID?
+    /// Counts the person's copies of the tab's address, so the address
+    /// field can confirm each briefly.
+    private(set) var addressCopies = 0
+    /// How long the address field confirms a copy.
+    static let copyConfirmation: Duration = .milliseconds(1500)
     @ObservationIgnored private var closed = false
     /// The page's dialog or file chooser waiting for an answer, if any.
     private(set) var pageDialog: BrowserPageDialog?
@@ -133,12 +144,13 @@ final class BrowserTab: Identifiable {
         load(url)
     }
 
-    func load(_ url: URL) {
+    /// Loads `url`, telling its site the page that linked to it, if any.
+    func load(_ url: URL, referrer: URL? = nil) {
         pending = nil
         self.url = url
         failure = nil
         favicon = nil
-        liveEngine.load(url)
+        liveEngine.load(url, referrer: referrer)
     }
 
     func goBack() { engine?.goBack() }
@@ -164,6 +176,29 @@ final class BrowserTab: Identifiable {
 
     func requestAddressFocus() { addressFocusRequest += 1 }
 
+    /// What Copy Address copies: the address the field shows, without a
+    /// user name or password. Nil for a blank tab.
+    var copyableAddress: String? {
+        url.map { BrowserAddress.withoutCredentials($0).absoluteString }
+    }
+
+    /// Copies the tab's address, as the field shows it, to `pasteboard`,
+    /// and says so to VoiceOver, as the field's confirmation can't.
+    func copyAddress(to pasteboard: NSPasteboard = .general) {
+        guard let address = copyableAddress else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(address, forType: .string)
+        addressCopies += 1
+        AccessibilityAnnouncement.post("Address copied")
+    }
+
+    /// Lays out a page that hasn't been shown at a typical pane's size, so
+    /// it loads as it would be seen until a host sizes it.
+    func sizeUnshownPage() {
+        let view = liveEngine.view
+        if view.frame.isEmpty { view.frame = NSRect(origin: .zero, size: Self.unshownPageSize) }
+    }
+
     /// Whether a request for the address field is still unanswered; it's
     /// answered by asking, so a field shown again doesn't repeat it.
     func takeAddressFocusRequest() -> Bool {
@@ -180,9 +215,8 @@ final class BrowserTab: Identifiable {
     func agentEngine() throws -> any BrowserEngine {
         guard !closed else { throw BrowserAgentError("The tab was closed. Call browser__tabs for the tabs open now.") }
         let engine = liveEngine
-        // A page never shown has no size; lay it out as a typical pane until
-        // a host sizes it.
-        if engine.view.frame.isEmpty { engine.view.frame = NSRect(origin: .zero, size: Self.unshownPageSize) }
+        // The agent may read a page never shown.
+        sizeUnshownPage()
         if let pending {
             self.pending = nil
             engine.load(pending)
@@ -299,6 +333,8 @@ final class BrowserTab: Identifiable {
             let tab = BrowserTab(adopting: child, makeEngine: makeEngine)
             tab.opener = opener
             onRequest(.openTab(tab))
+        case .openLink(let url, let referrer, let select):
+            onRequest?(.openLink(url, referrer: referrer, select: select))
         case .closeRequested:
             onRequest?(.close)
         case .downloadFinished(let file, let source):

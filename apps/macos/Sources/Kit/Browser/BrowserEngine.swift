@@ -24,6 +24,10 @@ enum BrowserEngineEvent {
     /// The page opened a window. The new engine is already loading it and
     /// keeps its opener; its owner shows it as a new tab.
     case openedWindow(any BrowserEngine)
+    /// The person asked to open a link in a new tab, as by ⌘-clicking it,
+    /// rather than in this one, from a page that sends `referrer`. The new
+    /// tab comes to the front when `select` is true.
+    case openLink(URL, referrer: URL?, select: Bool)
     /// The page asked to close its window.
     case closeRequested
     /// A page dialog or file chooser opened or ended; nil once none is open.
@@ -55,6 +59,23 @@ enum BrowserHistoryStep: Equatable {
     }
 }
 
+/// Where a link the person activates opens.
+enum BrowserLinkDisposition: Equatable {
+    /// In the tab showing it.
+    case here
+    /// In a new tab, brought to the front when `selected` is true.
+    case newTab(selected: Bool)
+
+    /// A link activated with `modifiers` held, by the middle mouse button
+    /// or not. ⌘ or the middle button opens it in a new tab in front; ⇧
+    /// with either keeps the new tab behind, as in Safari. Without them it
+    /// opens here.
+    init(modifiers: NSEvent.ModifierFlags, middleButton: Bool) {
+        guard modifiers.contains(.command) || middleButton else { self = .here; return }
+        self = .newTab(selected: !modifiers.contains(.shift))
+    }
+}
+
 /// A web page engine behind a browser tab. Kit's views and models use only
 /// this interface; the engine's implementation is the one place that knows
 /// which web engine draws the page. It presents its own login prompts and
@@ -67,7 +88,8 @@ enum BrowserHistoryStep: Equatable {
     /// redirect. Returning true stops the navigation there.
     var interceptsNavigation: (@MainActor (URL) -> Bool)? { get set }
     var state: BrowserPageState { get }
-    func load(_ url: URL)
+    /// Loads `url`, telling its site the page that linked to it, if any.
+    func load(_ url: URL, referrer: URL?)
     func goBack()
     func goForward()
     func reload()
@@ -93,6 +115,10 @@ enum BrowserHistoryStep: Equatable {
     /// Delivers native input to the page as a person's, which needs the
     /// page in a window.
     func sendInput(_ input: BrowserInput) throws
+}
+
+extension BrowserEngine {
+    func load(_ url: URL) { load(url, referrer: nil) }
 }
 
 /// A page's alert, confirm, prompt, or file chooser, waiting for an answer.

@@ -713,14 +713,13 @@ final class WorkspaceState {
         switch request {
         case .openTab(let child):
             // A page's new window opens as the next tab in the same tile.
-            guard let id = self.tile(containing: pane), let index = tiles[id]?.panes.firstIndex(of: pane) else {
-                child.close(); return
-            }
-            adopt(child)
-            let opened = WorkspacePane.browser(child.id)
-            panes.append(opened)
-            tiles[id]?.panes.insert(opened, at: index + 1)
-            select(opened)
+            guard insert(child, after: tab) else { child.close(); return }
+            select(.browser(child.id))
+        case .openLink(let url, let referrer, let select):
+            let child = BrowserTab(makeEngine: makeBrowserEngine)
+            guard insert(child, after: tab) else { return }
+            child.load(url, referrer: referrer)
+            if select { self.select(.browser(child.id)) } else { child.sizeUnshownPage() }
         case .close:
             close(pane)
         case .downloadFinished(let file, let source):
@@ -732,6 +731,36 @@ final class WorkspaceState {
         case .downloadFailed(let filename, let message):
             feedback?.show(title: "Couldn’t download " + filename, detail: message, tone: .error, persistent: true)
         }
+    }
+
+    /// Adds `child`, a tab `opener` opened, to `opener`'s tile after it and
+    /// the tabs it, or tabs it opened, opened before that still follow it,
+    /// as in Safari: tabs opened from one page stay in the order they were
+    /// opened. Returns false, adding nothing, when `opener` is no longer in
+    /// a tile.
+    private func insert(_ child: BrowserTab, after opener: BrowserTab) -> Bool {
+        let pane = WorkspacePane.browser(opener.id)
+        guard let id = tile(containing: pane), let strip = tiles[id]?.panes,
+              var index = strip.firstIndex(of: pane).map({ $0 + 1 }) else { return false }
+        while index < strip.count, opened(strip[index], from: opener.id) { index += 1 }
+        child.openedFrom = opener.id
+        adopt(child)
+        let opened = WorkspacePane.browser(child.id)
+        panes.append(opened)
+        tiles[id]?.panes.insert(opened, at: index)
+        return true
+    }
+
+    /// Whether `pane` is a browser tab that the tab `opener` opened, or
+    /// that a tab it opened did, and so on.
+    private func opened(_ pane: WorkspacePane, from opener: UUID) -> Bool {
+        var seen: Set<UUID> = []
+        var next = browser(pane)?.openedFrom
+        while let id = next, seen.insert(id).inserted {
+            if id == opener { return true }
+            next = browsers[id]?.openedFrom
+        }
+        return false
     }
 
     private func removeTile(_ id: UUID) {

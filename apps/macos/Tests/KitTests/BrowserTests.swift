@@ -11,10 +11,12 @@ import Testing
     var interceptsNavigation: (@MainActor (URL) -> Bool)?
     var state = BrowserPageState()
     private(set) var loads: [URL] = []
+    /// The page each load said linked to it.
+    private(set) var referrers: [URL?] = []
     private(set) var reloads = 0
     private(set) var closed = false
 
-    func load(_ url: URL) { loads.append(url); state.url = url }
+    func load(_ url: URL, referrer: URL?) { loads.append(url); referrers.append(referrer); state.url = url }
     func goBack() {}
     func goForward() {}
     func reload() { reloads += 1 }

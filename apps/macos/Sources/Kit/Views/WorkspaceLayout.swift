@@ -558,7 +558,8 @@ final class TabFrames {
     var frames: [WorkspacePane: CGRect] = [:]
 }
 
-private struct WorkspaceTabActions: View {
+/// A workspace tab's context menu items.
+struct WorkspaceTabActions: View {
     let state: SessionStore
     let workspace: WorkspaceState
     let pane: WorkspacePane
@@ -572,6 +573,9 @@ private struct WorkspaceTabActions: View {
             Divider()
         } else if case .localFile(let file) = pane {
             FileTabMenuItems(actions: FileTabActions(file: file, cwd: nil, gate: .available))
+            Divider()
+        } else if let tab = workspace.browser(pane) {
+            Button("Copy Address") { tab.copyAddress() }.disabled(tab.copyableAddress == nil)
             Divider()
         }
         if pane.isMarkdown {
