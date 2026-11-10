@@ -386,13 +386,23 @@ private struct MarkdownPreviewRow: View {
         return hovering && annotations.canAnnotate && state.editor == nil && !state.pending && !state.uncertain
     }
 
+    /// Hovering only shows, enables, and exposes the +, which sits in an
+    /// overlay: it never changes a row's size or structure. A lazy stack
+    /// re-measures rows whose layout changes, and the hover update SwiftUI
+    /// runs after every layout would otherwise flip `hovering` as rows
+    /// settle under a still pointer, with no end to the loop.
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             ZStack(alignment: .top) {
                 if annotated {
                     RoundedRectangle(cornerRadius: 1.5).fill(theme.accent).frame(width: 3).frame(maxHeight: .infinity)
                 }
-                if offers, let lines, let annotations {
+            }
+            .frame(width: MarkdownDocumentView.gutterWidth)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .overlay(alignment: .top) {
+                if let lines, let annotations {
+                    let offers = offers
                     Button { annotations.begin(lines) } label: {
                         IconView(.plus, size: 10).foregroundStyle(theme.surface)
                             .frame(width: 16, height: 16)
@@ -402,10 +412,12 @@ private struct MarkdownPreviewRow: View {
                     .buttonStyle(.plain)
                     .help(lines.count == 1 ? "Comment on line \(lines.lowerBound)" : "Comment on lines \(lines.lowerBound)–\(lines.upperBound)")
                     .accessibilityLabel("Comment on this block")
+                    .opacity(offers ? 1 : 0)
+                    .allowsHitTesting(offers)
+                    .disabled(!offers)
+                    .accessibilityHidden(!offers)
                 }
             }
-            .frame(width: MarkdownDocumentView.gutterWidth)
-            .frame(maxHeight: .infinity, alignment: .top)
             Group {
                 switch row.content {
                 case .block(let block): MarkdownBlocks(blocks: [block])
@@ -475,38 +487,40 @@ private struct MarkdownTable: View {
     @Environment(\.mica) private var theme
     let table: MarkdownContent.TableContent
 
+    /// Columns share the width the table is offered, and a table too narrow
+    /// for readable columns scrolls sideways at their narrowest. The table's
+    /// size depends only on that offered width, never on which container
+    /// encloses it, so a lazy stack measures a table off screen exactly as
+    /// it lays it out on screen.
     var body: some View {
-        ScrollView(.horizontal) {
-            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-                GridRow(alignment: .top) {
-                    cells(table.header, header: true)
-                }
-                Rule().gridCellUnsizedAxes(.horizontal)
-                ForEach(Array(table.rows.enumerated()), id: \.offset) { _, cells in
-                    GridRow(alignment: .top) { self.cells(cells, header: false) }
-                    Rule().gridCellUnsizedAxes(.horizontal)
-                }
-            }
-            // Rows take their tallest cell's height rather than sharing out any
-            // extra height a parent proposes to the cells stretched below.
-            .fixedSize()
+        ViewThatFits(in: .horizontal) {
+            grid
+            ScrollView(.horizontal) { grid }
         }
         .background(theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.border, lineWidth: 1))
     }
 
+    private var grid: some View {
+        MarkdownTableLayout(columns: table.header.count) {
+            cells(table.header, header: true)
+            Rule()
+            ForEach(Array(table.rows.enumerated()), id: \.offset) { _, cells in
+                self.cells(cells, header: false)
+                Rule()
+            }
+        }
+    }
+
     private func cells(_ values: [AttributedString], header: Bool) -> some View {
-        ForEach(Array(values.enumerated()), id: \.offset) { index, cell in
-            MarkdownInline(value: cell)
+        ForEach(0..<table.header.count, id: \.self) { index in
+            MarkdownInline(value: values.indices.contains(index) ? values[index] : AttributedString())
                 .fontWeight(header ? .semibold : .regular)
                 .multilineTextAlignment(textAlignment(index))
                 .frame(maxWidth: .infinity, alignment: alignment(index))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(10)
-                .containerRelativeFrame(.horizontal, alignment: alignment(index)) { width, _ in
-                    MarkdownTableSizing.columnWidth(viewport: width, columns: table.header.count)
-                }
                 // Fill the row's height so a row's background is one band
                 // when its cells wrap to different heights.
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -539,6 +553,78 @@ enum MarkdownTableSizing {
 
     static func columnWidth(viewport: CGFloat, columns: Int) -> CGFloat {
         max(minimumColumnWidth, viewport / CGFloat(max(1, columns)))
+    }
+}
+
+/// Lays out a Markdown table's rows, each `columns` cells and then a rule,
+/// in equal columns sized by `MarkdownTableSizing` from the offered width:
+/// at their narrowest when no width is offered, as in a horizontal scroll
+/// view. A row is as tall as its tallest cell, and every cell in it is
+/// offered that height.
+struct MarkdownTableLayout: Layout {
+    let columns: Int
+
+    struct Row {
+        var cells: Range<Int>
+        var rule: Int?
+        var height: CGFloat
+        var ruleHeight: CGFloat
+    }
+
+    struct Cache {
+        var columnWidth: CGFloat?
+        var rows: [Row] = []
+    }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = Cache() }
+
+    func columnWidth(_ proposal: ProposedViewSize) -> CGFloat {
+        let offered = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 0
+        return MarkdownTableSizing.columnWidth(viewport: offered, columns: columns)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let width = columnWidth(proposal)
+        let rows = measure(subviews, columnWidth: width, cache: &cache)
+        return CGSize(width: width * CGFloat(max(1, columns)), height: rows.reduce(0) { $0 + $1.height + $1.ruleHeight })
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let width = columnWidth(proposal)
+        var y = bounds.minY
+        for row in measure(subviews, columnWidth: width, cache: &cache) {
+            for (column, index) in row.cells.enumerated() {
+                subviews[index].place(at: CGPoint(x: bounds.minX + CGFloat(column) * width, y: y), anchor: .topLeading,
+                                      proposal: ProposedViewSize(width: width, height: row.height))
+            }
+            y += row.height
+            if let rule = row.rule {
+                subviews[rule].place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                                     proposal: ProposedViewSize(width: width * CGFloat(max(1, columns)), height: row.ruleHeight))
+                y += row.ruleHeight
+            }
+        }
+    }
+
+    private func measure(_ subviews: Subviews, columnWidth width: CGFloat, cache: inout Cache) -> [Row] {
+        if cache.columnWidth == width { return cache.rows }
+        let stride = max(1, columns) + 1
+        var rows: [Row] = []
+        var start = 0
+        while start < subviews.count {
+            let cells = start..<min(start + stride - 1, subviews.count)
+            let rule = cells.upperBound < subviews.count ? cells.upperBound : nil
+            let height = cells.map { subviews[$0].sizeThatFits(ProposedViewSize(width: width, height: nil)).height }.max() ?? 0
+            let ruleHeight = rule.map {
+                subviews[$0].sizeThatFits(ProposedViewSize(width: width * CGFloat(max(1, columns)), height: nil)).height
+            } ?? 0
+            rows.append(Row(cells: cells, rule: rule, height: height, ruleHeight: ruleHeight))
+            start += stride
+        }
+        cache = Cache(columnWidth: width, rows: rows)
+        return rows
     }
 }
 
