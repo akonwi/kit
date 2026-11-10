@@ -144,7 +144,7 @@ func (h *sessionPluginHost) requestInteraction(ctx context.Context, input plugin
 	if observer == nil {
 		return plugin.InteractionResponse{}, plugin.ErrInteractivityUnavailable
 	}
-	request := session.PluginInteractionInput{Owner: session.PluginInteractionOwner{PluginID: input.Owner.PluginID, Instance: pluginCommandInstance(input.Owner)}, Kind: session.InteractionKind(input.Kind), Title: input.Title, Detail: input.Message, ConfirmLabel: input.ConfirmLabel, CancelLabel: input.CancelLabel, DefaultValue: input.DefaultValue, Placeholder: input.Placeholder, InitialValue: input.InitialValue, Filterable: input.Filterable}
+	request := session.PluginInteractionInput{Owner: session.PluginInteractionOwner{PluginID: input.Owner.PluginID, Instance: pluginCommandInstance(input.Owner)}, Kind: session.InteractionKind(input.Kind), Title: input.Title, Detail: input.Message, ConfirmLabel: input.ConfirmLabel, CancelLabel: input.CancelLabel, DefaultValue: input.DefaultValue, Placeholder: input.Placeholder, InitialValue: input.InitialValue}
 	for _, option := range input.Options {
 		request.Options = append(request.Options, session.PluginInteractionOption{Label: option.Label, Detail: option.Description})
 	}

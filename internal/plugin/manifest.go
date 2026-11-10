@@ -51,6 +51,10 @@ type Installation struct {
 	Manifest     Manifest
 }
 
+// PhaseVersionOne marks the diagnostic of a manifest rejected because it
+// speaks protocol version 1.
+const PhaseVersionOne = "protocol-version-1"
+
 // Diagnostic describes an isolated discovery failure. Duplicate diagnostics
 // include both paths, so callers can retain actionable errors across attachment.
 type Diagnostic struct {
@@ -83,15 +87,18 @@ type DiscoveryResult struct {
 
 var pluginID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
-// ProtocolVersion is the plugin protocol version an installation speaks.
-func (installation Installation) ProtocolVersion() int {
-	if installation.Manifest.ProtocolVersion == 0 {
-		return 1
-	}
-	return installation.Manifest.ProtocolVersion
+// VersionOneError rejects a manifest without "protocolVersion": 2. Such a
+// plugin speaks protocol version 1, which Kit no longer runs.
+type VersionOneError struct {
+	// PluginID is the manifest's valid, unreserved plugin ID.
+	PluginID string
 }
 
-// ParseManifest validates the manifest-v1 shape and host-reserved command domains.
+func (e *VersionOneError) Error() string {
+	return fmt.Sprintf("plugin %q uses plugin protocol version 1, which Kit no longer runs", e.PluginID)
+}
+
+// ParseManifest validates the manifest shape and host-reserved command domains.
 func ParseManifest(data []byte, reservedIDs []string) (Manifest, error) {
 	var manifest Manifest
 	if len(data) > MaxManifestBytes {
@@ -132,8 +139,9 @@ func ParseManifest(data []byte, reservedIDs []string) (Manifest, error) {
 		return Manifest{}, errors.New("manifestVersion must be 1")
 	}
 	manifest.ManifestVersion = 1
-	if raw, ok := fields["protocolVersion"]; ok && !numberIs(string(raw), pluginprotocol.Version) {
-		return Manifest{}, fmt.Errorf("protocolVersion must be %d; omit it for protocol version 1", pluginprotocol.Version)
+	raw, declared := fields["protocolVersion"]
+	if declared && !numberIs(string(raw), pluginprotocol.Version) {
+		return Manifest{}, fmt.Errorf("protocolVersion must be %d", pluginprotocol.Version)
 	}
 	if !pluginID.MatchString(manifest.ID) || manifest.ID == "kit" || strings.HasPrefix(manifest.ID, "kit-") {
 		return Manifest{}, errors.New("invalid or reserved plugin id")
@@ -142,6 +150,9 @@ func ParseManifest(data []byte, reservedIDs []string) (Manifest, error) {
 		if id == manifest.ID {
 			return Manifest{}, fmt.Errorf("plugin id %q is a reserved command domain", id)
 		}
+	}
+	if !declared {
+		return Manifest{}, &VersionOneError{PluginID: manifest.ID}
 	}
 	if _, ok := fields["name"]; ok && (utf8.RuneCountInString(manifest.Name) < 1 || utf8.RuneCountInString(manifest.Name) > 128) {
 		return Manifest{}, errors.New("name must contain 1 to 128 characters")
@@ -258,6 +269,11 @@ func Discover(ctx context.Context, options Discovery) (DiscoveryResult, error) {
 			var manifest Manifest
 			if err == nil {
 				manifest, err = ParseManifest(data, options.ReservedIDs)
+			}
+			var versionOne *VersionOneError
+			if errors.As(err, &versionOne) {
+				result.Diagnostics = append(result.Diagnostics, Diagnostic{Source: root.source, Phase: PhaseVersionOne, PluginID: versionOne.PluginID, ManifestPath: path, Message: err.Error()})
+				continue
 			}
 			if err != nil {
 				result.Diagnostics = append(result.Diagnostics, Diagnostic{Source: root.source, Phase: "manifest", ManifestPath: path, Message: err.Error()})

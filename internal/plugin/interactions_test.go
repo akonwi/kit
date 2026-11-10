@@ -14,17 +14,17 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 )
 
-func TestInteractionParsingPreservesV1FieldsAndOpaqueValues(t *testing.T) {
-	confirm, _, err := parseInteraction("kit/ui/confirm", json.RawMessage(`{"title":"Confirm","message":"**Markdown**\n\n\u0060\u0060\u0060go\nx()\n\u0060\u0060\u0060","confirmLabel":"Continue","cancelLabel":"Stop","defaultValue":true}`), 1)
+func TestInteractionParsingPreservesFieldsAndOpaqueValues(t *testing.T) {
+	confirm, _, err := parseInteraction("kit/ui/confirm", json.RawMessage(`{"title":"Confirm","message":"**Markdown**\n\n\u0060\u0060\u0060go\nx()\n\u0060\u0060\u0060","confirmLabel":"Continue","cancelLabel":"Stop","defaultValue":true}`))
 	if err != nil || confirm.Kind != InteractionConfirm || confirm.ConfirmLabel != "Continue" || confirm.CancelLabel != "Stop" || confirm.DefaultValue == nil || !*confirm.DefaultValue || !strings.Contains(confirm.Message, "```go") {
 		t.Fatalf("confirm = %#v, %v", confirm, err)
 	}
-	input, _, err := parseInteraction("kit/ui/input", json.RawMessage(`{"title":"Input","message":null,"placeholder":"Your note","initialValue":"initial\nvalue"}`), 1)
+	input, _, err := parseInteraction("kit/ui/input", json.RawMessage(`{"title":"Input","message":null,"placeholder":"Your note","initialValue":"initial\nvalue"}`))
 	if err != nil || input.Placeholder != "Your note" || input.InitialValue != "initial\nvalue" {
 		t.Fatalf("input = %#v, %v", input, err)
 	}
-	selected, _, err := parseInteraction("kit/ui/select", json.RawMessage(`{"title":"Select","filterable":true,"placeholder":"Search","options":[{"label":"Null","value":null},{"label":"Large","value":9007199254740993,"description":"Exact integer"},{"label":"Object","value":{"nested":[true,"hello"]}}]}`), 1)
-	if err != nil || !selected.Filterable || len(selected.Options) != 3 {
+	selected, _, err := parseInteraction("kit/ui/select", json.RawMessage(`{"title":"Select","placeholder":"Search","options":[{"label":"Null","value":null},{"label":"Large","value":9007199254740993,"description":"Exact integer"},{"label":"Object","value":{"nested":[true,"hello"]}}]}`))
+	if err != nil || selected.Placeholder != "Search" || len(selected.Options) != 3 {
 		t.Fatalf("select = %#v, %v", selected, err)
 	}
 	for index, want := range []string{`{"value":null}`, `{"value":9007199254740993}`, `{"value":{"nested":[true,"hello"]}}`} {
@@ -67,9 +67,9 @@ func TestInteractionPayloadAndResultValidation(t *testing.T) {
 		{"select", `{"title":"Select","options":[{"label":"Missing value"}]}`},
 		{"select", `{"title":"Select","options":[{"label":"x","value":null,"value":false}]}`},
 		{"select", `{"title":"Select","options":[{"label":"x","value":null,"unknown":1}]}`},
-		{"select", `{"title":"Select","filterable":null,"options":[{"label":"x","value":null}]}`},
+		{"select", `{"title":"Select","filterable":true,"options":[{"label":"x","value":null}]}`},
 	} {
-		if _, _, err := parseInteraction("kit/ui/"+test.method, json.RawMessage(test.raw), 1); err == nil {
+		if _, _, err := parseInteraction("kit/ui/"+test.method, json.RawMessage(test.raw)); err == nil {
 			t.Errorf("accepted %s", test.raw)
 		}
 	}
@@ -78,7 +78,7 @@ func TestInteractionPayloadAndResultValidation(t *testing.T) {
 		{"select", `{"title":"Select","options":[` + strings.Repeat(`{"label":"x","value":null},`, maxInteractionOptions) + `{"label":"last","value":null}]}`},
 		{"select", `{"title":"Select","options":[{"label":"x","value":"` + strings.Repeat("x", maxInteractionTextBytes) + `"}]}`},
 	} {
-		if _, _, err := parseInteraction("kit/ui/"+test.method, json.RawMessage(test.raw), 1); err == nil {
+		if _, _, err := parseInteraction("kit/ui/"+test.method, json.RawMessage(test.raw)); err == nil {
 			t.Errorf("accepted oversized %s", test.method)
 		}
 	}
@@ -198,7 +198,7 @@ func TestInteractionHostRejectsAnswerAfterReload(t *testing.T) {
 	}
 }
 
-func TestUIDemoV1FixtureThroughHostInteractionAdapter(t *testing.T) {
+func TestUIDemoFixtureThroughHostInteractionAdapter(t *testing.T) {
 	home := apphome.FromHome(t.TempDir())
 	installUIDemoFixture(t, home)
 	var mu sync.Mutex

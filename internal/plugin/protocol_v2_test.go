@@ -45,7 +45,7 @@ func protocolSchema(t *testing.T, definition string) *validator.Schema {
 }
 
 func TestVersion2InitializeIdentifiesKitAndTheInstance(t *testing.T) {
-	instance, root := testInstanceVersion(t, t.Context(), "normal", RPCHandlers{}, testInstanceDeadlines(), 2)
+	instance, root := testInstance(t, t.Context(), "normal", RPCHandlers{}, testInstanceDeadlines())
 	if err := instance.WaitReady(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -64,129 +64,99 @@ func TestVersion2InitializeIdentifiesKitAndTheInstance(t *testing.T) {
 	}
 }
 
-func TestVersion1InitializeIsUnchanged(t *testing.T) {
-	instance, root := testInstance(t, t.Context(), "normal", RPCHandlers{}, testInstanceDeadlines())
-	if err := instance.WaitReady(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(filepath.Join(root, "initial.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := `{"protocolVersion":1,"context":{"project":{"cwd":` + mustJSONString(t, root) + `,"git":null},"session":{"id":"session-one","name":null}}}`; string(raw) != want {
-		t.Fatalf("initialize params = %s\nwant %s", raw, want)
-	}
-}
-
-func TestVersion2PluginMustAcceptVersion2(t *testing.T) {
-	// bad-version answers protocol version 2 whatever Kit asked for; a
-	// version 2 plugin answering 2 is accepted, and the same answer from a
-	// version 1 plugin is not.
-	accepted, _ := testInstanceVersion(t, t.Context(), "bad-version", RPCHandlers{}, testInstanceDeadlines(), 2)
-	if err := accepted.WaitReady(t.Context()); err != nil {
-		t.Fatalf("version 2 answer to version 2: %v", err)
-	}
+func TestPluginMustAnswerVersion2(t *testing.T) {
+	// bad-version answers protocol version 1.
 	rejected, _ := testInstance(t, t.Context(), "bad-version", RPCHandlers{}, testInstanceDeadlines())
 	if err := rejected.WaitReady(t.Context()); err == nil || !strings.Contains(err.Error(), "unsupported protocol version") {
-		t.Fatalf("version 2 answer to version 1 = %v", err)
+		t.Fatalf("version 1 answer = %v", err)
 	}
 }
 
 func TestManifestProtocolVersion(t *testing.T) {
 	base := `"manifestVersion":1,"id":"demo","transport":{"type":"stdio","command":"demo"}`
 	manifest, err := ParseManifest([]byte(`{`+base+`,"protocolVersion":2}`), nil)
-	if err != nil || manifest.ProtocolVersion != 2 || (Installation{Manifest: manifest}).ProtocolVersion() != 2 {
+	if err != nil || manifest.ProtocolVersion != 2 {
 		t.Fatalf("version 2 manifest = %#v, %v", manifest, err)
 	}
-	manifest, err = ParseManifest([]byte(`{`+base+`}`), nil)
-	if err != nil || (Installation{Manifest: manifest}).ProtocolVersion() != 1 {
-		t.Fatalf("manifest without protocolVersion = %#v, %v", manifest, err)
+	var versionOne *VersionOneError
+	if _, err := ParseManifest([]byte(`{`+base+`}`), nil); !errors.As(err, &versionOne) || versionOne.PluginID != "demo" {
+		t.Fatalf("manifest without protocolVersion = %v", err)
 	}
 	for _, value := range []string{"1", "3", `"2"`, "null", "2.5"} {
-		if _, err := ParseManifest([]byte(`{`+base+`,"protocolVersion":`+value+`}`), nil); err == nil {
-			t.Errorf("accepted protocolVersion %s", value)
+		if _, err := ParseManifest([]byte(`{`+base+`,"protocolVersion":`+value+`}`), nil); err == nil || errors.As(err, &versionOne) {
+			t.Errorf("protocolVersion %s = %v", value, err)
 		}
 	}
 }
 
-func TestVersion2RejectsBatchesAndKeepsServing(t *testing.T) {
+func TestBatchesAreRejectedAndServingContinues(t *testing.T) {
 	handlers := RPCHandlers{Request: func(_ context.Context, method string, _ json.RawMessage) (json.RawMessage, error) {
 		return json.Marshal(method)
 	}}
-	limits := defaultRPCLimits
-	limits.protocolVersion = 2
-	endpoint, peer, reader := rpcTestPeer(t, handlers, limits)
-	rpcWritePeer(t, peer, `[{"jsonrpc":"2.0","id":1,"method":"first"},{"jsonrpc":"2.0","id":2,"method":"second"}]`)
-	line, err := reader.ReadBytes('\n')
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Batches are not supported"}}` + "\n"; string(line) != want {
-		t.Fatalf("batch answer = %s", line)
-	}
-	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":3,"method":"after"}`)
-	line, err = reader.ReadBytes('\n')
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := `{"jsonrpc":"2.0","id":3,"result":"after"}` + "\n"; string(line) != want {
-		t.Fatalf("request after batch = %s", line)
+	endpoint, peer, reader := rpcTestPeer(t, handlers, defaultRPCLimits)
+	for index, batch := range []string{
+		`[{"jsonrpc":"2.0","id":1,"method":"first"},{"jsonrpc":"2.0","id":2,"method":"second"}]`,
+		`[{"jsonrpc":"2.0","id":1,"method":"first"},17]`,
+		`[]`,
+	} {
+		rpcWritePeer(t, peer, batch)
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Batches are not supported"}}` + "\n"; string(line) != want {
+			t.Fatalf("answer to %s = %s", batch, line)
+		}
+		rpcWritePeer(t, peer, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"after"}`, 10+index))
+		line, err = reader.ReadBytes('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":"after"}`, 10+index) + "\n"; string(line) != want {
+			t.Fatalf("request after %s = %s", batch, line)
+		}
 	}
 	if endpoint.Err() != nil {
 		t.Fatalf("endpoint closed: %v", endpoint.Err())
 	}
 }
 
-func TestBusyErrorsCarryAReasonInVersion2Only(t *testing.T) {
-	for _, test := range []struct {
-		version int
-		want    string
-	}{
-		{1, `{"jsonrpc":"2.0","id":2,"error":{"code":-32006,"message":"Endpoint is busy"}}`},
-		{2, `{"jsonrpc":"2.0","id":2,"error":{"code":-32006,"message":"Endpoint is busy","data":{"reason":"busy"}}}`},
-	} {
-		t.Run(fmt.Sprintf("version %d", test.version), func(t *testing.T) {
-			started, release := make(chan struct{}), make(chan struct{})
-			defer close(release)
-			handlers := RPCHandlers{Request: func(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
-				close(started)
-				select {
-				case <-release:
-				case <-ctx.Done():
-				}
-				return nil, nil
-			}}
-			limits := defaultRPCLimits
-			limits.incoming = 1
-			limits.protocolVersion = test.version
-			_, peer, reader := rpcTestPeer(t, handlers, limits)
-			rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":1,"method":"wait"}`)
-			<-started
-			rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":2,"method":"busy"}`)
-			line, err := reader.ReadBytes('\n')
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(line) != test.want+"\n" {
-				t.Fatalf("busy answer = %s, want %s", line, test.want)
-			}
-		})
+func TestBusyErrorsCarryAReason(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	handlers := RPCHandlers{Request: func(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+		close(started)
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil, nil
+	}}
+	limits := defaultRPCLimits
+	limits.incoming = 1
+	_, peer, reader := rpcTestPeer(t, handlers, limits)
+	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":1,"method":"wait"}`)
+	<-started
+	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":2,"method":"busy"}`)
+	line, err := reader.ReadBytes('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"jsonrpc":"2.0","id":2,"error":{"code":-32006,"message":"Endpoint is busy","data":{"reason":"busy"}}}` + "\n"; string(line) != want {
+		t.Fatalf("busy answer = %s, want %s", line, want)
 	}
 }
 
-func TestVersion2ParamsHaveExactlyTheDeclaredMembers(t *testing.T) {
+func TestParamsHaveExactlyTheDeclaredMembers(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		members []string
 		want    []string
 	}{
-		{"v1 footer set", versionMembers(1, footerSetMembers, v1FooterSetExtras...), []string{"id", "content", "side", "clickable", "action"}},
-		{"v2 footer set", versionMembers(2, footerSetMembers, v1FooterSetExtras...), []string{"id", "content"}},
-		{"v1 select", versionMembers(1, selectMembers, v1SelectExtras...), []string{"title", "message", "options", "placeholder", "filterable"}},
-		{"v2 select", versionMembers(2, selectMembers, v1SelectExtras...), []string{"title", "message", "options", "placeholder", "parentId"}},
-		{"v1 confirm", versionMembers(1, confirmMembers), []string{"title", "message", "confirmLabel", "cancelLabel", "defaultValue"}},
-		{"v2 confirm", versionMembers(2, confirmMembers), []string{"title", "message", "confirmLabel", "cancelLabel", "defaultValue", "parentId"}},
-		{"v2 input", versionMembers(2, inputMembers), []string{"title", "message", "placeholder", "initialValue", "parentId"}},
+		{"footer set", footerSetMembers, []string{"id", "content"}},
+		{"select", selectMembers, []string{"title", "message", "options", "placeholder", "parentId"}},
+		{"confirm", confirmMembers, []string{"title", "message", "confirmLabel", "cancelLabel", "defaultValue", "parentId"}},
+		{"input", inputMembers, []string{"title", "message", "placeholder", "initialValue", "parentId"}},
 		{"command", commandRegisterMembers, []string{"id", "description", "argName", "category"}},
 		{"tool", toolRegisterMembers, []string{"id", "label", "description", "inputSchema", "executionMode", "promptSnippet", "promptGuidelines"}},
 		{"subagent", subagentRegisterMembers, []string{"id", "description", "instructions", "model"}},
@@ -201,28 +171,22 @@ func TestVersion2ParamsHaveExactlyTheDeclaredMembers(t *testing.T) {
 	}
 }
 
-func TestVersion2RejectsVersion1OnlyMembers(t *testing.T) {
+func TestVersion1OnlyMembersAreRejected(t *testing.T) {
 	var failure *RPCError
-	if _, err := parseFooterItem(json.RawMessage(`{"id":"status","content":[{"text":"x"}],"side":"right"}`), 2); !errors.As(err, &failure) || failure.Code != -32602 {
-		t.Fatalf("v2 side = %v", err)
+	if _, err := parseFooterItem(json.RawMessage(`{"id":"status","content":[{"text":"x"}],"side":"right"}`)); !errors.As(err, &failure) || failure.Code != -32602 {
+		t.Fatalf("side = %v", err)
 	}
-	if _, err := parseFooterItem(json.RawMessage(`{"id":"status","content":[{"text":"x"}],"side":"right","clickable":false}`), 1); err != nil {
-		t.Fatalf("v1 side = %v", err)
-	}
-	if _, _, err := parseInteraction("kit/ui/select", json.RawMessage(`{"title":"x","options":[{"label":"a","value":1}],"filterable":true}`), 2); !errors.As(err, &failure) || failure.Code != -32602 {
-		t.Fatalf("v2 filterable = %v", err)
-	}
-	if _, _, err := parseInteraction("kit/ui/confirm", json.RawMessage(`{"title":"x","parentId":"kit-1"}`), 1); !errors.As(err, &failure) || failure.Code != -32602 {
-		t.Fatalf("v1 parentId = %v", err)
+	if _, _, err := parseInteraction("kit/ui/select", json.RawMessage(`{"title":"x","options":[{"label":"a","value":1}],"filterable":true}`)); !errors.As(err, &failure) || failure.Code != -32602 {
+		t.Fatalf("filterable = %v", err)
 	}
 	for _, parent := range []string{`null`, `1.5`, `{}`, `true`} {
-		if _, _, err := parseInteraction("kit/ui/confirm", json.RawMessage(`{"title":"x","parentId":`+parent+`}`), 2); !errors.As(err, &failure) || failure.Code != -32602 {
-			t.Errorf("v2 parentId %s = %v", parent, err)
+		if _, _, err := parseInteraction("kit/ui/confirm", json.RawMessage(`{"title":"x","parentId":`+parent+`}`)); !errors.As(err, &failure) || failure.Code != -32602 {
+			t.Errorf("parentId %s = %v", parent, err)
 		}
 	}
-	_, parent, err := parseInteraction("kit/ui/input", json.RawMessage(`{"title":"x","parentId":42}`), 2)
+	_, parent, err := parseInteraction("kit/ui/input", json.RawMessage(`{"title":"x","parentId":42}`))
 	if err != nil || string(parent) != "42" {
-		t.Fatalf("v2 integer parentId = %s, %v", parent, err)
+		t.Fatalf("integer parentId = %s, %v", parent, err)
 	}
 }
 
@@ -240,11 +204,11 @@ func parentDialog(t *testing.T, parentID string) (<-chan error, context.CancelFu
 	endpoint, peer, reader := rpcTestPeer(t, RPCHandlers{}, defaultRPCLimits)
 	callContext, cancelCall := context.WithCancel(t.Context())
 	go func() { _, _ = endpoint.Call(callContext, "kit/tool-calls/before-execute", json.RawMessage(`{}`)) }()
-	messages, _ := rpcRead(t, reader)
+	messages := rpcRead(t, reader)
 	if string(messages[0].ID) != `"kit-1"` {
 		t.Fatalf("parent request = %#v", messages[0])
 	}
-	handlerContext := context.WithValue(withProtocolVersion(t.Context(), 2), endpointContextKey{}, endpoint)
+	handlerContext := context.WithValue(t.Context(), endpointContextKey{}, endpoint)
 	outcome := make(chan error, 1)
 	go func() {
 		_, err := host.handleRequest(handlerContext, owner, "kit/ui/confirm", json.RawMessage(`{"title":"Run?","parentId":`+parentID+`}`))
@@ -285,7 +249,7 @@ func TestDialogClosesWhenItsParentIsAnswered(t *testing.T) {
 func TestDialogClosesWhenItsParentIsCancelled(t *testing.T) {
 	outcome, cancelCall, _, reader, _ := parentDialog(t, `"kit-1"`)
 	cancelCall()
-	messages, _ := rpcRead(t, reader)
+	messages := rpcRead(t, reader)
 	if messages[0].Method == nil || *messages[0].Method != "kit/cancel" || string(messages[0].Params) != `{"id":"kit-1"}` {
 		t.Fatalf("cancel = %#v", messages[0])
 	}
@@ -314,7 +278,7 @@ func TestDialogWithAnUnknownParentIsCancelledAtOnce(t *testing.T) {
 func TestVersion2MessagesKitSendsMatchTheSchema(t *testing.T) {
 	home := apphome.FromHome(t.TempDir())
 	cwd, other := t.TempDir(), t.TempDir()
-	root := hostInstallationVersion(t, home.Plugins, "commands", "demo", "commands", 2)
+	root := hostInstallation(t, home.Plugins, "commands", "demo", "commands")
 	branch := "main"
 	git := &GitContext{Root: cwd, Branch: &branch, PullRequest: &PullRequestContext{Number: 7, URL: "https://github.com/a/b/pull/7"}}
 	project := func(_ context.Context, dir string) (ProjectContext, error) {
@@ -405,10 +369,10 @@ func TestSchemaAndHostAgreeOnPluginText(t *testing.T) {
 		"kit/commands/register":      func(raw json.RawMessage) error { _, err := parseCommand(raw); return err },
 		"kit/tools/register":         func(raw json.RawMessage) error { _, err := parseTool(raw); return err },
 		"kit/subagents/register":     func(raw json.RawMessage) error { _, err := parseSubagent(raw); return err },
-		"kit/footer/set":             func(raw json.RawMessage) error { _, err := parseFooterItem(raw, 2); return err },
+		"kit/footer/set":             func(raw json.RawMessage) error { _, err := parseFooterItem(raw); return err },
 		"kit/ui/toast":               func(raw json.RawMessage) error { _, err := parseToast(raw); return err },
-		"kit/ui/select":              func(raw json.RawMessage) error { _, _, err := parseInteraction("kit/ui/select", raw, 2); return err },
-		"kit/ui/input":               func(raw json.RawMessage) error { _, _, err := parseInteraction("kit/ui/input", raw, 2); return err },
+		"kit/ui/select":              func(raw json.RawMessage) error { _, _, err := parseInteraction("kit/ui/select", raw); return err },
+		"kit/ui/input":               func(raw json.RawMessage) error { _, _, err := parseInteraction("kit/ui/input", raw); return err },
 		"kit/session/submit-message": func(raw json.RawMessage) error { _, err := parseMessage(raw); return err },
 		"kit/system/open-url":        func(raw json.RawMessage) error { _, err := parseOpenURL(raw); return err },
 	}
@@ -484,11 +448,9 @@ func TestVersion2RejectsPrunedSurfaceAndKeepsServing(t *testing.T) {
 		return InteractionResponse{}, ctx.Err()
 	})
 	handlers := RPCHandlers{Request: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
-		return host.handleRequest(withProtocolVersion(ctx, 2), owner, method, params)
+		return host.handleRequest(ctx, owner, method, params)
 	}}
-	limits := defaultRPCLimits
-	limits.protocolVersion = 2
-	endpoint, peer, reader := rpcTestPeer(t, handlers, limits)
+	endpoint, peer, reader := rpcTestPeer(t, handlers, defaultRPCLimits)
 	for index, test := range []struct {
 		method, params string
 		code           int64
@@ -508,12 +470,12 @@ func TestVersion2RejectsPrunedSurfaceAndKeepsServing(t *testing.T) {
 		t.Run(test.method+" "+test.params, func(t *testing.T) {
 			id := 2 * index
 			rpcWritePeer(t, peer, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":%s}`, id, test.method, test.params))
-			messages, _ := rpcRead(t, reader)
+			messages := rpcRead(t, reader)
 			if string(messages[0].ID) != fmt.Sprint(id) || messages[0].Error == nil || messages[0].Error.Code != test.code {
 				t.Fatalf("answer = %#v, want error %d", messages[0], test.code)
 			}
 			rpcWritePeer(t, peer, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"kit/footer/clear","params":{"id":"status"}}`, id+1))
-			messages, _ = rpcRead(t, reader)
+			messages = rpcRead(t, reader)
 			if string(messages[0].ID) != fmt.Sprint(id+1) || messages[0].Error != nil || string(messages[0].Result) != "null" {
 				t.Fatalf("request after the rejection = %#v", messages[0])
 			}
@@ -528,7 +490,7 @@ func TestOversizedParamsExceedTheLimitAndTheCatalogSaysSo(t *testing.T) {
 	host, owner := interactionHost(t, nil)
 	padding := `"` + strings.Repeat(" ", MaxContributionParamsBytes) + `"`
 	for _, method := range []string{"kit/commands/unregister", "kit/tools/unregister", "kit/subagents/unregister", "kit/footer/clear", "kit/footer/show"} {
-		_, err := host.handleRequest(withProtocolVersion(t.Context(), 2), owner, method, json.RawMessage(`{"id":`+padding+`}`))
+		_, err := host.handleRequest(t.Context(), owner, method, json.RawMessage(`{"id":`+padding+`}`))
 		var failure *RPCError
 		if !errors.As(err, &failure) || failure.Code != -32005 {
 			t.Errorf("%s = %v, want -32005", method, err)

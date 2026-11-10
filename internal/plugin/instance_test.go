@@ -30,7 +30,7 @@ func TestPluginInstanceHelper(t *testing.T) {
 		os.Exit(1)
 	}
 	decoder := json.NewDecoder(io.TeeReader(os.Stdin, received))
-	version := json.RawMessage("1")
+	version := json.RawMessage("2")
 	encoder := json.NewEncoder(os.Stdout)
 	if mode == "early" {
 		_ = encoder.Encode(requestMessage(json.RawMessage(`"early"`), "host/register", nil))
@@ -76,28 +76,26 @@ func TestPluginInstanceHelper(t *testing.T) {
 					time.Sleep(time.Millisecond)
 				}
 			}
-			if mode == "invalid-batch" {
-				_ = encoder.Encode([]any{17, responseMessage(message.ID, json.RawMessage(`{"protocolVersion":1}`), nil)})
-				continue
-			}
 			if mode == "bad-version" {
-				_ = encoder.Encode(responseMessage(message.ID, json.RawMessage(`{"protocolVersion":2}`), nil))
+				_ = encoder.Encode(responseMessage(message.ID, json.RawMessage(`{"protocolVersion":1}`), nil))
 				continue
 			}
 			if mode == "extra-version-field" {
-				_ = encoder.Encode(responseMessage(message.ID, json.RawMessage(`{"protocolVersion":1,"extra":true}`), nil))
+				_ = encoder.Encode(responseMessage(message.ID, json.RawMessage(`{"protocolVersion":2,"extra":true}`), nil))
 				continue
 			}
 			if mode == "reject-init" {
 				_ = encoder.Encode(responseMessage(message.ID, nil, rpcError(-32000, "unsupported protocol")))
 				continue
 			}
-			if mode == "batch-ready" {
+			if mode == "pipelined-ready" {
+				// The request follows the answer before Kit can react to it.
 				var initial struct {
 					Context json.RawMessage `json:"context"`
 				}
 				_ = json.Unmarshal(message.Params, &initial)
-				_ = encoder.Encode([]rpcMessage{responseMessage(message.ID, accepted, nil), requestMessage(json.RawMessage(`"immediate"`), "host/register", initial.Context)})
+				_ = encoder.Encode(responseMessage(message.ID, accepted, nil))
+				_ = encoder.Encode(requestMessage(json.RawMessage(`"immediate"`), "host/register", initial.Context))
 			} else {
 				_ = encoder.Encode(responseMessage(message.ID, accepted, nil))
 			}
@@ -220,14 +218,8 @@ func TestPluginInstanceHelper(t *testing.T) {
 	}
 }
 
+// testInstance starts the helper plugin.
 func testInstance(t *testing.T, parent context.Context, mode string, handlers RPCHandlers, deadlines instanceDeadlines) (*Instance, string) {
-	t.Helper()
-	return testInstanceVersion(t, parent, mode, handlers, deadlines, 0)
-}
-
-// testInstanceVersion starts the helper plugin with a manifest that declares
-// protocolVersion, or none when it is zero.
-func testInstanceVersion(t *testing.T, parent context.Context, mode string, handlers RPCHandlers, deadlines instanceDeadlines, protocolVersion int) (*Instance, string) {
 	t.Helper()
 	t.Setenv("KIT_INSTANCE_HELPER", "1")
 	executable, err := os.Executable()
@@ -235,7 +227,7 @@ func testInstanceVersion(t *testing.T, parent context.Context, mode string, hand
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	installation := Installation{Root: root, Manifest: Manifest{ManifestVersion: 1, ProtocolVersion: protocolVersion, ID: "example", Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}}
+	installation := Installation{Root: root, Manifest: Manifest{ManifestVersion: 1, ProtocolVersion: 2, ID: "example", Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}}
 	instance, err := startInstance(parent, InstanceID{HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "session-one", PluginID: "example", Generation: 1}, installation, PluginContext{Project: ProjectContext{Cwd: root}, Session: SessionContext{ID: "session-one"}}, nil, handlers, deadlines)
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +260,7 @@ func waitInstance(t *testing.T, instance *Instance) {
 
 func TestInstanceInitializationPublishesReadyBeforePipelinedWork(t *testing.T) {
 	registered := make(chan json.RawMessage, 1)
-	instance, root := testInstance(t, t.Context(), "batch-ready", RPCHandlers{Request: func(_ context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+	instance, root := testInstance(t, t.Context(), "pipelined-ready", RPCHandlers{Request: func(_ context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 		if method != "host/register" {
 			return nil, rpcError(-32601, "unknown")
 		}
@@ -303,7 +295,7 @@ func TestInstanceInitializationPublishesReadyBeforePipelinedWork(t *testing.T) {
 }
 
 func TestInstanceRejectsInvalidInitializationAndEarlyWork(t *testing.T) {
-	for _, mode := range []string{"bad-version", "extra-version-field", "reject-init", "early", "early-notify", "invalid-batch", "stall-init"} {
+	for _, mode := range []string{"bad-version", "extra-version-field", "reject-init", "early", "early-notify", "stall-init"} {
 		t.Run(mode, func(t *testing.T) {
 			var called atomic.Int32
 			deadlines := testInstanceDeadlines()

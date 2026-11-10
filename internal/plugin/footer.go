@@ -85,9 +85,9 @@ func parseFooterStyle(raw json.RawMessage) (FooterStyle, error) {
 	return style, nil
 }
 
-func parseFooterItem(raw json.RawMessage, version int) (FooterItem, error) {
+func parseFooterItem(raw json.RawMessage) (FooterItem, error) {
 	var item FooterItem
-	fields, err := contributionObject(raw, versionMembers(version, footerSetMembers, v1FooterSetExtras...)...)
+	fields, err := contributionObject(raw, footerSetMembers...)
 	if err != nil {
 		return item, err
 	}
@@ -96,27 +96,6 @@ func parseFooterItem(raw json.RawMessage, version int) (FooterItem, error) {
 	}
 	if !localID(item.LocalID) {
 		return item, rpcError(-32602, "Invalid footer item id")
-	}
-	if value, ok := fields["side"]; ok {
-		var side string
-		if json.Unmarshal(value, &side) != nil || (side != "left" && side != "right") {
-			return item, rpcError(-32602, "Invalid footer side")
-		}
-		if side != "right" {
-			return item, rpcError(-32601, "Only bottom-right footer contributions are supported")
-		}
-	}
-	if _, ok := fields["action"]; ok {
-		return item, rpcError(-32601, "Footer URL actions are not implemented")
-	}
-	if value, ok := fields["clickable"]; ok {
-		var clickable bool
-		if bytes.Equal(value, []byte("null")) || json.Unmarshal(value, &clickable) != nil {
-			return item, rpcError(-32602, "Invalid footer clickable flag")
-		}
-		if clickable {
-			return item, rpcError(-32601, "Footer click callbacks are not implemented")
-		}
 	}
 	decoder := json.NewDecoder(bytes.NewReader(fields["content"]))
 	if opening, err := decoder.Token(); err != nil || opening != json.Delim('[') {
@@ -167,7 +146,7 @@ func (h *Host) handleFooter(ctx context.Context, owner InstanceID, method string
 	var err error
 	switch method {
 	case "kit/footer/set":
-		item, err = parseFooterItem(params, protocolVersion(ctx))
+		item, err = parseFooterItem(params)
 	case "kit/footer/clear":
 		id, err = parseLocalID(params)
 	case "kit/footer/hide", "kit/footer/show":
@@ -300,7 +279,7 @@ func (h *Host) Footer() FooterState {
 	return result
 }
 
-// Public v1 tokens are validated without resolving client-specific colors.
+// Public theme tokens are validated without resolving client-specific colors.
 var footerThemeTokens = map[string]bool{
 	"bg":                         true,
 	"bgSurface":                  true,

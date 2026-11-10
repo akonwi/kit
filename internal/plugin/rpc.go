@@ -31,10 +31,6 @@ type RPCHandlers struct {
 
 type rpcLimits struct {
 	frame, queued, incoming, outgoing, notifications int
-	// protocolVersion is the plugin protocol the endpoint speaks. Version 2
-	// answers a batch with -32600 instead of processing it and gives busy
-	// errors a data.reason; zero and 1 keep version 1's behavior.
-	protocolVersion int
 }
 
 var defaultRPCLimits = rpcLimits{frame: MaxFrameBytes, queued: MaxQueuedBytes, incoming: MaxIncomingRequests, outgoing: 128, notifications: 128}
@@ -51,12 +47,8 @@ type rpcPending struct {
 	done chan struct{}
 }
 
-// busyError rejects a request beyond the endpoint's concurrency bound. Only
-// protocol version 2 carries a reason; version 1's error is unchanged.
+// busyError rejects a request beyond the endpoint's concurrency bound.
 func (e *RPCEndpoint) busyError() *RPCError {
-	if e.limits.protocolVersion < 2 {
-		return rpcError(-32006, "Endpoint is busy")
-	}
 	return &RPCError{Code: -32006, Message: "Endpoint is busy", Data: json.RawMessage(`{"reason":"busy"}`)}
 }
 
@@ -141,8 +133,9 @@ type RPCEndpoint struct {
 // NewRPCEndpoint takes exclusive ownership of input/output, which must unblock
 // pending reads/writes when closed (as process pipes do). Initialization/version
 // negotiation and the owning process's shutdown are the lifecycle host's job.
-// Incoming payload/batch retention shares a 32 MiB budget; outgoing calls and
-// queued notifications are each capped at 128. Batches allow at most 1024 items.
+// Incoming payload retention shares a 32 MiB budget; outgoing calls and
+// queued notifications are each capped at 128. A batch (a JSON array) is
+// answered with -32600 and not processed.
 func NewRPCEndpoint(ctx context.Context, input io.ReadCloser, output io.WriteCloser, handlers RPCHandlers) *RPCEndpoint {
 	return newRPCEndpoint(ctx, input, output, handlers, defaultRPCLimits)
 }
@@ -500,17 +493,17 @@ func (e *RPCEndpoint) readLoop() {
 			}
 			chunk = chunk[1:]
 			line := bytes.TrimSuffix(frame, []byte{'\r'})
-			if e.limits.protocolVersion >= 2 && bytes.HasPrefix(bytes.TrimSpace(line), []byte{'['}) && utf8.Valid(line) && json.Valid(line) {
+			if bytes.HasPrefix(bytes.TrimSpace(line), []byte{'['}) && utf8.Valid(line) && json.Valid(line) {
 				e.sendResponse(responseMessage(json.RawMessage("null"), nil, rpcError(-32600, "Batches are not supported")))
 				line = nil
 			}
 			if len(line) > 0 {
-				messages, batch, decodeErr := decodeRPCFrame(line)
+				message, decodeErr := decodeRPCFrame(line)
 				if decodeErr != nil {
 					e.rejectProtocol(line, decodeErr)
 					return
 				}
-				e.dispatch(messages, batch)
+				e.dispatch(message)
 			}
 			frame = frame[:0]
 			if e.Err() != nil {
@@ -554,58 +547,14 @@ func (e *RPCEndpoint) rejectProtocol(frame []byte, reason error) {
 	}()
 }
 
-func (e *RPCEndpoint) dispatch(messages []rpcMessage, batch bool) {
-	count := 0
-	for _, message := range messages {
-		if message.invalid || (message.Method != nil && message.ID != nil) {
-			count++
-		}
-	}
-	var replies *rpcBatch
-	if batch && count > 0 {
-		base := count * 128
-		for _, message := range messages {
-			if message.invalid || (message.Method != nil && message.ID != nil) {
-				base += len(message.ID)
-			}
-		}
-		e.mu.Lock()
-		if base > e.limits.queued-e.bufferedBytes {
-			e.mu.Unlock()
-			e.Close(errors.New("plugin batch buffer exceeds limit"))
-			return
-		}
-		e.bufferedBytes += base
-		e.mu.Unlock()
-		replies = &rpcBatch{endpoint: e, remaining: count, bytes: 1, reserved: base, responses: make([]rpcMessage, count)}
-	}
-	index := 0
-	for _, message := range messages {
-		if message.Method == nil && !message.invalid {
-			e.acceptResponse(message)
-			continue
-		}
-		if message.ID == nil && !message.invalid {
-			e.acceptNotification(message)
-			continue
-		}
-		reply := e.sendResponse
-		if replies != nil {
-			slot := index
-			reply = func(response rpcMessage) { replies.add(slot, response) }
-			index++
-		}
-		if message.invalid {
-			if e.handlers.admit != nil {
-				if err := e.handlers.admit("", false); err != nil {
-					reply(responseMessage(message.ID, nil, err))
-					continue
-				}
-			}
-			reply(message)
-		} else {
-			e.acceptRequest(message, reply)
-		}
+func (e *RPCEndpoint) dispatch(message rpcMessage) {
+	switch {
+	case message.Method == nil:
+		e.acceptResponse(message)
+	case message.ID == nil:
+		e.acceptNotification(message)
+	default:
+		e.acceptRequest(message, e.sendResponse)
 	}
 }
 
@@ -806,60 +755,5 @@ func (e *RPCEndpoint) sendResponse(response rpcMessage) {
 		if _, fallback := e.enqueue(responseMessage(response.ID, nil, rpcError(code, "Response exceeds protocol limits or is invalid"))); fallback != nil {
 			e.Close(fallback)
 		}
-	}
-}
-
-type rpcBatch struct {
-	mu        sync.Mutex
-	endpoint  *RPCEndpoint
-	remaining int
-	bytes     int
-	oversized bool
-	reserved  int
-	retained  int
-	responses []rpcMessage
-}
-
-func (b *rpcBatch) add(index int, response rpcMessage) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	encoded, err := json.Marshal(response)
-	if err != nil || !utf8.Valid(encoded) {
-		response = responseMessage(response.ID, nil, rpcError(-32603, "Invalid handler result"))
-		encoded, _ = json.Marshal(response)
-	}
-	b.bytes += len(encoded) + 1
-	if !b.oversized {
-		b.endpoint.mu.Lock()
-		tooLarge := b.bytes > b.endpoint.limits.frame || len(encoded) > b.endpoint.limits.queued-b.endpoint.bufferedBytes
-		if tooLarge {
-			b.endpoint.bufferedBytes -= b.retained
-			b.retained = 0
-		} else {
-			b.endpoint.bufferedBytes += len(encoded)
-			b.retained += len(encoded)
-		}
-		b.endpoint.mu.Unlock()
-		if tooLarge {
-			b.oversized = true
-			for i, previous := range b.responses {
-				if previous.ID != nil {
-					b.responses[i] = responseMessage(previous.ID, nil, rpcError(-32005, "Batch exceeds protocol limits"))
-				}
-			}
-		}
-	}
-	if b.oversized {
-		response = responseMessage(response.ID, nil, rpcError(-32005, "Batch exceeds protocol limits"))
-	}
-	b.responses[index] = response
-	b.remaining--
-	if b.remaining == 0 {
-		if _, err := b.endpoint.enqueue(b.responses); err != nil {
-			b.endpoint.Close(err)
-		}
-		b.endpoint.mu.Lock()
-		b.endpoint.bufferedBytes -= b.reserved + b.retained
-		b.endpoint.mu.Unlock()
 	}
 }

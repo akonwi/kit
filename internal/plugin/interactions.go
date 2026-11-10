@@ -13,7 +13,7 @@ import (
 	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
-// InteractionKind identifies a v1 plugin user request, independent of model tools.
+// InteractionKind identifies a plugin user request, independent of model tools.
 type InteractionKind string
 
 const (
@@ -39,7 +39,6 @@ type InteractionRequest struct {
 	ConfirmLabel, CancelLabel string
 	DefaultValue              *bool
 	Placeholder, InitialValue string
-	Filterable                bool
 	Options                   []InteractionOption
 }
 
@@ -100,18 +99,18 @@ func interactionBool(fields map[string]json.RawMessage, name string) (bool, erro
 	return value, nil
 }
 
-// parseInteraction validates a dialog request of a protocol version. It
-// returns the request and, for version 2, the optional parent request ID.
-func parseInteraction(method string, params json.RawMessage, version int) (InteractionRequest, json.RawMessage, error) {
+// parseInteraction validates a dialog request. It returns the request and the
+// optional parent request ID.
+func parseInteraction(method string, params json.RawMessage) (InteractionRequest, json.RawMessage, error) {
 	request := InteractionRequest{Kind: InteractionKind(strings.TrimPrefix(method, "kit/ui/"))}
 	var allowed []string
 	switch request.Kind {
 	case InteractionConfirm:
-		allowed = versionMembers(version, confirmMembers)
+		allowed = confirmMembers
 	case InteractionInput:
-		allowed = versionMembers(version, inputMembers)
+		allowed = inputMembers
 	case InteractionSelect:
-		allowed = versionMembers(version, selectMembers, v1SelectExtras...)
+		allowed = selectMembers
 	default:
 		return request, nil, rpcError(-32601, "Unknown interaction method")
 	}
@@ -158,9 +157,6 @@ func parseInteractionFields(request InteractionRequest, fields map[string]json.R
 		request.InitialValue, err = interactionString(fields, "initialValue", maxInteractionTextBytes)
 	case InteractionSelect:
 		if request.Placeholder, err = contributionString(fields, "placeholder", maxInteractionTitleBytes, false); err != nil {
-			return request, err
-		}
-		if request.Filterable, err = interactionBool(fields, "filterable"); err != nil {
 			return request, err
 		}
 		request.Options, err = parseInteractionOptions(fields["options"])
@@ -252,7 +248,7 @@ func interactionResult(request InteractionRequest, response InteractionResponse)
 }
 
 func (h *Host) handleInteraction(ctx context.Context, owner InstanceID, method string, params json.RawMessage) (json.RawMessage, error) {
-	request, parent, err := parseInteraction(method, params, protocolVersion(ctx))
+	request, parent, err := parseInteraction(method, params)
 	if err != nil {
 		return nil, err
 	}

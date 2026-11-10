@@ -68,10 +68,10 @@ the fixtures' messages against the generated schema.
 
 ### Selecting a version
 
-A manifest may declare `"protocolVersion": 2`. Without it, the plugin speaks
-version 1. Kit starts every conversation in the declared version, so a plugin
-never has to accept a version it does not know. Version 1 behaves as it does
-today and is removed in a later stage (see Migration).
+A manifest declares `"protocolVersion": 2`, and Kit starts every conversation
+in that version, so a plugin never has to accept a version it does not know.
+A manifest without it speaks version 1, which Kit does not run (see
+Migration).
 
 ### Initialization
 
@@ -244,28 +244,26 @@ fixtures, not a library.
 
 ### Migration
 
-Version 2 ships alongside version 1. The version 1 specification and schemas
-stay at their current paths and URLs, unchanged, while Kit supports version 1.
-Meanwhile, a session that loads version 1 plugins shows a warning naming them
-and the migration guide. A final stage removes version 1: Kit rejects a
-manifest without `"protocolVersion": 2` with a diagnostic, and the version 1
-specification, implementation profile, and schemas leave the repository.
+Kit rejects a manifest without `"protocolVersion": 2` at discovery and does
+not start the plugin. The session's warning names such plugins, up to five
+and then a count of the rest, and links
+`docs/plugin-protocol/migrating-from-v1.md`, which says what changes. Version 1
+has no specification or schema in the repository.
 
-The session API needs no protocol change for this decision. The interaction
-record's `filterable` member exists only for version 1 select requests; it is
-removed with version 1, through the session API's compatibility process.
+The session API needs no protocol change for this decision. Its interaction
+record keeps the optional `filterable` member for client compatibility; no
+plugin can set it, so it is always false for plugin dialogs.
 
 ## Consequences
 
 - One document and one schema say what a plugin can do, and both are checked
   against Kit's code.
 - Plugins keep a credential-free, network-free, same-machine transport.
-- Existing plugins run unchanged until version 1 is removed, and each
-  plugin moves by declaring version 2 in its manifest and dropping the
-  members version 2 does not have.
+- A version 1 plugin stops loading until it is migrated; most plugins move by
+  declaring version 2 in the manifest, answering `initialize` with 2, and
+  dropping the members version 2 does not have.
 - Plugin authors write less: no batch handling, and approval dialogs close
   with their interceptor call without cancellation bookkeeping.
-- Kit maintains two protocol versions during the deprecation period.
 - A Kit release without version 2 rejects a manifest that declares it, as it
   rejects any unknown manifest member, and reports the manifest as invalid.
 - Plugins and clients still use two protocols; they share record types where

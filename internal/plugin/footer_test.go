@@ -30,7 +30,7 @@ func TestFooterRegistrationOrderUpdatesAndSnapshotIsolation(t *testing.T) {
 	if got := footerCall(t, h, owner, "set", `{"id":"first","content":[{"text":"Ready ","style":{"fg":"toolText","bold":true}},{"text":"now"}]}`); got != `{"id":"demo.first"}` {
 		t.Fatalf("set result = %s", got)
 	}
-	footerCall(t, h, owner, "set", `{"id":"second","side":"right","clickable":false,"content":[{"text":"Next"}]}`)
+	footerCall(t, h, owner, "set", `{"id":"second","content":[{"text":"Next"}]}`)
 	footerCall(t, h, owner, "set", `{"id":"first","content":[{"text":"Updated","style":{"bg":"bgMuted","dim":true,"italic":true,"underline":true,"strikethrough":true}}]}`)
 	view := h.Footer()
 	if len(view.Items) != 2 || view.Items[0].ID != "demo.first" || view.Items[1].ID != "demo.second" || view.Items[0].Content[0].Text != "Updated" {
@@ -146,18 +146,18 @@ func TestFooterResourceBoundsAndIdempotentClaims(t *testing.T) {
 	}
 	footerCall(t, h, owner, "show", `{"id":"demo.future0"}`)
 	footerCall(t, h, owner, "hide", `{"id":"demo.extra"}`)
-	_, err = parseFooterItem(json.RawMessage(`{"id":"x","content":[`+strings.Repeat(`{"text":""},`, MaxFooterSegments)+`{"text":""}]}`), 1)
+	_, err = parseFooterItem(json.RawMessage(`{"id":"x","content":[` + strings.Repeat(`{"text":""},`, MaxFooterSegments) + `{"text":""}]}`))
 	if !errors.As(err, &failure) || failure.Code != -32005 {
 		t.Fatalf("segment limit = %v", err)
 	}
-	_, err = parseFooterItem(json.RawMessage(fmt.Sprintf(`{"id":"x","content":[{"text":%q},{"text":"x"}]}`, strings.Repeat("a", MaxFooterTextBytes))), 1)
+	_, err = parseFooterItem(json.RawMessage(fmt.Sprintf(`{"id":"x","content":[{"text":%q},{"text":"x"}]}`, strings.Repeat("a", MaxFooterTextBytes))))
 	if !errors.As(err, &failure) || failure.Code != -32005 {
 		t.Fatalf("text limit = %v", err)
 	}
 }
 
 func TestFooterThemeTokensMatchPublicSchema(t *testing.T) {
-	data, err := os.ReadFile("../../docs/plugin-protocol/protocol.schema.json")
+	data, err := os.ReadFile("../../docs/plugin-protocol/v2/protocol.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}

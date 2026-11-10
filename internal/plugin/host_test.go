@@ -15,19 +15,12 @@ import (
 
 func hostInstallation(t *testing.T, root, name, id, mode string) string {
 	t.Helper()
-	return hostInstallationVersion(t, root, name, id, mode, 0)
-}
-
-// hostInstallationVersion installs the helper plugin with a manifest that
-// declares protocolVersion, or none when it is zero.
-func hostInstallationVersion(t *testing.T, root, name, id, mode string, protocolVersion int) string {
-	t.Helper()
 	t.Setenv("KIT_INSTANCE_HELPER", "1")
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := Manifest{ManifestVersion: 1, ProtocolVersion: protocolVersion, ID: id, Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}
+	manifest := Manifest{ManifestVersion: 1, ProtocolVersion: 2, ID: id, Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}
 	data, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +156,7 @@ func TestHostFailuresDoNotBlockHealthyPluginsOrRestart(t *testing.T) {
 	home := apphome.FromHome(t.TempDir())
 	cwd := t.TempDir()
 	writeInstallation(t, home.Plugins, "a-invalid", "{}")
-	writeInstallation(t, home.Plugins, "b-launch", `{"manifestVersion":1,"id":"missing","transport":{"type":"stdio","command":"./missing"}}`)
+	writeInstallation(t, home.Plugins, "b-launch", `{"manifestVersion":1,"protocolVersion":2,"id":"missing","transport":{"type":"stdio","command":"./missing"}}`)
 	hostInstallation(t, home.Plugins, "c-reject", "reject", "bad-version")
 	goodRoot := hostInstallation(t, home.Plugins, "d-good", "good", "normal")
 	hostInstallation(t, home.Plugins, "e-reserved", "model", "normal")
@@ -244,7 +237,7 @@ func TestHostCleanReloadDoesNotReportFailure(t *testing.T) {
 
 func TestHostReportsLaunchFailureWithoutStderr(t *testing.T) {
 	home := apphome.FromHome(t.TempDir())
-	writeInstallation(t, home.Plugins, "missing", `{"manifestVersion":1,"id":"missing","transport":{"type":"stdio","command":"./missing"}}`)
+	writeInstallation(t, home.Plugins, "missing", `{"manifestVersion":1,"protocolVersion":2,"id":"missing","transport":{"type":"stdio","command":"./missing"}}`)
 	failures := make(chan FailureEvent, 1)
 	host := NewHost(t.Context(), HostConfig{Home: home, CWD: t.TempDir(), Session: SessionContext{ID: "session-one"}, Failure: func(failure FailureEvent) {
 		failures <- failure
@@ -391,25 +384,48 @@ func TestHostRecreatedRuntimeDoesNotReuseOwnerIdentity(t *testing.T) {
 	}
 }
 
-func TestHostWarnsAboutVersionOnePluginsThatStillLoad(t *testing.T) {
+// versionOneInstallation installs a manifest without protocolVersion.
+func versionOneInstallation(t *testing.T, root, name, id string) {
+	t.Helper()
+	writeInstallation(t, root, name, `{"manifestVersion":1,"id":"`+id+`","transport":{"type":"stdio","command":"./never-started"}}`)
+}
+
+func TestHostReportsVersionOnePluginsItDoesNotStart(t *testing.T) {
 	home := apphome.FromHome(t.TempDir())
 	project, elsewhere := t.TempDir(), t.TempDir()
-	hostInstallation(t, home.Plugins, "a-old", "old-user", "normal")
-	hostInstallationVersion(t, home.Plugins, "b-new", "new-user", "normal", 2)
-	hostInstallation(t, filepath.Join(project, ".kit", "plugins"), "old", "old-project", "normal")
+	versionOneInstallation(t, home.Plugins, "a-old", "old-user")
+	hostInstallation(t, home.Plugins, "b-new", "new-user", "normal")
+	versionOneInstallation(t, filepath.Join(project, ".kit", "plugins"), "old", "old-project")
 	host := testHost(t, home, project)
 	host.Start()
-	both := "Plugins: old-user and old-project use plugin protocol version 1, which a later Kit release removes. Migrate to version 2: https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md"
+	both := "Plugins: old-user and old-project use plugin protocol version 1, which Kit no longer runs. Migrate to version 2: https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md"
 	eventuallyHost(t, func() bool {
 		warnings := host.Warnings()
-		return readyHost(host, 3) && len(warnings) == 1 && warnings[0] == both
+		return readyHost(host, 1) && len(warnings) == 1 && warnings[0] == both
 	})
+	if statuses := host.Instances(); statuses[0].ID.PluginID != "new-user" {
+		t.Fatalf("instances = %#v", statuses)
+	}
 
 	host.ChangeCWD(elsewhere)
-	userOnly := "Plugins: old-user uses plugin protocol version 1, which a later Kit release removes. Migrate to version 2: https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md"
+	userOnly := "Plugins: old-user uses plugin protocol version 1, which Kit no longer runs. Migrate to version 2: https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md"
 	eventuallyHost(t, func() bool {
 		warnings := host.Warnings()
-		return readyHost(host, 2) && len(warnings) == 1 && warnings[0] == userOnly
+		return readyHost(host, 1) && len(warnings) == 1 && warnings[0] == userOnly
+	})
+}
+
+func TestVersionOneWarningNamesASharedIDOnce(t *testing.T) {
+	home := apphome.FromHome(t.TempDir())
+	project := t.TempDir()
+	versionOneInstallation(t, home.Plugins, "old", "old")
+	versionOneInstallation(t, filepath.Join(project, ".kit", "plugins"), "old", "old")
+	host := testHost(t, home, project)
+	host.Start()
+	want := "Plugins: old uses plugin protocol version 1, which Kit no longer runs. Migrate to version 2: https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md"
+	eventuallyHost(t, func() bool {
+		warnings := host.Warnings()
+		return len(warnings) == 1 && warnings[0] == want
 	})
 }
 
@@ -423,7 +439,7 @@ func TestVersionOneWarningNamesAtMostFivePlugins(t *testing.T) {
 		{[]string{"a", "b", "c", "d", "e", "f"}, "a, b, c, d, and 2 others use"},
 	}
 	for _, test := range cases {
-		want := test.want + " plugin protocol version 1, which a later Kit release removes. Migrate to version 2: " + MigrationGuideURL
+		want := test.want + " plugin protocol version 1, which Kit no longer runs. Migrate to version 2: " + MigrationGuideURL
 		if got := versionOneWarning(test.ids); got != want {
 			t.Fatalf("warning for %v = %q, want %q", test.ids, got, want)
 		}
@@ -432,12 +448,12 @@ func TestVersionOneWarningNamesAtMostFivePlugins(t *testing.T) {
 
 func TestVersionOneWarningLeadsTheBoundedAggregate(t *testing.T) {
 	home := apphome.FromHome(t.TempDir())
-	hostInstallation(t, home.Plugins, "old", "old-user", "normal")
+	versionOneInstallation(t, home.Plugins, "old", "old-user")
 	host := testHost(t, home, t.TempDir())
 	host.Start()
-	eventuallyHost(t, func() bool { return readyHost(host, 1) && len(host.Warnings()) == 1 })
+	eventuallyHost(t, func() bool { return len(host.Warnings()) == 1 })
 	host.addDiagnostic(strings.Repeat("x", MaxFailureMessageBytes))
-	notice := "Plugins: old-user uses plugin protocol version 1, which a later Kit release removes. Migrate to version 2: https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md; xxx"
+	notice := "Plugins: old-user uses plugin protocol version 1, which Kit no longer runs. Migrate to version 2: https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md; xxx"
 	warnings := host.Warnings()
 	if len(warnings) != 1 || !strings.HasPrefix(warnings[0], notice) || len(warnings[0]) != MaxFailureMessageBytes {
 		t.Fatalf("warnings = %q", warnings)

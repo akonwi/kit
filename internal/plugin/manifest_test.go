@@ -14,7 +14,7 @@ import (
 )
 
 func manifestJSON(id string) string {
-	return `{"manifestVersion":1,"id":"` + id + `","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`
+	return `{"manifestVersion":1,"protocolVersion":2,"id":"` + id + `","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`
 }
 
 func TestParseManifest(t *testing.T) {
@@ -23,7 +23,7 @@ func TestParseManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Manifest{ManifestVersion: 1, ID: "speech", Transport: StdioTransport{Type: "stdio", Command: "python3", Args: []string{"-u", "plugin.py"}}}
+	want := Manifest{ManifestVersion: 1, ProtocolVersion: 2, ID: "speech", Transport: StdioTransport{Type: "stdio", Command: "python3", Args: []string{"-u", "plugin.py"}}}
 	if !reflect.DeepEqual(manifest, want) {
 		t.Fatalf("got %#v, want %#v", manifest, want)
 	}
@@ -34,6 +34,9 @@ func TestParseManifest(t *testing.T) {
 		"wrong transport field casing": strings.Replace(valid, `"command"`, `"Command"`, 1),
 		"wrong version":                strings.Replace(valid, `"manifestVersion":1`, `"manifestVersion":2`, 1),
 		"missing version":              strings.Replace(valid, `"manifestVersion":1,`, ``, 1),
+		"protocol version 1":           strings.Replace(valid, `"protocolVersion":2`, `"protocolVersion":1`, 1),
+		"protocol version 3":           strings.Replace(valid, `"protocolVersion":2`, `"protocolVersion":3`, 1),
+		"null protocol version":        strings.Replace(valid, `"protocolVersion":2`, `"protocolVersion":null`, 1),
 		"reserved kit":                 manifestJSON("kit"),
 		"reserved prefix":              manifestJSON("kit-speech"),
 		"uppercase id":                 manifestJSON("Speech"),
@@ -69,9 +72,30 @@ func TestParseManifest(t *testing.T) {
 	if _, err := ParseManifest([]byte(unicodeName), nil); err != nil {
 		t.Fatalf("Unicode character count: %v", err)
 	}
-	minimal := `{"manifestVersion":1,"id":"minimal","transport":{"type":"stdio","command":"./run"}}`
+	minimal := `{"manifestVersion":1,"protocolVersion":2,"id":"minimal","transport":{"type":"stdio","command":"./run"}}`
 	if _, err := ParseManifest([]byte(minimal), nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManifestWithoutProtocolVersionSpeaksVersionOne(t *testing.T) {
+	versionOne := strings.Replace(manifestJSON("speech"), `"protocolVersion":2,`, ``, 1)
+	_, err := ParseManifest([]byte(versionOne), nil)
+	var rejected *VersionOneError
+	if !errors.As(err, &rejected) || rejected.PluginID != "speech" || err.Error() != `plugin "speech" uses plugin protocol version 1, which Kit no longer runs` {
+		t.Fatalf("version 1 manifest = %v", err)
+	}
+	// Other errors come first, so the ID a VersionOneError names is valid.
+	if _, err := ParseManifest([]byte(strings.Replace(versionOne, `"speech"`, `"Speech"`, 1)), nil); err == nil || errors.As(err, &rejected) {
+		t.Fatalf("invalid id = %v", err)
+	}
+
+	home := apphome.FromHome(t.TempDir())
+	path := writeInstallation(t, home.Plugins, "speech", versionOne)
+	result, err := Discover(t.Context(), Discovery{Home: home, IncludeUser: true})
+	want := []Diagnostic{{Source: User, Phase: PhaseVersionOne, PluginID: "speech", ManifestPath: path, Message: `plugin "speech" uses plugin protocol version 1, which Kit no longer runs`}}
+	if err != nil || len(result.Installations) != 0 || !reflect.DeepEqual(result.Diagnostics, want) {
+		t.Fatalf("discovery = %#v, %v", result, err)
 	}
 }
 
@@ -189,11 +213,9 @@ func TestDiscoverMissingRootsCancellationAndInvalidPaths(t *testing.T) {
 	}
 }
 
-// TestRepositoryExampleManifests checks that the repository's fixtures speak
-// version 2.
+// TestRepositoryExampleManifests checks the repository's fixtures.
 func TestRepositoryExampleManifests(t *testing.T) {
-	versions := map[string]int{"footer-demo": 2, "open-url-demo": 2, "plugin-demo": 2, "session-message-demo": 2, "speech": 2, "subagent-demo": 2, "tool-demo": 2, "ui-api-demo": 2}
-	for id, version := range versions {
+	for _, id := range []string{"footer-demo", "open-url-demo", "plugin-demo", "session-message-demo", "speech", "subagent-demo", "tool-demo", "ui-api-demo"} {
 		t.Run(id, func(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join("..", "..", ".kit", "plugins", id, "plugin.json"))
 			if err != nil {
@@ -203,8 +225,8 @@ func TestRepositoryExampleManifests(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if manifest.ID != id || (Installation{Manifest: manifest}).ProtocolVersion() != version {
-				t.Fatalf("id = %q, protocol version = %d, want %s speaking %d", manifest.ID, (Installation{Manifest: manifest}).ProtocolVersion(), id, version)
+			if manifest.ID != id || manifest.ProtocolVersion != 2 {
+				t.Fatalf("id = %q, protocol version = %d, want %s speaking 2", manifest.ID, manifest.ProtocolVersion, id)
 			}
 			encoded, err := json.Marshal(manifest)
 			if err != nil {

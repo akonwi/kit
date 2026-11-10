@@ -1,8 +1,8 @@
 package pluginprotocol
 
 // Manifest is a plugin's launch document, plugin.json in its installation
-// directory. A manifest declaring ProtocolVersion 2 speaks this protocol;
-// one without it speaks version 1.
+// directory. ProtocolVersion is required: a manifest without it speaks
+// protocol version 1, which Kit no longer runs.
 type Manifest struct {
 	Schema          string         `json:"$schema,omitempty" schema:"format=uri" doc:"Absolute URI of the manifest schema, for editors. Kit does not fetch it."`
 	ManifestVersion int            `json:"manifestVersion" schema:"const=1"`

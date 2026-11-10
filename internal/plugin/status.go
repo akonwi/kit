@@ -139,7 +139,7 @@ func (h *Host) deliverStatus() {
 		h.recordDiagnosticLocked(fmt.Sprintf("%d compaction events were not delivered to plugins", dropped), false)
 	}
 	for _, entry := range h.entries {
-		if !h.currentReadyEntryLocked(entry) || entry.instance.version < 2 {
+		if !h.currentReadyEntryLocked(entry) {
 			continue
 		}
 		failed := false
@@ -183,9 +183,6 @@ func (h *Host) compactionNotification(compaction Compaction) (string, json.RawMe
 
 // handleStatusRequest answers kit/session/status with the latest status.
 func (h *Host) handleStatusRequest(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
-	if protocolVersion(ctx) < 2 {
-		return nil, rpcError(-32601, "Method not found")
-	}
 	if len(params) != 0 {
 		return nil, rpcError(-32602, "Session status takes no params")
 	}

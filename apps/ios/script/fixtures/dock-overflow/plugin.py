@@ -43,20 +43,20 @@ def send(value):
 
 pending = {}
 for line in sys.stdin:
-    frame = json.loads(line)
-    for message in frame if isinstance(frame, list) else [frame]:
-        method, identifier = message.get("method"), message.get("id")
-        if method == "initialize":
-            send({"jsonrpc": "2.0", "id": identifier, "result": {"protocolVersion": 1}})
-            send({"jsonrpc": "2.0", "id": "register", "method": "kit/commands/register",
-                  "params": {"id": "overflow", "description": "Ask a long confirmation"}})
-        elif method == "shutdown":
-            send({"jsonrpc": "2.0", "id": identifier, "result": None})
-            sys.exit(0)
-        elif method == "kit/commands/execute":
-            dialog = "confirm:" + str(identifier)
-            pending[dialog] = identifier
-            send({"jsonrpc": "2.0", "id": dialog, "method": "kit/ui/confirm",
-                  "params": {"title": TITLE, "message": MESSAGE, "confirmLabel": "Deploy", "cancelLabel": "Not now"}})
-        elif method is None and identifier in pending:
-            send({"jsonrpc": "2.0", "id": pending.pop(identifier), "result": None})
+    message = json.loads(line)
+    method, identifier = message.get("method"), message.get("id")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": identifier, "result": {"protocolVersion": 2}})
+        send({"jsonrpc": "2.0", "id": "register", "method": "kit/commands/register",
+              "params": {"id": "overflow", "description": "Ask a long confirmation"}})
+    elif method == "shutdown":
+        send({"jsonrpc": "2.0", "id": identifier, "result": None})
+        sys.exit(0)
+    elif method == "kit/commands/execute":
+        dialog = "confirm:" + str(identifier)
+        pending[dialog] = identifier
+        send({"jsonrpc": "2.0", "id": dialog, "method": "kit/ui/confirm",
+              "params": {"title": TITLE, "message": MESSAGE, "confirmLabel": "Deploy", "cancelLabel": "Not now",
+                         "parentId": identifier}})
+    elif method is None and identifier in pending:
+        send({"jsonrpc": "2.0", "id": pending.pop(identifier), "result": None})

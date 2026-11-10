@@ -234,9 +234,9 @@ func TestCommandAndToastPayloadValidation(t *testing.T) {
 	}
 }
 
-func TestDemoV1PluginCommandCompatibility(t *testing.T) {
+func TestDemoPluginCommandCompatibility(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("v1 Python fixture requires python3")
+		t.Skip("the plugin-demo fixture requires python3")
 	}
 	home := apphome.FromHome(t.TempDir())
 	root := filepath.Join(home.Plugins, "plugin-demo")

@@ -13,14 +13,12 @@ import (
 
 const (
 	// MaxFrameBytes bounds bytes before the newline delimiter (including CR
-	// when the peer uses CRLF), matching the v1 receive limit.
+	// when the peer uses CRLF).
 	MaxFrameBytes = 16 * 1024 * 1024
 	// MaxQueuedBytes bounds one endpoint's queued and currently writing output.
 	MaxQueuedBytes = 32 * 1024 * 1024
 	// MaxIncomingRequests bounds concurrent plugin-to-host requests.
 	MaxIncomingRequests = 128
-	// MaxBatchMessages bounds decoded batch metadata independently of frame bytes.
-	MaxBatchMessages = 1024
 )
 
 // RPCError is a JSON-RPC application or transport error. Data is optional JSON.
@@ -36,7 +34,6 @@ func (e *RPCError) Error() string { return fmt.Sprintf("plugin RPC %d: %s", e.Co
 func rpcError(code int64, message string) *RPCError { return &RPCError{Code: code, Message: message} }
 
 type rpcMessage struct {
-	invalid bool            // Local invalid-batch reply, never an incoming response.
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  *string         `json:"method,omitempty"`
@@ -177,44 +174,20 @@ func invalidRPCMessage(data json.RawMessage) rpcMessage {
 			id = fields["id"]
 		}
 	}
-	message := responseMessage(id, nil, rpcError(-32600, "Invalid request"))
-	message.invalid = true
-	return message
+	return responseMessage(id, nil, rpcError(-32600, "Invalid request"))
 }
 
-func decodeRPCFrame(frame []byte) ([]rpcMessage, bool, error) {
+// decodeRPCFrame decodes a frame holding one JSON-RPC message. The reader
+// answers batches before decoding.
+func decodeRPCFrame(frame []byte) (rpcMessage, error) {
 	if !utf8.Valid(frame) || !json.Valid(frame) {
-		return nil, false, rpcError(-32700, "Plugin wrote malformed JSON or invalid UTF-8")
+		return rpcMessage{}, rpcError(-32700, "Plugin wrote malformed JSON or invalid UTF-8")
 	}
-	frame = bytes.TrimSpace(frame)
-	if frame[0] != '[' {
-		message, err := decodeRPCMessage(frame)
-		if err != nil {
-			return nil, false, rpcError(-32600, err.Error())
-		}
-		return []rpcMessage{message}, false, nil
+	message, err := decodeRPCMessage(bytes.TrimSpace(frame))
+	if err != nil {
+		return rpcMessage{}, rpcError(-32600, err.Error())
 	}
-	decoder := json.NewDecoder(bytes.NewReader(frame))
-	_, _ = decoder.Token() // The complete frame has already passed json.Valid.
-	var messages []rpcMessage
-	for decoder.More() {
-		if len(messages) == MaxBatchMessages {
-			return nil, true, rpcError(-32005, "Batch exceeds element limit")
-		}
-		var data json.RawMessage
-		if err := decoder.Decode(&data); err != nil {
-			return nil, true, err
-		}
-		message, err := decodeRPCMessage(data)
-		if err != nil {
-			message = invalidRPCMessage(data)
-		}
-		messages = append(messages, message)
-	}
-	if len(messages) == 0 {
-		return []rpcMessage{invalidRPCMessage(nil)}, false, nil
-	}
-	return messages, true, nil
+	return message, nil
 }
 
 func decodeRPCMessage(data json.RawMessage) (rpcMessage, error) {

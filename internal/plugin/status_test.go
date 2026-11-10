@@ -51,7 +51,7 @@ func receivedStatuses(root string) []string {
 
 func TestStatusReachesPluginsAtStartupAndWhenItChanges(t *testing.T) {
 	home := apphome.FromHome(t.TempDir())
-	root := hostInstallationVersion(t, home.Plugins, "status", "status", "normal", 2)
+	root := hostInstallation(t, home.Plugins, "status", "status", "normal")
 	host := testHost(t, home, t.TempDir())
 	first, second := testStatus(100, 0.01), testStatus(5000, 0.25)
 	host.SetStatus(first)
@@ -84,34 +84,9 @@ func TestStatusReachesPluginsAtStartupAndWhenItChanges(t *testing.T) {
 	}
 }
 
-func TestVersion1PluginsReceiveNoStatus(t *testing.T) {
+func TestCompactionEventsReachPlugins(t *testing.T) {
 	home := apphome.FromHome(t.TempDir())
 	root := hostInstallation(t, home.Plugins, "status", "status", "normal")
-	host := testHost(t, home, t.TempDir())
-	host.SetStatus(testStatus(100, 0.01))
-	host.Start()
-	eventuallyHost(t, func() bool { return readyHost(host, 1) })
-	host.SetStatus(testStatus(200, 0.02))
-	host.CompactionChanged(Compaction{ID: "compaction_1"})
-	host.Rename("Renamed")
-	eventuallyHost(t, func() bool {
-		data, _ := os.ReadFile(filepath.Join(root, "received.jsonl"))
-		return bytes.Contains(data, []byte(`"kit/events/session.changed"`))
-	})
-	initial, _ := os.ReadFile(filepath.Join(root, "initial.json"))
-	want := `{"protocolVersion":1,"context":{"project":{"cwd":`
-	if !bytes.HasPrefix(initial, []byte(want)) || bytes.Contains(initial, []byte(`"status"`)) {
-		t.Fatalf("version 1 initialize = %s", initial)
-	}
-	data, _ := os.ReadFile(filepath.Join(root, "received.jsonl"))
-	if bytes.Contains(data, []byte(`kit/events/session.status.changed`)) || bytes.Contains(data, []byte(`kit/events/compaction.`)) {
-		t.Fatalf("version 1 plugin received status events:\n%s", data)
-	}
-}
-
-func TestCompactionEventsReachVersion2Plugins(t *testing.T) {
-	home := apphome.FromHome(t.TempDir())
-	root := hostInstallationVersion(t, home.Plugins, "status", "status", "normal", 2)
 	host := testHost(t, home, t.TempDir())
 	host.Start()
 	eventuallyHost(t, func() bool { return readyHost(host, 1) })
@@ -148,27 +123,23 @@ func TestTooManyPendingCompactionsAreReported(t *testing.T) {
 
 func TestStatusRequestReturnsTheLatestStatus(t *testing.T) {
 	host := testHost(t, apphome.FromHome(t.TempDir()), t.TempDir())
-	version2 := withProtocolVersion(t.Context(), 2)
 	var failure *RPCError
-	if _, err := host.handleStatusRequest(version2, nil); !errors.As(err, &failure) || failure.Code != -32603 {
+	if _, err := host.handleStatusRequest(t.Context(), nil); !errors.As(err, &failure) || failure.Code != -32603 {
 		t.Fatalf("status before the session gave one = %v", err)
 	}
 	host.SetStatus(testStatus(100, 0.01))
 	status := testStatus(300, 0.03)
 	host.SetStatus(status)
-	result, err := host.handleStatusRequest(version2, nil)
+	result, err := host.handleStatusRequest(t.Context(), nil)
 	if err != nil || string(result) != encodedStatus(t, status) {
 		t.Fatalf("status = %s, %v", result, err)
 	}
-	if _, err := host.handleStatusRequest(version2, json.RawMessage(`{}`)); !errors.As(err, &failure) || failure.Code != -32602 {
+	if _, err := host.handleStatusRequest(t.Context(), json.RawMessage(`{}`)); !errors.As(err, &failure) || failure.Code != -32602 {
 		t.Fatalf("status with params = %v", err)
-	}
-	if _, err := host.handleStatusRequest(withProtocolVersion(t.Context(), 1), nil); !errors.As(err, &failure) || failure.Code != -32601 {
-		t.Fatalf("version 1 status request = %v", err)
 	}
 	// The host keeps its own copy.
 	*status.Parent.Name = "Changed"
-	result, _ = host.handleStatusRequest(version2, nil)
+	result, _ = host.handleStatusRequest(t.Context(), nil)
 	if bytes.Contains(result, []byte("Changed")) {
 		t.Fatalf("status shares memory with the caller: %s", result)
 	}

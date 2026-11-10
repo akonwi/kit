@@ -26,7 +26,7 @@ func TestPluginTurnEventsFlowFromDaemonModelLifecycle(t *testing.T) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"manifestVersion":1,"id":"turn-events","transport":{"type":"stdio","command":` + mustJSON(t, python) + `,"args":["plugin.py"]}}`
+	manifest := `{"manifestVersion":1,"protocolVersion":2,"id":"turn-events","transport":{"type":"stdio","command":` + mustJSON(t, python) + `,"args":["plugin.py"]}}`
 	if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(manifest), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ for line in sys.stdin:
     message = json.loads(line)
     method = message.get("method")
     if method == "initialize":
-        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{"protocolVersion":1}}), flush=True)
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{"protocolVersion":2}}), flush=True)
         print(json.dumps({"jsonrpc":"2.0","id":"ready-register","method":"kit/commands/register","params":{"id":"ready","description":"Ready marker"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":None}), flush=True)

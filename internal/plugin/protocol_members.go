@@ -21,8 +21,7 @@ func membersOf[T any]() []string {
 	return members
 }
 
-// Members each params object may contain. Version 1 additionally accepts the
-// legacy members listed with it; version 2 does not have them.
+// Members each params object may contain.
 var (
 	commandRegisterMembers  = membersOf[pluginprotocol.CommandRegisterParams]()
 	localIDMembers          = membersOf[pluginprotocol.LocalIDParams]()
@@ -42,26 +41,4 @@ var (
 	openURLMembers          = membersOf[pluginprotocol.OpenURLParams]()
 	decisionMembers         = membersOf[pluginprotocol.ToolCallDecision]()
 	toolResultMembers       = membersOf[pluginprotocol.ToolExecuteResult]()
-
-	// Version 1 footer items could name a side, a click callback, or a URL
-	// action; Kit rejects any but the right side when they are used.
-	v1FooterSetExtras = []string{"side", "clickable", "action"}
-	// Version 1 select requests could ask for filtering, which Kit ignores.
-	v1SelectExtras = []string{"filterable"}
 )
-
-// versionMembers returns the members of a params object in a protocol
-// version: version 2 exactly as declared; version 1 without parentId, which
-// it does not have, and with its legacy extras.
-func versionMembers(version int, members []string, v1Extras ...string) []string {
-	if version >= 2 {
-		return members
-	}
-	result := make([]string, 0, len(members)+len(v1Extras))
-	for _, member := range members {
-		if member != "parentId" {
-			result = append(result, member)
-		}
-	}
-	return append(result, v1Extras...)
-}

@@ -95,7 +95,6 @@ var defaultInstanceDeadlines = instanceDeadlines{10 * time.Second, 2 * time.Seco
 type Instance struct {
 	revocationNotify func() // Nonblocking signal only; invoked under instance authority.
 	id               InstanceID
-	version          int // The plugin protocol version the instance speaks.
 	process          *Process
 	rpc              *RPCEndpoint
 	mu               sync.Mutex
@@ -134,8 +133,7 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 	if err := validatePluginContext(initial); err != nil {
 		return nil, err
 	}
-	version := installation.ProtocolVersion()
-	params, err := initializeParams(version, id, initial, status)
+	params, err := initializeParams(id, initial, status)
 	if err != nil {
 		return nil, err
 	}
@@ -150,13 +148,13 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 	}
 	work, cancelWork := context.WithCancel(lifetime)
 	initialize, cancelInit := context.WithTimeout(lifetime, deadlines.initialize)
-	instance := &Instance{id: id, version: version, process: process, state: InstanceInitializing, work: work, cancelWork: cancelWork, cancelInit: cancelInit, cancelProcess: cancelProcess, revoked: make(chan struct{}), ready: make(chan struct{}), done: make(chan struct{}), initDone: make(chan struct{}), deadlines: deadlines}
+	instance := &Instance{id: id, process: process, state: InstanceInitializing, work: work, cancelWork: cancelWork, cancelInit: cancelInit, cancelProcess: cancelProcess, revoked: make(chan struct{}), ready: make(chan struct{}), done: make(chan struct{}), initDone: make(chan struct{}), deadlines: deadlines}
 	wrapped := RPCHandlers{admit: instance.admit}
 	wrapped.Request = func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 		if work.Err() != nil {
 			return nil, rpcError(-32002, "Plugin is unavailable")
 		}
-		ctx, cancel := context.WithCancel(withProtocolVersion(ctx, version))
+		ctx, cancel := context.WithCancel(ctx)
 		stop := context.AfterFunc(work, cancel)
 		defer stop()
 		defer cancel()
@@ -169,7 +167,7 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 		if work.Err() != nil {
 			return nil
 		}
-		ctx, cancel := context.WithCancel(withProtocolVersion(ctx, version))
+		ctx, cancel := context.WithCancel(ctx)
 		stop := context.AfterFunc(work, cancel)
 		defer stop()
 		defer cancel()
@@ -178,9 +176,7 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 		}
 		return handlers.Notification(ctx, method, params)
 	}
-	limits := defaultRPCLimits
-	limits.protocolVersion = version
-	instance.rpc = newRPCEndpoint(lifetime, process.Output(), process.Input(), wrapped, limits)
+	instance.rpc = newRPCEndpoint(lifetime, process.Output(), process.Input(), wrapped, defaultRPCLimits)
 	go func() {
 		defer close(instance.initDone)
 		defer cancelInit()
@@ -190,16 +186,9 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 	return instance, nil
 }
 
-// initializeParams encodes the initialize request of a protocol version.
-// status is the session's status when the instance starts, or nil when the
-// session has given none; version 1 does not carry it.
-func initializeParams(version int, id InstanceID, initial PluginContext, status *SessionStatus) (json.RawMessage, error) {
-	if version == 1 {
-		return json.Marshal(struct {
-			Version int           `json:"protocolVersion"`
-			Context PluginContext `json:"context"`
-		}{1, initial})
-	}
+// initializeParams encodes the initialize request. status is the session's
+// status when the instance starts, or nil when the session has given none.
+func initializeParams(id InstanceID, initial PluginContext, status *SessionStatus) (json.RawMessage, error) {
 	return json.Marshal(pluginprotocol.InitializeParams{
 		ProtocolVersion: pluginprotocol.Version,
 		Kit:             pluginprotocol.KitInfo{Version: kitversion.Version},
@@ -207,21 +196,6 @@ func initializeParams(version int, id InstanceID, initial PluginContext, status 
 		Context:         initial,
 		Status:          status,
 	})
-}
-
-type protocolVersionContextKey struct{}
-
-func withProtocolVersion(ctx context.Context, version int) context.Context {
-	return context.WithValue(ctx, protocolVersionContextKey{}, version)
-}
-
-// protocolVersion is the plugin protocol version of the instance whose
-// request or notification a handler serves; 1 outside an instance.
-func protocolVersion(ctx context.Context) int {
-	if version, ok := ctx.Value(protocolVersionContextKey{}).(int); ok {
-		return version
-	}
-	return 1
 }
 
 func validatePluginContext(context PluginContext) error {
@@ -242,7 +216,7 @@ func validatePluginContext(context PluginContext) error {
 
 func (i *Instance) acceptInitialization(result json.RawMessage) error {
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(result, &fields) != nil || len(fields) != 1 || !numberIs(string(fields["protocolVersion"]), i.version) {
+	if json.Unmarshal(result, &fields) != nil || len(fields) != 1 || !numberIs(string(fields["protocolVersion"]), pluginprotocol.Version) {
 		return errors.New("plugin returned an invalid initialization result or unsupported protocol version")
 	}
 	i.mu.Lock()

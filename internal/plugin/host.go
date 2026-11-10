@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -134,7 +135,6 @@ type Host struct {
 	diagnostics          []string
 	cleanupDiagnostics   []string
 	discoveryDiagnostics []Diagnostic
-	versionOne           []string // IDs of planned installations speaking protocol version 1
 	reportedFailures     map[InstanceID]struct{}
 	closeErr             error
 	wake                 chan struct{}
@@ -320,16 +320,24 @@ func (h *Host) Instances() []InstanceStatus {
 // Dedicated plugin diagnostics/dismissal UI can consume richer state later.
 func (h *Host) Warnings() []string {
 	h.mu.Lock()
-	var messages []string
+	var messages, versionOne []string
+	for _, diagnostic := range h.discoveryDiagnostics {
+		// A user and a project plugin can share an ID; name it once.
+		if diagnostic.Phase == PhaseVersionOne && !slices.Contains(versionOne, diagnostic.PluginID) {
+			versionOne = append(versionOne, diagnostic.PluginID)
+		}
+	}
 	// The version 1 notice goes first so the aggregate's bound never cuts
 	// its link.
-	if len(h.versionOne) > 0 {
-		messages = append(messages, versionOneWarning(h.versionOne))
+	if len(versionOne) > 0 {
+		messages = append(messages, versionOneWarning(versionOne))
 	}
 	messages = append(messages, h.cleanupDiagnostics...)
 	messages = append(messages, h.diagnostics...)
 	for _, diagnostic := range h.discoveryDiagnostics {
-		messages = append(messages, diagnostic.Message)
+		if diagnostic.Phase != PhaseVersionOne {
+			messages = append(messages, diagnostic.Message)
+		}
 	}
 	for _, id := range h.clientConflictsLocked() {
 		messages = append(messages, fmt.Sprintf("%s: an attached client's tools are hidden by the server plugin with the same ID", id))
@@ -346,11 +354,12 @@ func (h *Host) Warnings() []string {
 	return []string{diagnosticMessage(fmt.Errorf("Plugins: %s", strings.Join(messages, "; ")))}
 }
 
-// MigrationGuideURL is the guide a version 1 plugin's warning points to.
+// MigrationGuideURL is the guide a version 1 plugin's diagnostic points to.
 const MigrationGuideURL = "https://github.com/akonwi/kit/blob/main/docs/plugin-protocol/migrating-from-v1.md"
 
-// versionOneWarning names the plugins still speaking protocol version 1. It
-// names at most five, so the warning stays short enough to keep its link.
+// versionOneWarning names the plugins Kit did not start because they speak
+// protocol version 1. It names at most five, so the warning stays short
+// enough to keep its link.
 func versionOneWarning(ids []string) string {
 	names := ids
 	if len(ids) > 5 {
@@ -364,7 +373,7 @@ func versionOneWarning(ids []string) string {
 	default:
 		subject = strings.Join(names[:len(names)-1], ", ") + ", and " + names[len(names)-1] + " use"
 	}
-	return fmt.Sprintf("%s plugin protocol version 1, which a later Kit release removes. Migrate to version 2: %s", subject, MigrationGuideURL)
+	return fmt.Sprintf("%s plugin protocol version 1, which Kit no longer runs. Migrate to version 2: %s", subject, MigrationGuideURL)
 }
 
 func (h *Host) addDiagnostic(message string)        { h.recordDiagnostic(message, false) }
@@ -522,18 +531,11 @@ func (h *Host) reconcile(view hostView) {
 		if overflow {
 			plan = plan[:128]
 		}
-		var versionOne []string
-		for _, installation := range plan {
-			if installation.ProtocolVersion() == 1 {
-				versionOne = append(versionOne, installation.Manifest.ID)
-			}
-		}
 		h.mu.Lock()
 		if h.closed || h.view.epoch != view.epoch || h.view.projectEpoch != view.projectEpoch {
 			h.mu.Unlock()
 			return
 		}
-		h.versionOne = versionOne
 		var retained []Diagnostic
 		if !includeUser {
 			for _, diagnostic := range h.discoveryDiagnostics {

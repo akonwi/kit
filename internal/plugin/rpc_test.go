@@ -33,17 +33,18 @@ func rpcTestPeer(t *testing.T, handlers RPCHandlers, limits rpcLimits) (*RPCEndp
 	return endpoint, remote, bufio.NewReader(remote)
 }
 
-func rpcRead(t *testing.T, reader *bufio.Reader) ([]rpcMessage, bool) {
+// rpcRead reads the next message Kit wrote, as a one-element slice.
+func rpcRead(t *testing.T, reader *bufio.Reader) []rpcMessage {
 	t.Helper()
 	data, err := reader.ReadBytes('\n')
 	if err != nil {
 		t.Fatal(err)
 	}
-	messages, batch, err := decodeRPCFrame(data)
+	message, err := decodeRPCFrame(data)
 	if err != nil {
 		t.Fatalf("response %s: %v", data, err)
 	}
-	return messages, batch
+	return []rpcMessage{message}
 }
 
 func rpcWritePeer(t *testing.T, peer io.Writer, frame string) {
@@ -149,12 +150,12 @@ func TestRPCNestedCallsAndIndependentIDNamespaces(t *testing.T) {
 	}}
 	endpoint, peer, reader := rpcTestPeer(t, handlers, defaultRPCLimits)
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":"kit-1","method":"outer","params":{"value":7}}`)
-	messages, _ := rpcRead(t, reader)
+	messages := rpcRead(t, reader)
 	if len(messages) != 1 || *messages[0].Method != "nested" || string(messages[0].Params) != `{"value":7}` || string(messages[0].ID) != `"kit-1"` {
 		t.Fatalf("nested = %#v", messages)
 	}
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":"kit-1","result":"nested-result"}`)
-	messages, _ = rpcRead(t, reader)
+	messages = rpcRead(t, reader)
 	if string(messages[0].ID) != `"kit-1"` || string(messages[0].Result) != `"nested-result"` {
 		t.Fatalf("outer result = %#v", messages)
 	}
@@ -172,8 +173,8 @@ func TestRPCConcurrentCallsCorrelateOutOfOrder(t *testing.T) {
 			results <- rpcResult{value, err}
 		}()
 	}
-	first, _ := rpcRead(t, reader)
-	second, _ := rpcRead(t, reader)
+	first := rpcRead(t, reader)
+	second := rpcRead(t, reader)
 	for _, message := range []rpcMessage{second[0], first[0]} {
 		rpcWritePeer(t, peer, fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":%q}`, message.ID, *message.Method))
 	}
@@ -200,13 +201,13 @@ func TestRPCIncomingCancellationAndLateHandlerResult(t *testing.T) {
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":1.0,"method":"wait"}`)
 	<-started
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","method":"kit/cancel","params":{"id":1}}`)
-	messages, _ := rpcRead(t, reader)
+	messages := rpcRead(t, reader)
 	if messages[0].Error == nil || messages[0].Error.Code != -32001 {
 		t.Fatalf("cancel result = %#v", messages)
 	}
 	<-returned
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":2,"method":"unknown"}`)
-	messages, _ = rpcRead(t, reader)
+	messages = rpcRead(t, reader)
 	if string(messages[0].ID) != "2" || messages[0].Error == nil || messages[0].Error.Code != -32601 {
 		t.Fatalf("stale handler response: %#v", messages)
 	}
@@ -217,47 +218,23 @@ func TestRPCOutgoingCancellationIgnoresLateResponse(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	result := make(chan error, 1)
 	go func() { _, err := endpoint.Call(ctx, "wait", nil); result <- err }()
-	request, _ := rpcRead(t, reader)
+	request := rpcRead(t, reader)
 	cancel()
 	if err := <-result; !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel = %v", err)
 	}
-	cancellation, _ := rpcRead(t, reader)
+	cancellation := rpcRead(t, reader)
 	if *cancellation[0].Method != "kit/cancel" || string(cancellation[0].Params) != fmt.Sprintf(`{"id":%s}`, request[0].ID) {
 		t.Fatalf("cancel notification = %#v", cancellation)
 	}
 	rpcWritePeer(t, peer, fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"late"}`, request[0].ID))
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":"peer-next","method":"unknown"}`)
-	next, _ := rpcRead(t, reader)
+	next := rpcRead(t, reader)
 	if string(next[0].ID) != `"peer-next"` || next[0].Error == nil || next[0].Error.Code != -32601 {
 		t.Fatalf("next = %#v", next)
 	}
 	if err := endpoint.Err(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestRPCBatchRequestsNotificationsAndResponses(t *testing.T) {
-	notices := make(chan string, 2)
-	endpoint, peer, reader := rpcTestPeer(t, RPCHandlers{
-		Request: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
-			return json.RawMessage(fmt.Sprintf("%q", method)), nil
-		},
-		Notification: func(ctx context.Context, method string, params json.RawMessage) error { notices <- method; return nil },
-	}, defaultRPCLimits)
-	call := make(chan rpcResult, 1)
-	go func() { value, err := endpoint.Call(t.Context(), "outgoing", nil); call <- rpcResult{value, err} }()
-	outgoing, _ := rpcRead(t, reader)
-	rpcWritePeer(t, peer, fmt.Sprintf(`[{"jsonrpc":"2.0","id":1,"method":"one"},{"jsonrpc":"2.0","method":"notice-one"},{"jsonrpc":"2.0","id":%s,"result":true},{"jsonrpc":"2.0","id":"two","method":"two"},{"jsonrpc":"2.0","method":"notice-two"}]`, outgoing[0].ID))
-	replies, batch := rpcRead(t, reader)
-	if !batch || len(replies) != 2 || string(replies[0].Result) != `"one"` || string(replies[1].Result) != `"two"` {
-		t.Fatalf("batch = %#v (%v)", replies, batch)
-	}
-	if result := <-call; result.err != nil || string(result.value) != "true" {
-		t.Fatalf("outgoing = %#v", result)
-	}
-	if first, second := <-notices, <-notices; first != "notice-one" || second != "notice-two" {
-		t.Fatalf("notifications = %q, %q", first, second)
 	}
 }
 
@@ -271,7 +248,7 @@ func TestRPCNotificationHandlerCanMakeNestedCall(t *testing.T) {
 	}}
 	endpoint, peer, reader := rpcTestPeer(t, handlers, defaultRPCLimits)
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","method":"event"}`)
-	nested, _ := rpcRead(t, reader)
+	nested := rpcRead(t, reader)
 	rpcWritePeer(t, peer, fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":null}`, nested[0].ID))
 	if err := <-completed; err != nil {
 		t.Fatal(err)
@@ -296,12 +273,12 @@ func TestRPCIncomingLimit(t *testing.T) {
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":1,"method":"wait"}`)
 	<-started
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":2,"method":"busy"}`)
-	replies, _ := rpcRead(t, reader)
+	replies := rpcRead(t, reader)
 	if string(replies[0].ID) != "2" || replies[0].Error == nil || replies[0].Error.Code != -32006 {
 		t.Fatalf("busy = %#v", replies)
 	}
 	close(release)
-	replies, _ = rpcRead(t, reader)
+	replies = rpcRead(t, reader)
 	if string(replies[0].ID) != "1" || string(replies[0].Result) != "null" {
 		t.Fatalf("original = %#v", replies)
 	}
@@ -342,7 +319,7 @@ func TestRPCEmptyCRLFAndSplitFrames(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	replies, _ := rpcRead(t, reader)
+	replies := rpcRead(t, reader)
 	if replies[0].Error == nil || replies[0].Error.Code != -32601 {
 		t.Fatalf("response = %#v", replies)
 	}
@@ -355,7 +332,7 @@ func TestRPCOversizedResultBecomesFailedResponse(t *testing.T) {
 		return json.RawMessage(fmt.Sprintf("%q", strings.Repeat("x", 512))), nil
 	}}, limits)
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":1,"method":"large"}`)
-	replies, _ := rpcRead(t, reader)
+	replies := rpcRead(t, reader)
 	if replies[0].Error == nil || replies[0].Error.Code != -32005 {
 		t.Fatalf("response = %#v", replies)
 	}
@@ -445,38 +422,10 @@ func TestRPCRequestIDCanonicalization(t *testing.T) {
 	}
 }
 
-func TestRPCMixedInvalidBatchAndEmptyBatch(t *testing.T) {
-	for _, test := range []struct {
-		frame string
-		batch bool
-		codes []int64
-	}{
-		{`[{"jsonrpc":"2.0","id":1,"method":"unknown"},17,{"jsonrpc":"2.0","id":2,"method":"unknown"}]`, true, []int64{-32601, -32600, -32601}},
-		{`[]`, false, []int64{-32600}},
-	} {
-		t.Run(test.frame, func(t *testing.T) {
-			endpoint, peer, reader := rpcTestPeer(t, RPCHandlers{}, defaultRPCLimits)
-			rpcWritePeer(t, peer, test.frame)
-			messages, batch := rpcRead(t, reader)
-			if batch != test.batch || len(messages) != len(test.codes) {
-				t.Fatalf("messages = %#v, batch %v", messages, batch)
-			}
-			for i, code := range test.codes {
-				if messages[i].Error == nil || messages[i].Error.Code != code {
-					t.Fatalf("message %d = %#v", i, messages[i])
-				}
-			}
-			if endpoint.Err() != nil {
-				t.Fatal(endpoint.Err())
-			}
-		})
-	}
-}
-
 func TestRPCInvalidRequestReportsErrorBeforeClosing(t *testing.T) {
 	endpoint, peer, reader := rpcTestPeer(t, RPCHandlers{}, defaultRPCLimits)
 	rpcWritePeer(t, peer, `{"jsonrpc":"2.0","id":9,"method":"bad","params":null}`)
-	messages, _ := rpcRead(t, reader)
+	messages := rpcRead(t, reader)
 	if string(messages[0].ID) != "9" || messages[0].Error == nil || messages[0].Error.Code != -32600 {
 		t.Fatalf("invalid request = %#v", messages)
 	}
@@ -501,65 +450,10 @@ func TestRPCUnterminatedFrameLimit(t *testing.T) {
 	}
 }
 
-func TestRPCBatchOversizeReplacesPriorErrorData(t *testing.T) {
-	limits := defaultRPCLimits
-	limits.frame = 512
-	large := strings.Repeat("x", 330)
-	endpoint, peer, reader := rpcTestPeer(t, RPCHandlers{Request: func(ctx context.Context, method string, _ json.RawMessage) (json.RawMessage, error) {
-		if method == "error" {
-			return nil, &RPCError{Code: -32000, Message: "large", Data: json.RawMessage(fmt.Sprintf("%q", large))}
-		}
-		return json.RawMessage(fmt.Sprintf("%q", large)), nil
-	}}, limits)
-	rpcWritePeer(t, peer, `[{"jsonrpc":"2.0","id":1,"method":"error"},{"jsonrpc":"2.0","id":2,"method":"result"}]`)
-	messages, batch := rpcRead(t, reader)
-	if !batch || len(messages) != 2 {
-		t.Fatalf("batch = %#v (%v)", messages, batch)
-	}
-	for _, message := range messages {
-		if message.Error == nil || message.Error.Code != -32005 || len(message.Error.Data) != 0 {
-			t.Fatalf("limit response = %#v", message)
-		}
-	}
-	if endpoint.Err() != nil {
-		t.Fatal(endpoint.Err())
-	}
-}
-
-func TestRPCBatchExactEncodedBoundary(t *testing.T) {
-	result := json.RawMessage(fmt.Sprintf("%q", strings.Repeat("x", 200)))
-	expected := []rpcMessage{responseMessage(json.RawMessage("1"), result, nil), responseMessage(json.RawMessage("2"), result, nil)}
-	encoded, err := json.Marshal(expected)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, extra := range []int{0, -1} {
-		t.Run(fmt.Sprint(extra), func(t *testing.T) {
-			limits := defaultRPCLimits
-			limits.frame = len(encoded) + extra
-			_, peer, reader := rpcTestPeer(t, RPCHandlers{Request: func(context.Context, string, json.RawMessage) (json.RawMessage, error) { return result, nil }}, limits)
-			rpcWritePeer(t, peer, `[{"jsonrpc":"2.0","id":1,"method":"result"},{"jsonrpc":"2.0","id":2,"method":"result"}]`)
-			messages, batch := rpcRead(t, reader)
-			if !batch || len(messages) != 2 {
-				t.Fatalf("batch = %#v", messages)
-			}
-			for _, message := range messages {
-				if extra == 0 {
-					if string(message.Result) != string(result) {
-						t.Fatalf("exact-limit result = %#v", message)
-					}
-				} else if message.Error == nil || message.Error.Code != -32005 {
-					t.Fatalf("over-limit result = %#v", message)
-				}
-			}
-		})
-	}
-}
-
 func TestRPCCodecNumericCodesEscapesAndLargeExponents(t *testing.T) {
-	messages, _, err := decodeRPCFrame([]byte(`{"jsonrpc":"2\u002e0","id":1,"error":{"code":-32001.0,"message":"cancelled"}}`))
-	if err != nil || messages[0].Error.Code != -32001 {
-		t.Fatalf("numeric code = %#v, %v", messages, err)
+	message, err := decodeRPCFrame([]byte(`{"jsonrpc":"2\u002e0","id":1,"error":{"code":-32001.0,"message":"cancelled"}}`))
+	if err != nil || message.Error.Code != -32001 {
+		t.Fatalf("numeric code = %#v, %v", message, err)
 	}
 	exponent := strings.Repeat("9", 1024*1024)
 	key, err := requestKey(json.RawMessage("10e" + exponent))
@@ -602,15 +496,6 @@ func TestRPCParentCancellationAndNotificationFlood(t *testing.T) {
 	})
 }
 
-func TestRPCBatchMetadataBound(t *testing.T) {
-	frame := "[" + strings.Repeat("0,", MaxBatchMessages) + "0]"
-	_, _, err := decodeRPCFrame([]byte(frame))
-	var failure *RPCError
-	if !errors.As(err, &failure) || failure.Code != -32005 {
-		t.Fatalf("batch metadata bound = %v", err)
-	}
-}
-
 func TestRPCAdmissionRejectsBeforeEnqueueAndDoesNotHoldResponseWait(t *testing.T) {
 	endpoint, peer, reader := rpcTestPeer(t, RPCHandlers{}, defaultRPCLimits)
 	rejected := errors.New("admission rejected")
@@ -634,7 +519,7 @@ func TestRPCAdmissionRejectsBeforeEnqueueAndDoesNotHoldResponseWait(t *testing.T
 	case <-time.After(time.Second):
 		t.Fatal("admission waited for response")
 	}
-	messages, _ := rpcRead(t, reader)
+	messages := rpcRead(t, reader)
 	if len(messages) != 1 || *messages[0].Method != "accepted" {
 		t.Fatalf("first dispatched request = %#v", messages)
 	}

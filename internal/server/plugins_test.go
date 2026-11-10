@@ -26,7 +26,7 @@ func TestPluginHostFactoryUsesResolvedHomeAndCommandDomains(t *testing.T) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(`{"manifestVersion":1,"id":"model","transport":{"type":"stdio","command":"./must-not-launch"}}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(`{"manifestVersion":1,"protocolVersion":2,"id":"model","transport":{"type":"stdio","command":"./must-not-launch"}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	changed := make(chan struct{}, 1)

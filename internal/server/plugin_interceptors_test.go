@@ -58,27 +58,21 @@ func (p *interceptionProviders) Stream(_ context.Context, _ droids.Model, reques
 }
 
 // TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution runs the
-// approval plugin in both protocol versions. Version 1 forwards the
-// interceptor's cancellation to its dialog itself; version 2 names the
-// interceptor request as the dialog's parentId and relies on Kit to close it.
+// approval plugin, which names the interceptor request as its dialog's
+// parentId and relies on Kit to close it.
 func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("Python required")
 	}
-	versions := []struct{ name, script, manifest string }{
-		{"v1", "approval-plugin.py", `{"manifestVersion":1,"id":"approval","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`},
-		{"v2", "approval-plugin-v2.py", `{"manifestVersion":1,"protocolVersion":2,"id":"approval","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`},
-	}
-	for _, version := range versions {
-		for _, mode := range []string{"reject", "allow", "cancel"} {
-			testPluginInterception(t, version.name, version.script, version.manifest, mode)
-		}
+	manifest := `{"manifestVersion":1,"protocolVersion":2,"id":"approval","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`
+	for _, mode := range []string{"reject", "allow", "cancel"} {
+		testPluginInterception(t, "approval-plugin-v2.py", manifest, mode)
 	}
 }
 
-func testPluginInterception(t *testing.T, version, scriptName, manifest, mode string) {
+func testPluginInterception(t *testing.T, scriptName, manifest, mode string) {
 	allow := mode == "allow"
-	t.Run(version+"/"+mode, func(t *testing.T) {
+	t.Run(mode, func(t *testing.T) {
 		paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
 		root := filepath.Join(paths.Plugins, "approval")
 		if err := os.MkdirAll(root, 0700); err != nil {

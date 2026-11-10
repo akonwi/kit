@@ -72,7 +72,7 @@ func startHelper(t *testing.T, ctx context.Context, mode string, args ...string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := StartProcess(ctx, Installation{Root: t.TempDir(), Manifest: Manifest{ManifestVersion: 1, ID: "test-plugin", Transport: StdioTransport{Type: "stdio", Command: executable, Args: append([]string{"-test.run=^TestPluginProcessHelper$", "--", mode}, args...)}}})
+	process, err := StartProcess(ctx, Installation{Root: t.TempDir(), Manifest: Manifest{ManifestVersion: 1, ProtocolVersion: 2, ID: "test-plugin", Transport: StdioTransport{Type: "stdio", Command: executable, Args: append([]string{"-test.run=^TestPluginProcessHelper$", "--", mode}, args...)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestProcessRelativeExecutableAndExactWorkingDirectory(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	process, err := StartProcess(ctx, Installation{Root: root, Manifest: Manifest{ManifestVersion: 1, ID: "relative", Transport: StdioTransport{Type: "stdio", Command: "./plugin", Args: []string{"-test.run=^TestPluginProcessHelper$", "--", "describe"}}}})
+	process, err := StartProcess(ctx, Installation{Root: root, Manifest: Manifest{ManifestVersion: 1, ProtocolVersion: 2, ID: "relative", Transport: StdioTransport{Type: "stdio", Command: "./plugin", Args: []string{"-test.run=^TestPluginProcessHelper$", "--", "describe"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestProcessRejectsCancelledOrInvalidLaunch(t *testing.T) {
 	if _, err := StartProcess(ctx, Installation{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled launch = %v", err)
 	}
-	valid := Installation{Root: t.TempDir(), Manifest: Manifest{ManifestVersion: 1, ID: "missing", Transport: StdioTransport{Type: "stdio", Command: "./missing"}}}
+	valid := Installation{Root: t.TempDir(), Manifest: Manifest{ManifestVersion: 1, ProtocolVersion: 2, ID: "missing", Transport: StdioTransport{Type: "stdio", Command: "./missing"}}}
 	if _, err := StartProcess(t.Context(), valid); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing executable = %v", err)
 	}

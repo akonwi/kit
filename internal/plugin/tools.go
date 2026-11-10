@@ -45,7 +45,7 @@ type Tool struct {
 // ToolContent is one validated text or base64 image result part.
 type ToolContent struct{ Type, Text, Data, MIMEType string }
 
-// ToolResult is a validated, non-streaming v1 execution result.
+// ToolResult is a validated, non-streaming execution result.
 type ToolResult struct {
 	Content   []ToolContent
 	Details   json.RawMessage

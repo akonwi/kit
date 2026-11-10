@@ -50,7 +50,7 @@ printf '%s' '{"number":42,"url":"https://github.com/a/b/pull/42","headRefName":"
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"manifestVersion":1,"id":"vcs-events","transport":{"type":"stdio","command":` + mustJSON(t, python) + `,"args":["plugin.py"]}}`
+	manifest := `{"manifestVersion":1,"protocolVersion":2,"id":"vcs-events","transport":{"type":"stdio","command":` + mustJSON(t, python) + `,"args":["plugin.py"]}}`
 	if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(manifest), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ for line in sys.stdin:
     method = message.get("method")
     if method == "initialize":
         with open("initial.json", "w") as output: json.dump(message["params"], output)
-        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{"protocolVersion":1}}), flush=True)
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{"protocolVersion":2}}), flush=True)
         print(json.dumps({"jsonrpc":"2.0","id":"ready","method":"kit/commands/register","params":{"id":"ready","description":"Ready"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":None}), flush=True)
