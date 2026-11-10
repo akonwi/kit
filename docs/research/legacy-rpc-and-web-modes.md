@@ -1,8 +1,11 @@
 # Legacy RPC and web modes
 
 > Historical reference for the production TypeScript/OpenTUI implementation.
-> This is not the native v2 contract: RPC, remote serving, and `kit attach` are
-> tracked by [#127](https://github.com/akonwi/kit/issues/127) and [#123](https://github.com/akonwi/kit/issues/123) through [#126](https://github.com/akonwi/kit/issues/126). OpenTUI and `web-tui` are not part
+> This is not the native v2 contract. Kit has no `--rpc` mode: its stdio mode
+> is `kit acp`, an Agent Client Protocol agent
+> ([ADR 0063](../adrs/0063-serve-the-agent-client-protocol-from-kit-acp.md)).
+> Remote serving and `kit attach` are tracked by [#123](https://github.com/akonwi/kit/issues/123) through
+> [#126](https://github.com/akonwi/kit/issues/126). OpenTUI and `web-tui` are not part
 > of the native architecture.
 
 The legacy Kit implementation's stdio and WebSocket transports share the same `RpcSessionHost`, command

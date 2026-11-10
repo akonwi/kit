@@ -1,0 +1,5 @@
+-> {"id":3,"jsonrpc":"2.0","method":"session/prompt","params":{"prompt":[{"text":"confirm","type":"text"}],"sessionId":"<session-1>"}}
+<- {"jsonrpc":"2.0","id":1,"method":"session/request_permission","params":{"sessionId":"<session-1>","toolCall":{"toolCallId":"<tool-1>","title":"Proceed with the change?","content":[{"type":"content","content":{"type":"text","text":"It edits one file."}}]},"options":[{"optionId":"allow","name":"Yes","kind":"allow_once"},{"optionId":"reject","name":"No","kind":"reject_once"}]}}
+-> {"id":1,"jsonrpc":"2.0","result":{"outcome":{"optionId":"reject","outcome":"selected"}}}
+<- {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"<session-1>","update":{"sessionUpdate":"tool_call_update","toolCallId":"<tool-1>","title":"Confirm: Proceed with the change?","status":"completed","content":[{"type":"content","content":{"type":"text","text":"{\"confirmed\":false}"}}],"rawOutput":{"resolution":"negative_confirmation"}}}}
+<- {"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}

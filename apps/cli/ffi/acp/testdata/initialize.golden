@@ -1,0 +1,2 @@
+-> {"id":1,"jsonrpc":"2.0","method":"initialize","params":{"clientCapabilities":{"fs":{"readTextFile":true}},"clientInfo":{"name":"test-client","version":"1.0.0"},"protocolVersion":2}}
+<- {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"kit","title":"Kit","version":"test"},"authMethods":[]}}

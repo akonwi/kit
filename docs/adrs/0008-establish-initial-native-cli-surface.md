@@ -227,16 +227,18 @@ The executable uses these stable exit codes:
 
 This initial command tree does not expose:
 
-- stdio RPC mode;
 - semantic web serving or remote session transports;
 - `kit attach`;
 - shell completion generation or installation; or
 - noninteractive `kit sessions list`, `rename`, and `delete` commands.
 
 These are deferred rather than rejected. Their outstanding command work is
-tracked by [#127](https://github.com/akonwi/kit/issues/127), [#123](https://github.com/akonwi/kit/issues/123), [#126](https://github.com/akonwi/kit/issues/126), and
+tracked by [#123](https://github.com/akonwi/kit/issues/123), [#126](https://github.com/akonwi/kit/issues/126), and
 [#140](https://github.com/akonwi/kit/issues/140). Browser-hosted
-`web-tui` remains removed by the native architecture decision.
+`web-tui` remains removed by the native architecture decision. The stdio
+protocol mode is `kit acp`, an Agent Client Protocol agent
+([ADR 0063](0063-serve-the-agent-client-protocol-from-kit-acp.md)), not a
+Kit-specific RPC protocol.
 
 ## Required properties
 

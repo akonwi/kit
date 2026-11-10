@@ -39,6 +39,8 @@ type commandDependencies struct {
 	attach func(context.Context, interactiveOptions, string, io.Writer, io.Writer) int
 	// update installs the newest Kit release.
 	update func(context.Context, updateOptions, io.Writer, io.Writer) int
+	// acp serves the Agent Client Protocol on the given streams.
+	acp func(context.Context, acpOptions, io.Reader, io.Writer, io.Writer) int
 }
 
 func defaultCommandDependencies() commandDependencies {
@@ -56,6 +58,7 @@ func defaultCommandDependencies() commandDependencies {
 		devices: runServerDevices,
 		expose:  runExpose,
 		update:  runUpdateCommand,
+		acp:     runACP,
 	}
 }
 
@@ -164,6 +167,7 @@ func newRootCommand(deps commandDependencies) *cobra.Command {
 		newNewCommand(deps),
 		newSessionsCommand(deps),
 		newPrintCommand(deps),
+		newACPCommand(deps),
 		newAuthCommand(deps),
 		newServerCommand(deps),
 		newServersCommand(deps),

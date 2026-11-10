@@ -1,0 +1,36 @@
+-> {"jsonrpc":"2.0","id":1,"method":"session/list","params":{}}
+<- {"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"the connection is not initialized"}}
+-> this is not json
+<- {"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error: message is not valid JSON"}}
+-> {"jsonrpc":"2.0","id":2,"method":"initialize"
+<- {"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error: message is not valid JSON"}}
+-> [{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":1}}]
+<- {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"invalid request: expected a JSON-RPC message object"}}
+-> 42
+<- {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"invalid request: expected a JSON-RPC message object"}}
+-> {"jsonrpc":"1.0","id":4,"method":"initialize","params":{"protocolVersion":1}}
+<- {"jsonrpc":"2.0","id":4,"error":{"code":-32600,"message":"invalid request: jsonrpc must be \"2.0\""}}
+-> {"jsonrpc":"2.0","id":{"nested":true},"method":"initialize"}
+<- {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"invalid request: id must be a string, number, or null"}}
+-> {"jsonrpc":"2.0","id":5,"method":7}
+<- {"jsonrpc":"2.0","id":5,"error":{"code":-32600,"message":"invalid request: method must be a non-empty string"}}
+-> {"jsonrpc":"2.0","id":6}
+<- {"jsonrpc":"2.0","id":6,"error":{"code":-32600,"message":"invalid request: expected a request, notification, or response"}}
+-> {"jsonrpc":"2.0","method":"_kit/unknown","params":{}}
+-> {"jsonrpc":"2.0","method":"session/cancel","params":"not an object"}
+-> {"jsonrpc":"1.0","method":"session/cancel","params":{}}
+-> {"jsonrpc":"2.0","method":7}
+-> {"jsonrpc":"2.0","method":"session/cancel","result":{}}
+-> {"jsonrpc":"2.0","id":7,"method":"initialize","params":{}}
+<- {"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"protocolVersion is required"}}
+-> {"jsonrpc":"2.0","id":8,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
+<- {"jsonrpc":"2.0","id":8,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"kit","title":"Kit","version":"test"},"authMethods":[]}}
+-> {"jsonrpc":"2.0","id":"nine","method":"_kit/extension","params":{}}
+<- {"jsonrpc":"2.0","id":"nine","error":{"code":-32601,"message":"method \"_kit/extension\" is not supported"}}
+-> {"jsonrpc":"2.0","id":10,"method":"session/new","params":{"cwd":"relative/path","mcpServers":[]}}
+<- {"jsonrpc":"2.0","id":10,"error":{"code":-32602,"message":"cwd must be an absolute path"}}
+-> {"jsonrpc":"2.0","id":11,"method":"session/prompt","params":{"sessionId":"session_missing","prompt":[]}}
+<- {"jsonrpc":"2.0","id":11,"error":{"code":-32002,"message":"session \"session_missing\" is not open on this connection","data":{"sessionId":"session_missing"}}}
+-> {"jsonrpc":"2.0","id":12,"method":"session/list","params":{"cursor":"not-a-cursor"}}
+<- {"jsonrpc":"2.0","id":12,"error":{"code":-32602,"message":"cursor is invalid"}}
+-> {"jsonrpc":"2.0","id":13,"result":{}}

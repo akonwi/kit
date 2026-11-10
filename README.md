@@ -64,6 +64,9 @@ kit print "Continue the latest session for this directory"
 kit print --model openai/gpt-4o-mini "Say hello"
 cat changes.diff | kit print --temp "Review this diff"
 
+# Serve the Agent Client Protocol for an editor such as Zed (the editor runs it):
+kit acp
+
 # Attach to another Kit home's running server, by path or saved name:
 kit attach ~/.kit-dev
 kit servers add dev ~/.kit-dev
@@ -109,7 +112,8 @@ model ([server settings](docs/features/server-settings.md)).
 
 Print mode creates and resumes droids sessions through the local session-client
 boundary, writes only final assistant prose to stdout, and keeps diagnostics on
-stderr. Codex can derive account and expiry metadata from
+stderr. `kit acp` serves the [Agent Client Protocol](docs/features/acp.md) on
+stdin and stdout, so editors such as Zed can open Kit sessions. Codex can derive account and expiry metadata from
 its access token; `OPENAI_CODEX_ACCOUNT_ID`, `OPENAI_CODEX_ID_TOKEN`,
 `OPENAI_CODEX_FEDRAMP`, and Unix-millisecond `OPENAI_CODEX_EXPIRES_AT` are
 available when explicit metadata is needed. `ANTHROPIC_OAUTH_TOKEN` supplies a

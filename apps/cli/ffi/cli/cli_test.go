@@ -133,6 +133,7 @@ Usage:
   kit [command]
 
 Available Commands:
+  acp         Serve the Agent Client Protocol on stdin and stdout
   attach      Launch the TUI for another Kit server
   auth        Manage provider credentials
   help        Help about any command

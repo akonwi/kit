@@ -1,0 +1,5 @@
+-> {"id":3,"jsonrpc":"2.0","method":"session/prompt","params":{"prompt":[{"text":"choose","type":"text"}],"sessionId":"<session-1>"}}
+<- {"jsonrpc":"2.0","id":1,"method":"elicitation/create","params":{"sessionId":"<session-1>","toolCallId":"<tool-1>","mode":"form","message":"Pick a color","requestedSchema":{"type":"object","properties":{"choice":{"type":"string","title":"Pick a color","oneOf":[{"const":"<option-1>","title":"Red"},{"const":"<option-2>","title":"Blue"}]}},"required":["choice"]}}}
+-> {"id":1,"jsonrpc":"2.0","result":{"action":"accept","content":{"choice":"<option-2>"}}}
+<- {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"<session-1>","update":{"sessionUpdate":"tool_call_update","toolCallId":"<tool-1>","title":"Ask: Pick a color","status":"completed","content":[{"type":"content","content":{"type":"text","text":"{\"cancelled\":false,\"label\":\"Blue\",\"value\":\"blue\"}"}}],"rawOutput":{"resolution":"answered"}}}}
+<- {"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}
