@@ -132,6 +132,8 @@ final class WorkspaceState {
     @ObservationIgnored var bounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
     /// Open browser tabs' pages, by pane.
     private(set) var browsers: [UUID: BrowserTab] = [:]
+    /// Tabs closed while their download goes on, until it ends and reports.
+    @ObservationIgnored private var finishingDownloads: [UUID: BrowserTab] = [:]
     /// Open terminal tabs' shells, by pane.
     private(set) var terminals: [UUID: TerminalTab] = [:]
     /// Open diagram tabs' Mermaid sources, by pane.
@@ -237,12 +239,16 @@ final class WorkspaceState {
     }
 
     /// Closes a pane. A tile left without tabs is removed, and its sibling
-    /// takes its place.
-    func close(_ pane: WorkspacePane) {
+    /// takes its place. A browser tab closed `keepingDownload` stays alive,
+    /// out of view, until its download finishes or fails.
+    func close(_ pane: WorkspacePane, keepingDownload: Bool = false) {
         guard pane.closable, let id = tile(containing: pane), var tile = tiles[id],
               let index = tile.panes.firstIndex(of: pane) else { return }
         if case .file(let path) = pane { filePreviews.remove(path) }
-        if case .browser(let id) = pane { browsers.removeValue(forKey: id)?.close() }
+        if case .browser(let id) = pane {
+            let tab = browsers.removeValue(forKey: id)
+            if keepingDownload, let tab { finishingDownloads[id] = tab } else { tab?.close() }
+        }
         if case .terminal(let id) = pane { terminals.removeValue(forKey: id)?.close() }
         if case .diagram(let id) = pane { diagrams.removeValue(forKey: id) }
         markdownSources.remove(pane)
@@ -623,6 +629,8 @@ final class WorkspaceState {
     /// Stops every page and ends every shell when the session tab closes.
     func closeLiveTabs() {
         for tab in browsers.values { tab.close() }
+        for tab in finishingDownloads.values { tab.close() }
+        finishingDownloads = [:]
         for tab in terminals.values { tab.close() }
     }
 
@@ -722,6 +730,16 @@ final class WorkspaceState {
             if select { self.select(.browser(child.id)) } else { child.sizeUnshownPage() }
         case .close:
             close(pane)
+        case .closeKeepingDownload:
+            // The person returns to the tab that opened it, if it was in front.
+            let opener = tab.openedFrom.map(WorkspacePane.browser)
+            let home = tile(containing: pane)
+            let returns = home.map { tiles[$0]?.selected == pane } == true
+                && opener.map { self.tile(containing: $0) == home } == true
+            close(pane, keepingDownload: true)
+            if returns, let opener, let home {
+                tiles[home]?.selected = opener
+            }
         case .downloadFinished(let file, let source):
             feedback?.show(title: "Downloaded " + file.lastPathComponent,
                            detail: "Saved to Downloads" + (source.map { " from " + BrowserAddress.hostLabel($0) } ?? ""),
@@ -730,6 +748,12 @@ final class WorkspaceState {
             }
         case .downloadFailed(let filename, let message):
             feedback?.show(title: "Couldn’t download " + filename, detail: message, tone: .error, persistent: true)
+        }
+        switch request {
+        case .downloadFinished, .downloadFailed:
+            // A tab kept only for its download ends with it.
+            finishingDownloads.removeValue(forKey: tab.id)?.close()
+        default: break
         }
     }
 

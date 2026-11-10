@@ -11,6 +11,9 @@ enum BrowserTabRequest {
     case openLink(URL, referrer: URL?, select: Bool)
     /// The page asked to close.
     case close
+    /// The tab, opened from another, only downloaded a file: close it
+    /// without stopping the download, which reports as usual.
+    case closeKeepingDownload
     case downloadFinished(file: URL, source: URL?)
     case downloadFailed(filename: String, message: String)
 }
@@ -337,6 +340,10 @@ final class BrowserTab: Identifiable {
             onRequest?(.openLink(url, referrer: referrer, select: select))
         case .closeRequested:
             onRequest?(.close)
+        case .onlyDownloaded:
+            // A tab another opened for a file has nothing to show, as in
+            // Safari; one the person opened keeps the address they asked for.
+            if openedFrom != nil { onRequest?(.closeKeepingDownload) }
         case .downloadFinished(let file, let source):
             onRequest?(.downloadFinished(file: file, source: source))
         case .downloadFailed(let filename, let message):

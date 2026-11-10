@@ -261,6 +261,42 @@ struct BrowserLinkDispositionTests {
         #expect(workspace.selected == .browser(home.id))
     }
 
+    /// A tab opened for a link that only downloads a file closes, as in
+    /// Safari, returning to the tab that opened it; the download goes on
+    /// and reports, and then the tab's page ends.
+    @Test func aTabOpenedOnlyForADownloadClosesAndTheDownloadReports() throws {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let feedback = SessionFeedback()
+        workspace.feedback = feedback
+        let opener = workspace.openBrowser(url("home"))
+        workspace.open(.scratchpad)
+        workspace.select(.browser(opener.id))
+        engines.made[0].send(.openLink(url("report.pdf"), referrer: nil, select: true))
+        let download = engines.made[1]
+        #expect(workspace.selected != .browser(opener.id))
+
+        download.send(.onlyDownloaded)
+        #expect(workspace.tiles[workspace.focusedTile]?.panes == [.conversation, .browser(opener.id), .scratchpad])
+        #expect(workspace.selected == .browser(opener.id))
+        #expect(!download.closed)
+
+        download.send(.downloadFinished(file: URL(filePath: "/Users/me/Downloads/report.pdf"), source: url("report.pdf")))
+        #expect(feedback.items.last?.title == "Downloaded report.pdf")
+        #expect(download.closed)
+    }
+
+    /// A tab the person opened keeps the address they asked for, even when
+    /// it only downloads a file.
+    @Test func aTabThePersonOpenedStaysWhenItOnlyDownloads() {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let tab = workspace.openBrowser(url("report.pdf"))
+        engines.made[0].send(.onlyDownloaded)
+        #expect(workspace.panes == [.conversation, .browser(tab.id)])
+        #expect(workspace.selected == .browser(tab.id))
+    }
+
     @Test func aLinkFromAClosedTabOpensNothing() {
         let engines = FakeBrowserEngines()
         let workspace = workspace(engines)
@@ -376,12 +412,13 @@ struct BrowserLinkDispositionTests {
 
         /// Clicks the link, or the one that opens a window, with mouse
         /// button `button`, holding `modifiers`.
-        func clickLink(window opening: Bool = false, button: Int = 0, modifiers: NSEvent.ModifierFlags = []) throws {
+        func clickLink(window opening: Bool = false, download: Bool = false, button: Int = 0,
+                       modifiers: NSEvent.ModifierFlags = []) throws {
             let window = try #require(view.window)
             let types: [NSEvent.EventType] = button == 0 ? [.leftMouseDown, .leftMouseUp] : [.otherMouseDown, .otherMouseUp]
             for (number, type) in types.enumerated() {
                 let made = try #require(NSEvent.mouseEvent(
-                    with: type, location: view.convert(CGPoint(x: 100, y: opening ? 150 : 50), to: nil), modifierFlags: modifiers,
+                    with: type, location: view.convert(CGPoint(x: 100, y: download ? 250 : opening ? 150 : 50), to: nil), modifierFlags: modifiers,
                     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
                     eventNumber: number + 1, clickCount: 1, pressure: number == 0 ? 1 : 0))
                 let copy = try #require(made.cgEvent?.copy())
@@ -405,9 +442,11 @@ struct BrowserLinkDispositionTests {
             "/": page("Links", #"""
                 <a href="/next" style="position: absolute; left: 0; top: 0; width: 300px; height: 100px">Next</a>
                 <a href="/window" target="_blank" style="position: absolute; left: 0; top: 100px; width: 300px; height: 100px">Window</a>
+                <a href="/report.txt" style="position: absolute; left: 0; top: 200px; width: 300px; height: 100px">Report</a>
                 """#),
             "/next": page("Next"),
             "/window": page("Window"),
+            "/report.txt": BrowserDownloadTests.attachment,
         ])
         let root = try await server.start()
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -432,6 +471,18 @@ struct BrowserLinkDispositionTests {
         #expect(page.tabs[1].url == page.root.appending(path: "/next"))
         // The site hears which page linked to it, as from a plain click.
         #expect(page.request("/next")?.contains("\r\nReferer: \(page.root.absoluteString)/\r\n") == true)
+    }
+
+    @Test func aCommandClickedLinkToAFileDownloadsItAndItsTabCloses() async throws {
+        let page = try await open()
+        defer { page.close() }
+        let feedback = SessionFeedback()
+        page.workspace.feedback = feedback
+        try page.clickLink(download: true, modifiers: .command)
+        try await eventually { feedback.items.last?.title == "Downloaded report.txt" }
+        #expect(try String(contentsOf: page.folder.appending(path: "report.txt"), encoding: .utf8) == "quarterly numbers")
+        #expect(page.tabs.map(\.id) == [page.tab.id])
+        #expect(page.workspace.selected == .browser(page.tab.id))
     }
 
     @Test func aShiftCommandClickedLinkThatOpensAWindowOpensBehind() async throws {

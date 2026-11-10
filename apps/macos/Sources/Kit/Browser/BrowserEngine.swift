@@ -32,6 +32,9 @@ enum BrowserEngineEvent {
     case closeRequested
     /// A page dialog or file chooser opened or ended; nil once none is open.
     case dialogChanged(BrowserPageDialog?)
+    /// The engine's first navigation became a download, so it shows no
+    /// page. The download goes on; it finishes or fails as any does.
+    case onlyDownloaded
     /// A download finished, saved at `file`.
     case downloadFinished(file: URL, source: URL?)
     case downloadFailed(filename: String, message: String)

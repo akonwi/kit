@@ -10,6 +10,8 @@ import WebKit
     private var faviconTask: Task<Void, Never>?
     private var downloadSources: [ObjectIdentifier: URL] = [:]
     private var downloadFiles: [ObjectIdentifier: URL] = [:]
+    /// Whether a page has ever been shown, as a navigation committed.
+    private var committedAPage = false
     /// Whether the page's process has been restarted since the last commit.
     private var restartedSinceCommit = false
     /// The person chose to stop this page's alerts, confirms, and prompts.
@@ -281,13 +283,16 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         adopt(download, source: navigationAction.request.url)
+        if !committedAPage { emit(.onlyDownloaded) }
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         adopt(download, source: navigationResponse.response.url)
+        if !committedAPage { emit(.onlyDownloaded) }
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        committedAPage = true
         userNavigation = false
         // The person's use of the page that left can't open the next one's links.
         self.webView.endLinkGesture()

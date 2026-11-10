@@ -155,9 +155,11 @@ import WebKit
         try await eventually { !page.tab.loading && page.tab.page.title == "Reports" }
         try click(view, at: CGPoint(x: 100, y: 50))
         try await eventually { FileManager.default.fileExists(atPath: page.report.path) }
-        let opened = page.workspace.panes.compactMap { page.workspace.browser($0) }.filter { $0 !== page.tab }
-        #expect(opened.count == 1)
-        #expect(opened.first?.waitingDownload == nil)
+        // The window had only the file to show, so its tab closed, and the
+        // download reported as any does.
+        try await eventually { page.feedback.items.last?.title == "Downloaded report.txt" }
+        #expect(page.workspace.panes == [.conversation, .browser(page.tab.id)])
+        #expect(page.workspace.selected == .browser(page.tab.id))
     }
 
     /// Clicks `view` at `point` from its top-left corner, as the person's
