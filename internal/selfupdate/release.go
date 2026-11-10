@@ -29,7 +29,7 @@ const DefaultAPIURL = "https://api.github.com"
 const ReleasesURL = "https://github.com/" + Repository + "/releases"
 
 // CheckInterval is how often a running client checks for a newer release.
-const CheckInterval = 6 * time.Hour
+const CheckInterval = 2 * time.Hour
 
 // maxReleaseListBytes bounds the release list a check reads.
 const maxReleaseListBytes = 8 << 20

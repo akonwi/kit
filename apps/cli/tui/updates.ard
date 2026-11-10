@@ -14,7 +14,7 @@ use kit/tui/spinner
 use kit/tui/theme
 
 // The terminal client's updates (ADR 0048). Updater checks GitHub for a newer
-// Kit when the client starts and every six hours after, installs it in the
+// Kit when the client starts and every two hours after, installs it in the
 // background when asked, and learns what finishing the update restarts. The
 // shell shows its footer item and dialogs and performs the relaunch.
 

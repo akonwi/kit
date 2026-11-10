@@ -6,7 +6,7 @@ themselves is out, and install it when you ask
 
 ## Checking
 
-Each client asks GitHub for Kit's releases when it starts and every six hours
+Each client asks GitHub for Kit's releases when it starts and every two hours
 while it stays open. The terminal client compares its version with the newest
 `vX.Y.Z` release; the app compares its own with the newest `macos-vX.Y.Z`
 release. Drafts and prereleases are skipped. A failed check is silent and is

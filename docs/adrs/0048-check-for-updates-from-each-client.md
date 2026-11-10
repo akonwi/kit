@@ -35,7 +35,7 @@ A build without a release version — `dev`, or any build bound to a channel
 checks, never offers an update, and refuses `kit update`.
 
 There is no setting to turn checks off. A check is one unauthenticated request
-made when a client starts and again every six hours while it stays open, well
+made when a client starts and again every two hours while it stays open, well
 inside GitHub's anonymous rate limit. A failed check is silent; the client
 tries again on its next schedule.
 

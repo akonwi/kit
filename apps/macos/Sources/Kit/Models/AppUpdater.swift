@@ -91,7 +91,7 @@ final class AppUpdater {
         current.map { KitReleases.page(tag: ReleaseArtifact.app.rawValue + $0.description) } ?? KitReleases.releasesPage
     }
 
-    /// Checks now and every six hours while the app runs.
+    /// Checks now and every two hours while the app runs.
     func start() {
         guard current != nil, schedule == nil else { return }
         schedule = Task { [weak self] in

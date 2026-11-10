@@ -72,7 +72,7 @@ enum KitReleases {
     static let releasesPage = URL(string: "https://github.com/akonwi/kit/releases")!
     static let listURL = URL(string: "https://api.github.com/repos/akonwi/kit/releases?per_page=50")!
     /// How often a running app checks again.
-    static let checkInterval: Duration = .seconds(6 * 60 * 60)
+    static let checkInterval: Duration = .seconds(2 * 60 * 60)
 
     enum Failure: LocalizedError, Equatable {
         case unavailable(Int)

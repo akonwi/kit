@@ -56,7 +56,7 @@ as a notarized GitHub Release ZIP and a separate Homebrew Cask; see
 [ADR 0029](../../docs/adrs/0029-distribute-native-macos-app-separately.md).
 Installed release builds update themselves
 ([ADR 0048](../../docs/adrs/0048-check-for-updates-from-each-client.md)): the
-app checks GitHub's releases at launch and every six hours, and **Kit › Check
+app checks GitHub's releases at launch and every two hours, and **Kit › Check
 for Updates…** checks now. When you choose **Update**, it downloads the
 `macos-vX.Y.Z` archive and installs it only when the archive matches GitHub's
 SHA-256 digest, is signed with Kit's Developer ID, and passes Gatekeeper. The
