@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 const (
@@ -62,7 +64,7 @@ func validFooterTarget(id string) bool {
 
 func parseFooterStyle(raw json.RawMessage) (FooterStyle, error) {
 	var style FooterStyle
-	fields, err := contributionObject(raw, "fg", "bg", "bold", "dim", "italic", "underline", "strikethrough")
+	fields, err := contributionObject(raw, footerStyleMembers...)
 	if err != nil {
 		return style, err
 	}
@@ -83,9 +85,9 @@ func parseFooterStyle(raw json.RawMessage) (FooterStyle, error) {
 	return style, nil
 }
 
-func parseFooterItem(raw json.RawMessage) (FooterItem, error) {
+func parseFooterItem(raw json.RawMessage, version int) (FooterItem, error) {
 	var item FooterItem
-	fields, err := contributionObject(raw, "id", "content", "side", "clickable", "action")
+	fields, err := contributionObject(raw, versionMembers(version, footerSetMembers, v1FooterSetExtras...)...)
 	if err != nil {
 		return item, err
 	}
@@ -129,7 +131,7 @@ func parseFooterItem(raw json.RawMessage) (FooterItem, error) {
 		if err := decoder.Decode(&raw); err != nil {
 			return item, rpcError(-32602, "Invalid footer segment")
 		}
-		segmentFields, err := contributionObject(raw, "text", "style")
+		segmentFields, err := contributionObject(raw, footerSegmentMembers...)
 		if err != nil {
 			return item, err
 		}
@@ -165,12 +167,12 @@ func (h *Host) handleFooter(ctx context.Context, owner InstanceID, method string
 	var err error
 	switch method {
 	case "kit/footer/set":
-		item, err = parseFooterItem(params)
+		item, err = parseFooterItem(params, protocolVersion(ctx))
 	case "kit/footer/clear":
 		id, err = parseLocalID(params)
 	case "kit/footer/hide", "kit/footer/show":
 		var fields map[string]json.RawMessage
-		fields, err = contributionObject(params, "id")
+		fields, err = contributionObject(params, footerTargetMembers...)
 		if err == nil {
 			id, err = contributionString(fields, "id", 257, true)
 		}
@@ -212,9 +214,7 @@ func (h *Host) handleFooter(ctx context.Context, owner InstanceID, method string
 			h.footerItems = append(h.footerItems, item)
 		}
 		h.publishChange()
-		return json.Marshal(struct {
-			ID string `json:"id"`
-		}{item.ID})
+		return json.Marshal(pluginprotocol.CanonicalIDResult{ID: item.ID})
 	case "kit/footer/clear":
 		for i, old := range h.footerItems {
 			if old.Owner == owner && old.LocalID == id {

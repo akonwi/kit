@@ -1,4 +1,4 @@
-"""Small stdio-v1 fixture for manual command, context, and toast testing."""
+"""Small plugin protocol 2 fixture for manual command, context, and toast testing."""
 
 import json
 import sys
@@ -26,7 +26,7 @@ for line in sys.stdin:
     params = request.get("params") or {}
     if method == "initialize":
         context = params["context"]
-        reply(request, {"protocolVersion": 1})
+        reply(request, {"protocolVersion": 2})
         for name, description, arg_name in [
             ("echo", "Show literal command arguments in a toast", "message"),
             ("context", "Show this plugin's current session and directory", None),
@@ -40,7 +40,7 @@ for line in sys.stdin:
         context["session"] = params
     elif method == "kit/commands/execute":
         if params["id"] == "echo":
-            # Toast subtitles are bounded by the v1 host profile.
+            # Toast subtitles are bounded to 4,096 bytes.
             message = params["args"].encode("utf-8")[:4000].decode("utf-8", errors="ignore")
             toast("Plugin echo", message or "No arguments supplied")
             reply(request)

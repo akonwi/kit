@@ -47,19 +47,10 @@ func (h *sessionPluginHost) projectContext(ctx context.Context, cwd string) (plu
 }
 
 // pluginPullRequestChecks projects the bounded check summary into the public
-// plugin Git context.
+// plugin Git context, which shares the session contract's record.
 func pluginPullRequestChecks(status *pullrequest.Status) *plugin.PullRequestChecks {
-	summary := pullrequest.SummarizeChecks(status)
-	counts := summary.Counts
-	result := &plugin.PullRequestChecks{
-		State: string(summary.State), Required: string(summary.Required),
-		Counts: plugin.PullRequestCheckCounts{Passed: counts.Passed, Failed: counts.Failed, Pending: counts.Pending, Skipped: counts.Skipped, Canceled: counts.Canceled, Unknown: counts.Unknown},
-		Items:  make([]plugin.PullRequestCheck, 0, len(summary.Checks)), Omitted: summary.Omitted,
-	}
-	for _, check := range summary.Checks {
-		result.Items = append(result.Items, plugin.PullRequestCheck{Name: check.Name, Workflow: check.Workflow, State: string(check.State), Required: check.Required})
-	}
-	return result
+	checks := projectPullRequestChecks(pullrequest.SummarizeChecks(status))
+	return &checks
 }
 func (h *sessionPluginHost) VCS(ctx context.Context) (session.VCSUpdate, error) {
 	value, err := h.vcs.Read(ctx)

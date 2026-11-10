@@ -1,5 +1,14 @@
 # Native v2 implementation profile
 
+> [!IMPORTANT]
+> This profile describes how Kit runs protocol version 1 plugins; "native
+> v2" names the Go host, not the protocol. Version 2 is the current plugin
+> protocol: see the [version 2 specification](v2.md) and the
+> [migration notes](../design/plugin-protocol-v2.md#moving-a-plugin-from-version-1-to-version-2).
+> Kit still runs version 1 plugins, whose manifests have no `protocolVersion`,
+> until version 1 is removed
+> ([ADR 0065](../adrs/0065-stabilize-the-plugin-protocol-as-version-2.md)).
+
 This document describes the **implemented subset** of the language-neutral
 [v1 protocol](v1.md) in Kit's native Go rewrite. It is not a declaration of full
 v1 conformance. The v1 schemas describe the target protocol; a schema-valid

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 // RPCHandlers implements the host side of a plugin connection. Request handlers
@@ -26,9 +28,15 @@ type RPCHandlers struct {
 	Notification func(ctx context.Context, method string, params json.RawMessage) error
 }
 
-type rpcLimits struct{ frame, queued, incoming, outgoing, notifications int }
+type rpcLimits struct {
+	frame, queued, incoming, outgoing, notifications int
+	// protocolVersion is the plugin protocol the endpoint speaks. Version 2
+	// answers a batch with -32600 instead of processing it and gives busy
+	// errors a data.reason; zero and 1 keep version 1's behavior.
+	protocolVersion int
+}
 
-var defaultRPCLimits = rpcLimits{MaxFrameBytes, MaxQueuedBytes, MaxIncomingRequests, 128, 128}
+var defaultRPCLimits = rpcLimits{frame: MaxFrameBytes, queued: MaxQueuedBytes, incoming: MaxIncomingRequests, outgoing: 128, notifications: 128}
 
 type rpcResult struct {
 	value json.RawMessage
@@ -37,7 +45,51 @@ type rpcResult struct {
 type rpcPending struct {
 	result   chan rpcResult
 	validate func(json.RawMessage) error
+	// done closes when the request leaves the pending set: answered,
+	// cancelled, or abandoned with the endpoint.
+	done chan struct{}
 }
+
+// busyError rejects a request beyond the endpoint's concurrency bound. Only
+// protocol version 2 carries a reason; version 1's error is unchanged.
+func (e *RPCEndpoint) busyError() *RPCError {
+	if e.limits.protocolVersion < 2 {
+		return rpcError(-32006, "Endpoint is busy")
+	}
+	return &RPCError{Code: -32006, Message: "Endpoint is busy", Data: json.RawMessage(`{"reason":"busy"}`)}
+}
+
+// endpointContextKey carries the endpoint that dispatched a request handler.
+type endpointContextKey struct{}
+
+// removePendingLocked removes a pending outgoing request and signals its end.
+func (e *RPCEndpoint) removePendingLocked(key string) {
+	if pending := e.pending[key]; pending != nil {
+		delete(e.pending, key)
+		if pending.done != nil {
+			close(pending.done)
+		}
+	}
+}
+
+// pendingRequestDone returns a channel that closes when the request with id,
+// which this handler's endpoint sent, ends. It reports false when no such
+// request is pending.
+func pendingRequestDone(ctx context.Context, id json.RawMessage) (<-chan struct{}, bool) {
+	e, _ := ctx.Value(endpointContextKey{}).(*RPCEndpoint)
+	key, err := requestKey(id)
+	if e == nil || err != nil {
+		return nil, false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	pending := e.pending[key]
+	if pending == nil {
+		return nil, false
+	}
+	return pending.done, true
+}
+
 type rpcIncoming struct {
 	cancel  context.CancelFunc
 	reply   func(rpcMessage)
@@ -139,10 +191,10 @@ func (e *RPCEndpoint) Close(reason error) {
 	}
 	e.err = reason
 	e.cancel()
-	for _, pending := range e.pending {
+	for key, pending := range e.pending {
 		pending.result <- rpcResult{err: reason}
+		e.removePendingLocked(key)
 	}
-	clear(e.pending)
 	for _, active := range e.incoming {
 		active.settled = true
 		active.cancel()
@@ -205,12 +257,12 @@ func (e *RPCEndpoint) callAdmitted(ctx context.Context, method string, params js
 	}
 	if len(e.pending) >= e.limits.outgoing {
 		e.mu.Unlock()
-		return nil, rpcError(-32006, "Endpoint is busy")
+		return nil, e.busyError()
 	}
 	e.next++
 	id := json.RawMessage(strconv.Quote("kit-" + strconv.FormatUint(e.next, 10)))
 	key, _ := requestKey(id)
-	pending := &rpcPending{result: make(chan rpcResult, 1), validate: validate}
+	pending := &rpcPending{result: make(chan rpcResult, 1), validate: validate, done: make(chan struct{})}
 	e.pending[key] = pending
 	e.mu.Unlock()
 	if err := admit(func() error {
@@ -221,7 +273,9 @@ func (e *RPCEndpoint) callAdmitted(ctx context.Context, method string, params js
 		return err
 	}); err != nil {
 		e.mu.Lock()
-		delete(e.pending, key)
+		if e.pending[key] == pending {
+			e.removePendingLocked(key)
+		}
 		e.mu.Unlock()
 		return nil, err
 	}
@@ -235,7 +289,7 @@ func (e *RPCEndpoint) callAdmitted(ctx context.Context, method string, params js
 			result := <-pending.result
 			return result.value, result.err
 		}
-		delete(e.pending, key)
+		e.removePendingLocked(key)
 		e.cancelled[key] = true
 		e.cancelledOrder = append(e.cancelledOrder, key)
 		if len(e.cancelledOrder) > 1024 {
@@ -243,9 +297,7 @@ func (e *RPCEndpoint) callAdmitted(ctx context.Context, method string, params js
 			e.cancelledOrder = e.cancelledOrder[1:]
 		}
 		e.mu.Unlock()
-		cancelParams, _ := json.Marshal(struct {
-			ID json.RawMessage `json:"id"`
-		}{id})
+		cancelParams, _ := json.Marshal(pluginprotocol.CancelParams{ID: pluginprotocol.RequestID(id)})
 		_, _ = e.enqueue(requestMessage(nil, "kit/cancel", cancelParams))
 		return nil, ctx.Err()
 	}
@@ -399,6 +451,10 @@ func (e *RPCEndpoint) readLoop() {
 			}
 			chunk = chunk[1:]
 			line := bytes.TrimSuffix(frame, []byte{'\r'})
+			if e.limits.protocolVersion >= 2 && bytes.HasPrefix(bytes.TrimSpace(line), []byte{'['}) && utf8.Valid(line) && json.Valid(line) {
+				e.sendResponse(responseMessage(json.RawMessage("null"), nil, rpcError(-32600, "Batches are not supported")))
+				line = nil
+			}
 			if len(line) > 0 {
 				messages, batch, decodeErr := decodeRPCFrame(line)
 				if decodeErr != nil {
@@ -514,7 +570,7 @@ func (e *RPCEndpoint) acceptResponse(message rpcMessage) {
 		// it: validators may take outer locks such as Instance.mu, and the
 		// plugin lock order is Host.mu → Instance.mu → RPCEndpoint.mu. This
 		// still runs on the single reader, before later frames dispatch.
-		delete(e.pending, key)
+		e.removePendingLocked(key)
 		e.mu.Unlock()
 		result := rpcResult{value: message.Result}
 		if message.Error != nil {
@@ -563,10 +619,10 @@ func (e *RPCEndpoint) acceptRequest(message rpcMessage, reply func(rpcMessage)) 
 	}
 	if len(e.incoming) >= e.limits.incoming || size > e.limits.queued-e.bufferedBytes {
 		e.mu.Unlock()
-		reply(responseMessage(message.ID, nil, rpcError(-32006, "Endpoint is busy")))
+		reply(responseMessage(message.ID, nil, e.busyError()))
 		return
 	}
-	ctx, cancel := context.WithCancel(e.ctx)
+	ctx, cancel := context.WithCancel(context.WithValue(e.ctx, endpointContextKey{}, e))
 	active := &rpcIncoming{cancel: cancel, reply: reply, size: size}
 	e.incoming[key] = active
 	e.bufferedBytes += size

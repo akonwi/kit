@@ -8,13 +8,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/api/pluginprotocol"
 	"github.com/akonwi/kit/internal/identifier"
+	kitversion "github.com/akonwi/kit/internal/version"
 )
 
 // InstanceID identifies one process generation within one session. Replacement
@@ -26,72 +30,31 @@ type InstanceID struct {
 	Generation uint64
 }
 
-// PluginContext is the protocol-owned initialization context, explicitly
-// projected by the session host rather than sharing runtime or renderer objects.
-type PluginContext struct {
-	Project ProjectContext `json:"project"`
-	Session SessionContext `json:"session"`
+// Wire is the opaque instance identifier clients and version 2 plugins see:
+// the host lifetime and generation.
+func (id InstanceID) Wire() string {
+	return id.HostID + ":" + strconv.FormatUint(id.Generation, 10)
 }
 
-// ProjectContext carries absolute project paths and nullable Git metadata.
-type ProjectContext struct {
-	Cwd string      `json:"cwd"`
-	Git *GitContext `json:"git"`
-}
-
-// GitContext is the public plugin projection of repository state.
-type GitContext struct {
-	PullRequest *PullRequestContext `json:"pullRequest"`
-	Root        string              `json:"root"`
-	Branch      *string             `json:"branch"`
-	Dirty       bool                `json:"dirty"`
-}
-
-// PullRequestContext describes optional cached PR metadata in public Git context.
-type PullRequestContext struct {
-	Number int    `json:"number"`
-	URL    string `json:"url"`
-	// Checks summarizes the PR's observed checks. The host always sends it
-	// with a PR; it is optional in the public schema for older hosts.
-	Checks *PullRequestChecks `json:"checks,omitempty"`
-}
-
-// PullRequestChecks is the bounded public summary of a PR's checks.
-type PullRequestChecks struct {
-	// State is passing, failing, pending, or none.
-	State string `json:"state"`
-	// Required is unknown, pending, satisfied, or unsatisfied.
-	Required string                 `json:"required"`
-	Counts   PullRequestCheckCounts `json:"counts"`
-	// Items lists at most 50 checks, failing first; Omitted counts the rest.
-	Items   []PullRequestCheck `json:"items"`
-	Omitted int                `json:"omitted"`
-}
-
-// PullRequestCheckCounts counts every observed check by state.
-type PullRequestCheckCounts struct {
-	Passed   int `json:"passed"`
-	Failed   int `json:"failed"`
-	Pending  int `json:"pending"`
-	Skipped  int `json:"skipped"`
-	Canceled int `json:"canceled"`
-	Unknown  int `json:"unknown"`
-}
-
-// PullRequestCheck is one listed check. State is passed, failed, pending,
-// skipped, canceled, or unknown.
-type PullRequestCheck struct {
-	Name     string `json:"name"`
-	Workflow string `json:"workflow,omitempty"`
-	State    string `json:"state"`
-	Required bool   `json:"required"`
-}
-
-// SessionContext identifies the owning session; its display name is nullable.
-type SessionContext struct {
-	ID   string  `json:"id"`
-	Name *string `json:"name"`
-}
+// The plugin context records are owned by the public protocol package.
+type (
+	// PluginContext is the session and project an instance belongs to.
+	PluginContext = pluginprotocol.Context
+	// ProjectContext carries the absolute cwd and nullable Git metadata.
+	ProjectContext = pluginprotocol.Project
+	// GitContext is the public plugin projection of repository state.
+	GitContext = pluginprotocol.Git
+	// PullRequestContext describes optional cached PR metadata.
+	PullRequestContext = pluginprotocol.PullRequest
+	// PullRequestChecks is the bounded public summary of a PR's checks.
+	PullRequestChecks = contract.PullRequestChecks
+	// PullRequestCheckCounts counts every observed check by state.
+	PullRequestCheckCounts = contract.PullRequestCheckCounts
+	// PullRequestCheck is one listed check.
+	PullRequestCheck = contract.PullRequestCheck
+	// SessionContext identifies the owning session; its name is nullable.
+	SessionContext = pluginprotocol.Session
+)
 
 // InstanceState describes initialization, admission, and terminal lifecycle.
 type InstanceState string
@@ -132,6 +95,7 @@ var defaultInstanceDeadlines = instanceDeadlines{10 * time.Second, 2 * time.Seco
 type Instance struct {
 	revocationNotify func() // Nonblocking signal only; invoked under instance authority.
 	id               InstanceID
+	version          int // The plugin protocol version the instance speaks.
 	process          *Process
 	rpc              *RPCEndpoint
 	mu               sync.Mutex
@@ -167,13 +131,11 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 	if !identifier.Valid(id.HostID, "pluginhost_") || id.Generation == 0 || id.PluginID != installation.Manifest.ID || id.SessionID == "" || initial.Session.ID != id.SessionID {
 		return nil, errors.New("invalid plugin instance identity")
 	}
-	if err := initial.validate(); err != nil {
+	if err := validatePluginContext(initial); err != nil {
 		return nil, err
 	}
-	params, err := json.Marshal(struct {
-		Version int           `json:"protocolVersion"`
-		Context PluginContext `json:"context"`
-	}{1, initial})
+	version := installation.ProtocolVersion()
+	params, err := initializeParams(version, id, initial)
 	if err != nil {
 		return nil, err
 	}
@@ -188,13 +150,13 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 	}
 	work, cancelWork := context.WithCancel(lifetime)
 	initialize, cancelInit := context.WithTimeout(lifetime, deadlines.initialize)
-	instance := &Instance{id: id, process: process, state: InstanceInitializing, work: work, cancelWork: cancelWork, cancelInit: cancelInit, cancelProcess: cancelProcess, revoked: make(chan struct{}), ready: make(chan struct{}), done: make(chan struct{}), initDone: make(chan struct{}), deadlines: deadlines}
+	instance := &Instance{id: id, version: version, process: process, state: InstanceInitializing, work: work, cancelWork: cancelWork, cancelInit: cancelInit, cancelProcess: cancelProcess, revoked: make(chan struct{}), ready: make(chan struct{}), done: make(chan struct{}), initDone: make(chan struct{}), deadlines: deadlines}
 	wrapped := RPCHandlers{admit: instance.admit}
 	wrapped.Request = func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 		if work.Err() != nil {
 			return nil, rpcError(-32002, "Plugin is unavailable")
 		}
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(withProtocolVersion(ctx, version))
 		stop := context.AfterFunc(work, cancel)
 		defer stop()
 		defer cancel()
@@ -207,7 +169,7 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 		if work.Err() != nil {
 			return nil
 		}
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(withProtocolVersion(ctx, version))
 		stop := context.AfterFunc(work, cancel)
 		defer stop()
 		defer cancel()
@@ -216,7 +178,9 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 		}
 		return handlers.Notification(ctx, method, params)
 	}
-	instance.rpc = NewRPCEndpoint(lifetime, process.Output(), process.Input(), wrapped)
+	limits := defaultRPCLimits
+	limits.protocolVersion = version
+	instance.rpc = newRPCEndpoint(lifetime, process.Output(), process.Input(), wrapped, limits)
 	go func() {
 		defer close(instance.initDone)
 		defer cancelInit()
@@ -226,7 +190,38 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 	return instance, nil
 }
 
-func (context PluginContext) validate() error {
+// initializeParams encodes the initialize request of a protocol version.
+func initializeParams(version int, id InstanceID, initial PluginContext) (json.RawMessage, error) {
+	if version == 1 {
+		return json.Marshal(struct {
+			Version int           `json:"protocolVersion"`
+			Context PluginContext `json:"context"`
+		}{1, initial})
+	}
+	return json.Marshal(pluginprotocol.InitializeParams{
+		ProtocolVersion: pluginprotocol.Version,
+		Kit:             pluginprotocol.KitInfo{Version: kitversion.Version},
+		Instance:        pluginprotocol.InstanceInfo{ID: id.Wire()},
+		Context:         initial,
+	})
+}
+
+type protocolVersionContextKey struct{}
+
+func withProtocolVersion(ctx context.Context, version int) context.Context {
+	return context.WithValue(ctx, protocolVersionContextKey{}, version)
+}
+
+// protocolVersion is the plugin protocol version of the instance whose
+// request or notification a handler serves; 1 outside an instance.
+func protocolVersion(ctx context.Context) int {
+	if version, ok := ctx.Value(protocolVersionContextKey{}).(int); ok {
+		return version
+	}
+	return 1
+}
+
+func validatePluginContext(context PluginContext) error {
 	valid := func(value string) bool { return utf8.ValidString(value) && !strings.ContainsRune(value, 0) }
 	if !filepath.IsAbs(context.Project.Cwd) || !valid(context.Project.Cwd) || context.Session.ID == "" || !valid(context.Session.ID) {
 		return errors.New("invalid plugin session/project context")
@@ -244,7 +239,7 @@ func (context PluginContext) validate() error {
 
 func (i *Instance) acceptInitialization(result json.RawMessage) error {
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(result, &fields) != nil || len(fields) != 1 || !numberIsOne(string(fields["protocolVersion"])) {
+	if json.Unmarshal(result, &fields) != nil || len(fields) != 1 || !numberIs(string(fields["protocolVersion"]), i.version) {
 		return errors.New("plugin returned an invalid initialization result or unsupported protocol version")
 	}
 	i.mu.Lock()

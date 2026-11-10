@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 const (
@@ -23,7 +25,7 @@ type Subagent struct {
 }
 
 func parseSubagent(params json.RawMessage) (Subagent, error) {
-	fields, err := contributionObject(params, "id", "description", "instructions", "model")
+	fields, err := contributionObject(params, subagentRegisterMembers...)
 	if err != nil {
 		return Subagent{}, err
 	}
@@ -112,9 +114,7 @@ func (h *Host) handleSubagentRequest(ctx context.Context, owner InstanceID, meth
 	definition.Registration = h.nextSubagent
 	h.subagents[definition.ID] = definition
 	h.publishChange()
-	return json.Marshal(struct {
-		ID string `json:"id"`
-	}{definition.ID})
+	return json.Marshal(pluginprotocol.CanonicalIDResult{ID: definition.ID})
 }
 
 func (h *Host) pruneSubagentsLocked() {

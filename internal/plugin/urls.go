@@ -29,7 +29,7 @@ type URLRequest struct {
 }
 
 func parseOpenURL(raw json.RawMessage) (string, error) {
-	fields, err := boundedParamsObject(raw, maxOpenURLParamsBytes, "url")
+	fields, err := boundedParamsObject(raw, maxOpenURLParamsBytes, openURLMembers...)
 	if err != nil {
 		return "", err
 	}

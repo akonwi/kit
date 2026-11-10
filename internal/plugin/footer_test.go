@@ -146,11 +146,11 @@ func TestFooterResourceBoundsAndIdempotentClaims(t *testing.T) {
 	}
 	footerCall(t, h, owner, "show", `{"id":"demo.future0"}`)
 	footerCall(t, h, owner, "hide", `{"id":"demo.extra"}`)
-	_, err = parseFooterItem(json.RawMessage(`{"id":"x","content":[` + strings.Repeat(`{"text":""},`, MaxFooterSegments) + `{"text":""}]}`))
+	_, err = parseFooterItem(json.RawMessage(`{"id":"x","content":[`+strings.Repeat(`{"text":""},`, MaxFooterSegments)+`{"text":""}]}`), 1)
 	if !errors.As(err, &failure) || failure.Code != -32005 {
 		t.Fatalf("segment limit = %v", err)
 	}
-	_, err = parseFooterItem(json.RawMessage(fmt.Sprintf(`{"id":"x","content":[{"text":%q},{"text":"x"}]}`, strings.Repeat("a", MaxFooterTextBytes))))
+	_, err = parseFooterItem(json.RawMessage(fmt.Sprintf(`{"id":"x","content":[{"text":%q},{"text":"x"}]}`, strings.Repeat("a", MaxFooterTextBytes))), 1)
 	if !errors.As(err, &failure) || failure.Code != -32005 {
 		t.Fatalf("text limit = %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/api/pluginprotocol"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/githubpr"
 	"github.com/akonwi/kit/internal/plugin"
@@ -48,9 +49,7 @@ type sessionPluginHost struct {
 	clientResolved  func(session.ClientPluginCall)
 }
 
-func pluginCommandInstance(owner plugin.InstanceID) string {
-	return owner.HostID + ":" + strconv.FormatUint(owner.Generation, 10)
-}
+func pluginCommandInstance(owner plugin.InstanceID) string { return owner.Wire() }
 
 func pluginCommandSelection(command plugin.Command) string {
 	return pluginCommandInstance(command.Owner) + ":" + strconv.FormatUint(command.Registration, 10)
@@ -309,7 +308,7 @@ func (h *sessionPluginHost) TurnStarted(turnID string) bool { return h.Host.Turn
 func (h *sessionPluginHost) TurnCompleted(turn session.PluginTurn) {
 	projected := plugin.PublicTurn{ID: turn.ID, Messages: make([]plugin.PublicMessage, 0, len(turn.Messages))}
 	for _, message := range turn.Messages {
-		item := plugin.PublicMessage{Role: message.Role, Content: make([]plugin.PublicTextContent, 0, len(message.Content))}
+		item := plugin.PublicMessage{Role: pluginprotocol.MessageRole(message.Role), Content: make([]plugin.PublicTextContent, 0, len(message.Content))}
 		for _, text := range message.Content {
 			item.Content = append(item.Content, plugin.PublicTextContent{Type: "text", Text: text})
 		}

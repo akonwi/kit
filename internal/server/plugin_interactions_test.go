@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -30,23 +31,8 @@ func pluginFixtureClient(t *testing.T, name string, commandCount int) (*clienttr
 
 func pluginFixtureClientWithProviders(t *testing.T, name string, commandCount int, providers *daemonEchoProviders) (*clienttransport.Client, string, protocol.PluginCommand) {
 	t.Helper()
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("UI fixture requires Python")
-	}
 	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
-	root := filepath.Join(paths.Plugins, name)
-	if err := os.MkdirAll(root, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for _, filename := range []string{"plugin.json", "plugin.py"} {
-		data, err := os.ReadFile(filepath.Join("..", "..", ".kit", "plugins", name, filename))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, filename), data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	installRepositoryPlugin(t, name, filepath.Join(paths.Plugins, name))
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
@@ -134,7 +120,7 @@ func TestPluginUIDemoUsesSharedSessionBrokerWithoutModelRun(t *testing.T) {
 		response := protocol.InteractionResponse{RequestID: request.ID}
 		switch kind {
 		case protocol.InteractionSelect:
-			if request.Filterable == nil || !*request.Filterable || request.Placeholder == "" {
+			if request.Placeholder == "" {
 				t.Fatalf("select metadata = %#v", request)
 			}
 			response.SelectedOptionID = request.Options[0].ID
@@ -342,5 +328,44 @@ func TestDeletingSessionCancelsPendingPluginDialog(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("session deletion left plugin callback blocked")
+	}
+}
+
+// installRepositoryPlugin copies the repository fixture name to root,
+// following links such as a fixture's link to the TypeScript helper. It
+// skips the test when the fixture's command is not installed.
+func installRepositoryPlugin(t *testing.T, name, root string) {
+	t.Helper()
+	source := filepath.Join("..", "..", ".kit", "plugins", name)
+	manifest, err := os.ReadFile(filepath.Join(source, "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var launch struct {
+		Transport struct {
+			Command string `json:"command"`
+		} `json:"transport"`
+	}
+	if err := json.Unmarshal(manifest, &launch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.LookPath(launch.Transport.Command); err != nil {
+		t.Skipf("%s requires %s", name, launch.Transport.Command)
+	}
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(source, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, entry.Name()), data, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

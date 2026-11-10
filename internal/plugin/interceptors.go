@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 // ErrInterceptorUnavailable blocks calls whose admitted policy was replaced.
@@ -91,7 +93,7 @@ func (h *Host) handleInterceptorRequest(ctx context.Context, owner InstanceID, m
 }
 
 func parseInterceptionDecision(raw json.RawMessage) (InterceptionDecision, error) {
-	fields, err := contributionObject(raw, "action", "message")
+	fields, err := contributionObject(raw, decisionMembers...)
 	if err != nil {
 		return InterceptionDecision{}, err
 	}
@@ -134,17 +136,7 @@ func (h *Host) InterceptTool(ctx context.Context, identity, callID, name string,
 	if len(chain) > 0 && (len(input) > 1024*1024 || !json.Valid(input) || !contributionText(callID, 512, true) || !contributionText(name, 512, true)) {
 		return InterceptionDecision{}, errors.New("invalid or oversized intercepted tool call")
 	}
-	params, err := json.Marshal(struct {
-		ToolCall struct {
-			ID    string          `json:"id"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
-		} `json:"toolCall"`
-	}{ToolCall: struct {
-		ID    string          `json:"id"`
-		Name  string          `json:"name"`
-		Input json.RawMessage `json:"input"`
-	}{callID, name, input}})
+	params, err := json.Marshal(pluginprotocol.BeforeExecuteParams{ToolCall: pluginprotocol.ToolCall{ID: callID, Name: name, Input: input}})
 	if err != nil {
 		return InterceptionDecision{}, err
 	}

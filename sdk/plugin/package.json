@@ -1,0 +1,15 @@
+{
+  "name": "@kit/plugin-sdk",
+  "private": true,
+  "type": "module",
+  "description": "Kit's TypeScript plugin helper (ADR 0065). Plugins copy kit-plugin.ts; this package only checks it.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "PluginID": {
+      "description": "Stable plugin ID. kit and kit-* are reserved.",
+      "maxLength": 32,
+      "minLength": 1,
+      "not": {
+        "pattern": "^kit(-|$)"
+      },
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "type": "string"
+    },
+    "StdioTransport": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "stdio"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/akonwi/kit/main/docs/plugin-protocol/v2/manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "plugin.json: how Kit launches a plugin that speaks plugin protocol version 2. Generated from github.com/akonwi/kit/api/pluginprotocol.",
+  "properties": {
+    "$schema": {
+      "description": "Absolute URI of the manifest schema, for editors. Kit does not fetch it.",
+      "format": "uri",
+      "type": "string"
+    },
+    "id": {
+      "$ref": "#/$defs/PluginID"
+    },
+    "manifestVersion": {
+      "const": 1
+    },
+    "name": {
+      "description": "Display name.",
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "protocolVersion": {
+      "const": 2,
+      "description": "The plugin protocol version the plugin speaks."
+    },
+    "transport": {
+      "$ref": "#/$defs/StdioTransport"
+    }
+  },
+  "required": [
+    "manifestVersion",
+    "protocolVersion",
+    "id",
+    "transport"
+  ],
+  "title": "Kit plugin manifest for protocol 2",
+  "type": "object"
+}

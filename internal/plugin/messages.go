@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 const (
@@ -33,7 +35,7 @@ type MessageResult struct {
 }
 
 func parseMessage(raw json.RawMessage) (MessageRequest, error) {
-	fields, err := boundedParamsObject(raw, maxMessageParamsBytes, "text", "idempotencyKey")
+	fields, err := boundedParamsObject(raw, maxMessageParamsBytes, submitMessageMembers...)
 	if err != nil {
 		return MessageRequest{}, err
 	}
@@ -80,8 +82,5 @@ func (h *Host) handleSubmitMessage(ctx context.Context, owner InstanceID, params
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(struct {
-		MessageID string `json:"messageId"`
-		TurnID    string `json:"turnId"`
-	}{result.MessageID, result.TurnID})
+	return json.Marshal(pluginprotocol.SubmitMessageResult{MessageID: result.MessageID, TurnID: result.TurnID})
 }

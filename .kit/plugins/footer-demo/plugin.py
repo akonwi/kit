@@ -31,7 +31,7 @@ for line in sys.stdin:
     method = request.get("method")
     params = request.get("params") or {}
     if method == "initialize":
-        reply(request, {"protocolVersion": 1})
+        reply(request, {"protocolVersion": 2})
         for name, description in [("set", "Set styled bottom-right footer text"),
                                   ("replace", "Hide cwd/Git and show demo footer text"),
                                   ("clear", "Remove demo footer text and restore cwd/Git")]:

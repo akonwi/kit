@@ -1,4 +1,4 @@
-"""Read-only model tool fixture for the subprocess-v1 protocol."""
+"""Read-only model tool fixture for plugin protocol 2."""
 import json
 import sys
 
@@ -16,7 +16,7 @@ for line in sys.stdin:
     method = message.get("method")
     params = message.get("params") or {}
     if method == "initialize":
-        reply(message, {"protocolVersion": 1})
+        reply(message, {"protocolVersion": 2})
         send({"id": "register-echo", "method": "kit/tools/register", "params": {
             "id": "echo", "label": "Plugin echo", "description": "Echo text through the read-only plugin tool demo.",
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}},

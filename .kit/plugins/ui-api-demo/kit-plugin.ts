@@ -1,0 +1,1 @@
+../../../sdk/plugin/kit-plugin.ts

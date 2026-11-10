@@ -24,7 +24,7 @@ for line in sys.stdin:
     method = request.get("method")
     params = request.get("params") or {}
     if method == "initialize":
-        reply(request, {"protocolVersion": 1})
+        reply(request, {"protocolVersion": 2})
         call("kit/subagents/register", {
             "id": "reviewer",
             "description": "Reviews code changes for regressions",

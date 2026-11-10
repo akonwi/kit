@@ -60,6 +60,8 @@ func TestRegistryContainsEmbeddedCustomizationSkill(t *testing.T) {
 		"Inspect the relevant documentation and source",
 		"Prefer documented user-editable customization surfaces",
 		"Put global context guidance in `AGENTS.md` under the resolved Kit home.",
+		"Write new plugins to plugin protocol version 2, specified in `docs/plugin-protocol/v2.md`; their manifests declare `\"protocolVersion\": 2`.",
+		"copy `sdk/plugin/kit-plugin.ts`, and `sdk/plugin/kit-plugin-testing.ts` for its tests, from the Kit repository at the release tag of the running Kit version",
 	} {
 		if !strings.Contains(skill.Content, expected) {
 			t.Fatalf("embedded skill does not contain %q:\n%s", expected, skill.Content)

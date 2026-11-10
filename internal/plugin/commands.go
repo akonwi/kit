@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 const (
@@ -139,7 +141,7 @@ func contributionString(fields map[string]json.RawMessage, name string, limit in
 }
 
 func parseCommand(raw json.RawMessage) (Command, error) {
-	fields, err := contributionObject(raw, "id", "description", "argName", "category")
+	fields, err := contributionObject(raw, commandRegisterMembers...)
 	if err != nil {
 		return Command{}, err
 	}
@@ -163,7 +165,7 @@ func parseCommand(raw json.RawMessage) (Command, error) {
 }
 
 func parseLocalID(raw json.RawMessage) (string, error) {
-	fields, err := contributionObject(raw, "id")
+	fields, err := contributionObject(raw, localIDMembers...)
 	if err != nil {
 		return "", err
 	}
@@ -238,9 +240,7 @@ func (h *Host) handleRequest(ctx context.Context, owner InstanceID, method strin
 		command.Registration = h.nextCommand
 		h.commands[command.ID] = command
 		h.publishChange()
-		return json.Marshal(struct {
-			ID string `json:"id"`
-		}{command.ID})
+		return json.Marshal(pluginprotocol.CanonicalIDResult{ID: command.ID})
 	case "kit/commands/unregister":
 		id, err := parseLocalID(params)
 		if err != nil {
@@ -344,10 +344,7 @@ func (h *Host) ExecuteCommand(ctx context.Context, selection Command, args strin
 				continue
 			}
 		}
-		params, _ := json.Marshal(struct {
-			ID   string `json:"id"`
-			Args string `json:"args"`
-		}{command.LocalID, args})
+		params, _ := json.Marshal(pluginprotocol.CommandExecuteParams{ID: command.LocalID, Args: args})
 		_, err := instance.callAdmitted(ctx, "kit/commands/execute", params, func(raw json.RawMessage) error {
 			if !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 				return errors.New("plugin command result must be null")
@@ -377,7 +374,7 @@ func (h *Host) ExecuteCommand(ctx context.Context, selection Command, args strin
 }
 
 func parseToast(raw json.RawMessage) (Toast, error) {
-	fields, err := contributionObject(raw, "title", "subtitle", "variant", "persistent")
+	fields, err := contributionObject(raw, toastMembers...)
 	if err != nil {
 		return Toast{}, err
 	}

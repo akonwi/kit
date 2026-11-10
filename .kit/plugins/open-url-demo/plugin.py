@@ -1,4 +1,4 @@
-"""stdio-v1 fixture for plugin URL requests.
+"""Plugin protocol 2 fixture for plugin URL requests.
 
 The command replies immediately and requests the URL afterwards: the stdio
 loop is synchronous, so a handler cannot wait for its own request's response.
@@ -55,7 +55,7 @@ for line in sys.stdin:
             settle(message)
         continue
     if method == "initialize":
-        reply(message, {"protocolVersion": 1})
+        reply(message, {"protocolVersion": 2})
         send({"id": "register-open", "method": "kit/commands/register", "params": {
             "id": "open", "description": "Ask the Mac app to open a URL in its browser", "argName": "url"
         }})

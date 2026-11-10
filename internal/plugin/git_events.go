@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"time"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 const (
@@ -107,9 +109,7 @@ func (h *Host) publishGitLocked(entry *hostEntry, next *GitContext) {
 	if sameGitContext(entry.context.Project.Git, next) {
 		return
 	}
-	params, err := json.Marshal(struct {
-		Git *GitContext `json:"git"`
-	}{next})
+	params, err := json.Marshal(pluginprotocol.GitChangedParams{Git: next})
 	if err == nil {
 		err = entry.instance.tryNotify("kit/events/git.changed", params)
 	}

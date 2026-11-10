@@ -56,145 +56,160 @@ func (p *interceptionProviders) Stream(_ context.Context, _ droids.Model, reques
 	}
 	return &daemonEchoStream{final: response}
 }
+
+// TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution runs the
+// approval plugin in both protocol versions. Version 1 forwards the
+// interceptor's cancellation to its dialog itself; version 2 names the
+// interceptor request as the dialog's parentId and relies on Kit to close it.
 func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("Python required")
 	}
-	for _, mode := range []string{"reject", "allow", "cancel"} {
-		allow := mode == "allow"
-		t.Run(mode, func(t *testing.T) {
-			paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
-			root := filepath.Join(paths.Plugins, "approval")
-			if err := os.MkdirAll(root, 0700); err != nil {
-				t.Fatal(err)
+	versions := []struct{ name, script, manifest string }{
+		{"v1", "approval-plugin.py", `{"manifestVersion":1,"id":"approval","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`},
+		{"v2", "approval-plugin-v2.py", `{"manifestVersion":1,"protocolVersion":2,"id":"approval","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`},
+	}
+	for _, version := range versions {
+		for _, mode := range []string{"reject", "allow", "cancel"} {
+			testPluginInterception(t, version.name, version.script, version.manifest, mode)
+		}
+	}
+}
+
+func testPluginInterception(t *testing.T, version, scriptName, manifest, mode string) {
+	allow := mode == "allow"
+	t.Run(version+"/"+mode, func(t *testing.T) {
+		paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+		root := filepath.Join(paths.Plugins, "approval")
+		if err := os.MkdirAll(root, 0700); err != nil {
+			t.Fatal(err)
+		}
+		script, err := os.ReadFile(filepath.Join("..", "plugin", "testdata", scriptName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "plugin.py"), script, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(manifest), 0600); err != nil {
+			t.Fatal(err)
+		}
+		provider := &interceptionProviders{}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			done <- Run(ctx, RunOptions{Paths: paths, Providers: provider, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		}()
+		defer func() {
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Error(err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Error("daemon shutdown blocked")
 			}
-			script, err := os.ReadFile(filepath.Join("..", "plugin", "testdata", "approval-plugin.py"))
+		}()
+		client := localTransport(paths)
+		defer client.CloseIdleConnections()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if _, _, err := client.Probe(t.Context(), true); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("daemon not ready")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for {
+			snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(root, "plugin.py"), script, 0600); err != nil {
-				t.Fatal(err)
+			if len(snapshot.PluginCommands) == 1 {
+				break
 			}
-			if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(`{"manifestVersion":1,"id":"approval","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`), 0600); err != nil {
-				t.Fatal(err)
+			if time.Now().After(deadline) {
+				t.Fatal("interceptor not ready")
 			}
-			provider := &interceptionProviders{}
-			ctx, cancel := context.WithCancel(t.Context())
-			done := make(chan error, 1)
-			go func() {
-				done <- Run(ctx, RunOptions{Paths: paths, Providers: provider, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-			}()
-			defer func() {
-				cancel()
-				select {
-				case err := <-done:
-					if err != nil {
-						t.Error(err)
-					}
-				case <-time.After(10 * time.Second):
-					t.Error("daemon shutdown blocked")
-				}
-			}()
-			client := localTransport(paths)
-			defer client.CloseIdleConnections()
-			deadline := time.Now().Add(5 * time.Second)
-			for {
-				if _, _, err := client.Probe(t.Context(), true); err == nil {
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("daemon not ready")
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-			created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
+			time.Sleep(10 * time.Millisecond)
+		}
+		turn := make(chan error, 1)
+		go func() { _, err := client.Prompt(ctx, created.ID, "run the tool"); turn <- err }()
+		var interaction protocol.InteractionRequest
+		var turnID string
+		for {
+			snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			for {
-				snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if len(snapshot.PluginCommands) == 1 {
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("interceptor not ready")
-				}
-				time.Sleep(10 * time.Millisecond)
+			if len(snapshot.PendingInteractions) == 1 {
+				interaction = snapshot.PendingInteractions[0]
+				turnID = snapshot.ActiveTurnID
+				break
 			}
-			turn := make(chan error, 1)
-			go func() { _, err := client.Prompt(ctx, created.ID, "run the tool"); turn <- err }()
-			var interaction protocol.InteractionRequest
-			var turnID string
-			for {
-				snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if len(snapshot.PendingInteractions) == 1 {
-					interaction = snapshot.PendingInteractions[0]
-					turnID = snapshot.ActiveTurnID
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("interceptor did not request confirmation")
-				}
-				time.Sleep(10 * time.Millisecond)
+			if time.Now().After(deadline) {
+				t.Fatal("interceptor did not request confirmation")
 			}
-			if interaction.Plugin == nil || interaction.Plugin.PluginID != "approval" || interaction.Detail != "bash" {
-				t.Fatalf("interceptor dialog=%#v", interaction)
-			}
-			if mode == "cancel" {
-				if err := client.AbortSession(ctx, created.ID, turnID); err != nil {
-					t.Fatal(err)
-				}
-				select {
-				case <-turn:
-				case <-time.After(5 * time.Second):
-					t.Fatal("aborted interception remained blocked")
-				}
-				end := time.Now().Add(3 * time.Second)
-				for {
-					snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if len(snapshot.PendingInteractions) == 0 {
-						break
-					}
-					if time.Now().After(end) {
-						t.Fatal("nested confirmation survived interception cancellation")
-					}
-					time.Sleep(10 * time.Millisecond)
-				}
-				return
-			}
-			if err := client.RespondInteraction(ctx, created.ID, protocol.InteractionResponse{RequestID: interaction.ID, Confirmed: &allow}); err != nil {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if interaction.Plugin == nil || interaction.Plugin.PluginID != "approval" || interaction.Detail != "bash" {
+			t.Fatalf("interceptor dialog=%#v", interaction)
+		}
+		if mode == "cancel" {
+			if err := client.AbortSession(ctx, created.ID, turnID); err != nil {
 				t.Fatal(err)
 			}
 			select {
-			case err := <-turn:
+			case <-turn:
+			case <-time.After(5 * time.Second):
+				t.Fatal("aborted interception remained blocked")
+			}
+			end := time.Now().Add(3 * time.Second)
+			for {
+				snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("intercepted turn did not finish")
+				if len(snapshot.PendingInteractions) == 0 {
+					break
+				}
+				if time.Now().After(end) {
+					t.Fatal("nested confirmation survived interception cancellation")
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
-			provider.mu.Lock()
-			failed, result := provider.toolError, provider.result
-			provider.mu.Unlock()
-			if failed == allow {
-				t.Fatalf("allow=%v toolError=%v result=%q", allow, failed, result)
+			return
+		}
+		if err := client.RespondInteraction(ctx, created.ID, protocol.InteractionResponse{RequestID: interaction.ID, Confirmed: &allow}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-turn:
+			if err != nil {
+				t.Fatal(err)
 			}
-			expected := "User rejected intercepted tool"
-			if allow {
-				expected = "interception-executed"
-			}
-			if !strings.Contains(result, expected) {
-				t.Fatalf("tool result=%q want %q", result, expected)
-			}
-		})
-	}
+		case <-time.After(5 * time.Second):
+			t.Fatal("intercepted turn did not finish")
+		}
+		provider.mu.Lock()
+		failed, result := provider.toolError, provider.result
+		provider.mu.Unlock()
+		if failed == allow {
+			t.Fatalf("allow=%v toolError=%v result=%q", allow, failed, result)
+		}
+		expected := "User rejected intercepted tool"
+		if allow {
+			expected = "interception-executed"
+		}
+		if !strings.Contains(result, expected) {
+			t.Fatalf("tool result=%q want %q", result, expected)
+		}
+	})
 }

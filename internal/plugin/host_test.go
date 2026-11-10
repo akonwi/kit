@@ -15,12 +15,19 @@ import (
 
 func hostInstallation(t *testing.T, root, name, id, mode string) string {
 	t.Helper()
+	return hostInstallationVersion(t, root, name, id, mode, 0)
+}
+
+// hostInstallationVersion installs the helper plugin with a manifest that
+// declares protocolVersion, or none when it is zero.
+func hostInstallationVersion(t *testing.T, root, name, id, mode string, protocolVersion int) string {
+	t.Helper()
 	t.Setenv("KIT_INSTANCE_HELPER", "1")
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := Manifest{ManifestVersion: 1, ID: id, Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}
+	manifest := Manifest{ManifestVersion: 1, ProtocolVersion: protocolVersion, ID: id, Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}
 	data, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)

@@ -189,8 +189,11 @@ func TestDiscoverMissingRootsCancellationAndInvalidPaths(t *testing.T) {
 	}
 }
 
-func TestExistingV1ExampleManifests(t *testing.T) {
-	for _, id := range []string{"plugin-demo", "speech", "ui-api-demo"} {
+// TestRepositoryExampleManifests checks the repository's fixtures: speech is
+// the version 1 example and every other fixture speaks version 2.
+func TestRepositoryExampleManifests(t *testing.T) {
+	versions := map[string]int{"footer-demo": 2, "open-url-demo": 2, "plugin-demo": 2, "session-message-demo": 2, "speech": 1, "subagent-demo": 2, "tool-demo": 2, "ui-api-demo": 2}
+	for id, version := range versions {
 		t.Run(id, func(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join("..", "..", ".kit", "plugins", id, "plugin.json"))
 			if err != nil {
@@ -200,8 +203,8 @@ func TestExistingV1ExampleManifests(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if manifest.ID != id {
-				t.Fatalf("id = %q", manifest.ID)
+			if manifest.ID != id || (Installation{Manifest: manifest}).ProtocolVersion() != version {
+				t.Fatalf("id = %q, protocol version = %d, want %s speaking %d", manifest.ID, (Installation{Manifest: manifest}).ProtocolVersion(), id, version)
 			}
 			encoded, err := json.Marshal(manifest)
 			if err != nil {

@@ -57,6 +57,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # TypeScript plugin fixtures run under Bun; keep the version in step
+      # with .github/actions/setup-web.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
       - name: Isolate Kit test state
         shell: bash
         run: echo "KIT_HOME=$(mktemp -d "$RUNNER_TEMP/kit-test-home.XXXXXX")" >> "$GITHUB_ENV"

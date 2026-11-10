@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 
 	validator "github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 // MaxTools bounds the per-session plugin tool catalog.
@@ -50,7 +53,7 @@ type ToolResult struct {
 }
 
 func parseTool(params json.RawMessage) (Tool, error) {
-	fields, err := contributionObject(params, "id", "label", "description", "inputSchema", "executionMode", "promptSnippet", "promptGuidelines")
+	fields, err := contributionObject(params, toolRegisterMembers...)
 	if err != nil {
 		return Tool{}, err
 	}
@@ -111,7 +114,7 @@ func (h *Host) handleToolRequest(ctx context.Context, owner InstanceID, method s
 		tool, err = parseTool(params)
 	} else {
 		var fields map[string]json.RawMessage
-		fields, err = contributionObject(params, "id")
+		fields, err = contributionObject(params, toolIDMembers...)
 		if err == nil {
 			tool.LocalID, err = contributionString(fields, "id", 64, true)
 			if err == nil && !toolLocalID.MatchString(tool.LocalID) {
@@ -154,10 +157,7 @@ func (h *Host) handleToolRequest(ctx context.Context, owner InstanceID, method s
 	tool.Registration = h.nextTool
 	h.tools[tool.ID] = tool
 	h.publishChange()
-	return json.Marshal(struct {
-		ID        string `json:"id"`
-		ModelName string `json:"modelName"`
-	}{tool.ID, tool.ModelName})
+	return json.Marshal(pluginprotocol.ToolRegisterResult{ID: tool.ID, ModelName: tool.ModelName})
 }
 func (h *Host) pruneToolsLocked() {
 	for id, tool := range h.tools {
@@ -223,11 +223,7 @@ func (h *Host) ExecuteTool(ctx context.Context, selection Tool, call ToolCall, i
 	if err := tool.validator.Validate(value); err != nil {
 		return ToolResult{}, rpcError(-32602, "Tool input does not match schema")
 	}
-	params, err := json.Marshal(struct {
-		ID     string          `json:"id"`
-		CallID string          `json:"toolCallId"`
-		Input  json.RawMessage `json:"input"`
-	}{tool.LocalID, callID, input})
+	params, err := json.Marshal(pluginprotocol.ToolExecuteParams{ID: tool.LocalID, ToolCallID: callID, Input: input})
 	if err != nil {
 		return ToolResult{}, err
 	}
@@ -299,7 +295,7 @@ func parseToolResult(raw json.RawMessage) (ToolResult, error) {
 		return ToolResult{}, errors.New("tool result must be an object")
 	}
 	for key := range object {
-		if key != "content" && key != "details" && key != "terminate" {
+		if !slices.Contains(toolResultMembers, key) {
 			return ToolResult{}, errors.New("unknown tool result field")
 		}
 	}

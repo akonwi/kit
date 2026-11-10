@@ -1,0 +1,2833 @@
+{
+  "$defs": {
+    "BeforeExecuteParams": {
+      "properties": {
+        "toolCall": {
+          "$ref": "#/$defs/ToolCall"
+        }
+      },
+      "required": [
+        "toolCall"
+      ],
+      "type": "object"
+    },
+    "BeforeExecuteRequest": {
+      "additionalProperties": false,
+      "description": "Asks an interceptor whether a tool call may run.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/tool-calls/before-execute"
+        },
+        "params": {
+          "$ref": "#/$defs/BeforeExecuteParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "CancelNotification": {
+      "additionalProperties": false,
+      "description": "Cancels a request the sender sent earlier.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/cancel"
+        },
+        "params": {
+          "$ref": "#/$defs/CancelParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "CancelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "CanonicalID": {
+      "minLength": 3,
+      "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9-]*)*$",
+      "type": "string"
+    },
+    "CanonicalIDResult": {
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/CanonicalID"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ClearFooterItemRequest": {
+      "additionalProperties": false,
+      "description": "Removes a footer item.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/footer/clear"
+        },
+        "params": {
+          "$ref": "#/$defs/LocalIDParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "CommandExecuteParams": {
+      "properties": {
+        "args": {
+          "description": "The literal text after the command, or empty.",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/LocalID"
+        }
+      },
+      "required": [
+        "id",
+        "args"
+      ],
+      "type": "object"
+    },
+    "CommandRegisterParams": {
+      "additionalProperties": false,
+      "properties": {
+        "argName": {
+          "description": "Hint for the command's argument, at most 128 bytes.",
+          "maxLength": 128,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "category": {
+          "description": "Single-line, at most 128 bytes.",
+          "maxLength": 128,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "description": "Single-line, at most 1,024 bytes.",
+          "maxLength": 1024,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb][^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/LocalID"
+        }
+      },
+      "required": [
+        "id",
+        "description"
+      ],
+      "type": "object"
+    },
+    "ConfirmParams": {
+      "additionalProperties": false,
+      "properties": {
+        "cancelLabel": {
+          "description": "At most 128 bytes.",
+          "maxLength": 128,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confirmLabel": {
+          "description": "At most 128 bytes.",
+          "maxLength": 128,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "defaultValue": {
+          "description": "The answer that has focus initially.",
+          "type": "boolean"
+        },
+        "message": {
+          "description": "Markdown, at most 8 KiB.",
+          "maxLength": 8192,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentId": {
+          "$ref": "#/$defs/RequestID",
+          "description": "A pending Kit request this dialog serves. Kit cancels the dialog when that request ends."
+        },
+        "title": {
+          "description": "Single-line, at most 512 bytes.",
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb][^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "ConfirmRequest": {
+      "additionalProperties": false,
+      "description": "Asks the user a yes-or-no question.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/ui/confirm"
+        },
+        "params": {
+          "$ref": "#/$defs/ConfirmParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ConfirmResult": {
+      "type": "boolean"
+    },
+    "Context": {
+      "properties": {
+        "project": {
+          "$ref": "#/$defs/Project"
+        },
+        "session": {
+          "$ref": "#/$defs/Session"
+        }
+      },
+      "required": [
+        "project",
+        "session"
+      ],
+      "type": "object"
+    },
+    "ErrorData": {
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/ErrorReason"
+        }
+      },
+      "type": "object"
+    },
+    "ErrorObject": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "integer"
+        },
+        "data": {
+          "description": "Structured details. Errors from Kit use ErrorData."
+        },
+        "message": {
+          "description": "Concise and safe to display.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ErrorReason": {
+      "enum": [
+        "busy",
+        "session_busy",
+        "rate_limited",
+        "interactivity_unavailable"
+      ],
+      "type": "string"
+    },
+    "ErrorResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorObject"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestID"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "type": "object"
+    },
+    "ExecuteCommandRequest": {
+      "additionalProperties": false,
+      "description": "Runs a command a user invoked.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/commands/execute"
+        },
+        "params": {
+          "$ref": "#/$defs/CommandExecuteParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ExecuteToolRequest": {
+      "additionalProperties": false,
+      "description": "Runs a tool the model called.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/tools/execute"
+        },
+        "params": {
+          "$ref": "#/$defs/ToolExecuteParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ExecutionMode": {
+      "enum": [
+        "sequential",
+        "parallel"
+      ],
+      "type": "string"
+    },
+    "FooterSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "style": {
+          "$ref": "#/$defs/FooterStyle"
+        },
+        "text": {
+          "description": "Single-line. An item's segments hold at most 4 KiB of text in total.",
+          "maxLength": 4096,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "FooterSetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "items": {
+            "$ref": "#/$defs/FooterSegment"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/$defs/LocalID"
+        }
+      },
+      "required": [
+        "id",
+        "content"
+      ],
+      "type": "object"
+    },
+    "FooterStyle": {
+      "additionalProperties": false,
+      "properties": {
+        "bg": {
+          "$ref": "#/$defs/ThemeToken"
+        },
+        "bold": {
+          "type": "boolean"
+        },
+        "dim": {
+          "type": "boolean"
+        },
+        "fg": {
+          "$ref": "#/$defs/ThemeToken"
+        },
+        "italic": {
+          "type": "boolean"
+        },
+        "strikethrough": {
+          "type": "boolean"
+        },
+        "underline": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "FooterTarget": {
+      "maxLength": 257,
+      "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$",
+      "type": "string"
+    },
+    "FooterTargetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/FooterTarget"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "Git": {
+      "properties": {
+        "branch": {
+          "description": "Null for a detached head.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "pullRequest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PullRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The branch's pull request; null when there is none or it is not known yet."
+        },
+        "root": {
+          "description": "Absolute worktree root.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "branch",
+        "dirty",
+        "pullRequest"
+      ],
+      "type": "object"
+    },
+    "GitChangedNotification": {
+      "additionalProperties": false,
+      "description": "The working directory's Git state or pull request changed.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/events/git.changed"
+        },
+        "params": {
+          "$ref": "#/$defs/GitChangedParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "GitChangedParams": {
+      "properties": {
+        "git": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Git"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "git"
+      ],
+      "type": "object"
+    },
+    "HideFooterItemRequest": {
+      "additionalProperties": false,
+      "description": "Hides a footer item while the claim lasts.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/footer/hide"
+        },
+        "params": {
+          "$ref": "#/$defs/FooterTargetParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "IdempotencyKey": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "type": "string"
+    },
+    "InitializeParams": {
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/Context"
+        },
+        "instance": {
+          "$ref": "#/$defs/InstanceInfo"
+        },
+        "kit": {
+          "$ref": "#/$defs/KitInfo"
+        },
+        "protocolVersion": {
+          "const": 2
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "kit",
+        "instance",
+        "context"
+      ],
+      "type": "object"
+    },
+    "InitializeRequest": {
+      "additionalProperties": false,
+      "description": "Opens the conversation; the plugin answers before sending anything else.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "initialize"
+        },
+        "params": {
+          "$ref": "#/$defs/InitializeParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "InitializeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": {
+          "const": 2
+        }
+      },
+      "required": [
+        "protocolVersion"
+      ],
+      "type": "object"
+    },
+    "InputParams": {
+      "additionalProperties": false,
+      "properties": {
+        "initialValue": {
+          "description": "At most 16 KiB.",
+          "maxLength": 16384,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "description": "Markdown, at most 8 KiB.",
+          "maxLength": 8192,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentId": {
+          "$ref": "#/$defs/RequestID",
+          "description": "A pending Kit request this dialog serves. Kit cancels the dialog when that request ends."
+        },
+        "placeholder": {
+          "description": "Single-line, at most 512 bytes.",
+          "maxLength": 512,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "Single-line, at most 512 bytes.",
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb][^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "InputRequest": {
+      "additionalProperties": false,
+      "description": "Asks the user for text.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/ui/input"
+        },
+        "params": {
+          "$ref": "#/$defs/InputParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "InputResult": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "InstanceInfo": {
+      "properties": {
+        "id": {
+          "description": "Opaque identifier of this generation. Clients see the same identifier on the plugin's toasts, dialogs, footer items, and commands. A replacement generation has a new one.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "KitCancelNotification": {
+      "additionalProperties": false,
+      "description": "Cancels a request the sender sent earlier.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/cancel"
+        },
+        "params": {
+          "$ref": "#/$defs/KitCancelParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "KitCancelParams": {
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "KitInfo": {
+      "properties": {
+        "version": {
+          "description": "Kit server version, for diagnostics.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "type": "object"
+    },
+    "KitMessage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/KitRequest"
+        },
+        {
+          "$ref": "#/$defs/KitNotification"
+        },
+        {
+          "$ref": "#/$defs/SuccessResponse"
+        },
+        {
+          "$ref": "#/$defs/ErrorResponse"
+        }
+      ],
+      "description": "A line Kit writes to a plugin's stdin."
+    },
+    "KitNotification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/KitCancelNotification"
+        },
+        {
+          "$ref": "#/$defs/ProjectChangedNotification"
+        },
+        {
+          "$ref": "#/$defs/SessionChangedNotification"
+        },
+        {
+          "$ref": "#/$defs/GitChangedNotification"
+        },
+        {
+          "$ref": "#/$defs/TurnStartedNotification"
+        },
+        {
+          "$ref": "#/$defs/TurnCompletedNotification"
+        }
+      ]
+    },
+    "KitRequest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InitializeRequest"
+        },
+        {
+          "$ref": "#/$defs/ShutdownRequest"
+        },
+        {
+          "$ref": "#/$defs/ExecuteCommandRequest"
+        },
+        {
+          "$ref": "#/$defs/ExecuteToolRequest"
+        },
+        {
+          "$ref": "#/$defs/BeforeExecuteRequest"
+        }
+      ]
+    },
+    "LocalID": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$",
+      "type": "string"
+    },
+    "LocalIDParams": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/LocalID"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "Message": {
+      "properties": {
+        "content": {
+          "items": {
+            "$ref": "#/$defs/TextContent"
+          },
+          "type": "array"
+        },
+        "role": {
+          "$ref": "#/$defs/MessageRole"
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ],
+      "type": "object"
+    },
+    "MessageRole": {
+      "enum": [
+        "user",
+        "assistant"
+      ],
+      "type": "string"
+    },
+    "ModelToolName": {
+      "maxLength": 64,
+      "minLength": 4,
+      "pattern": "^[a-z][a-z0-9-]*__[a-z][a-z0-9_]*$",
+      "type": "string"
+    },
+    "Null": {
+      "type": "null"
+    },
+    "OpenURLParams": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "description": "An absolute http or https URL without credentials.",
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#@\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f]+(?:[/?#][^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f]*)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "OpenURLRequest": {
+      "additionalProperties": false,
+      "description": "Asks the session's attached clients to open a web page.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/system/open-url"
+        },
+        "params": {
+          "$ref": "#/$defs/OpenURLParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "PluginMessage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PluginRequest"
+        },
+        {
+          "$ref": "#/$defs/PluginNotification"
+        },
+        {
+          "$ref": "#/$defs/SuccessResponse"
+        },
+        {
+          "$ref": "#/$defs/ErrorResponse"
+        }
+      ],
+      "description": "A line a plugin writes to stdout."
+    },
+    "PluginNotification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CancelNotification"
+        },
+        {
+          "$ref": "#/$defs/ToastNotification"
+        }
+      ]
+    },
+    "PluginRequest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegisterCommandRequest"
+        },
+        {
+          "$ref": "#/$defs/UnregisterCommandRequest"
+        },
+        {
+          "$ref": "#/$defs/RegisterToolRequest"
+        },
+        {
+          "$ref": "#/$defs/UnregisterToolRequest"
+        },
+        {
+          "$ref": "#/$defs/RegisterInterceptorRequest"
+        },
+        {
+          "$ref": "#/$defs/UnregisterInterceptorRequest"
+        },
+        {
+          "$ref": "#/$defs/RegisterSubagentRequest"
+        },
+        {
+          "$ref": "#/$defs/UnregisterSubagentRequest"
+        },
+        {
+          "$ref": "#/$defs/SetFooterItemRequest"
+        },
+        {
+          "$ref": "#/$defs/ClearFooterItemRequest"
+        },
+        {
+          "$ref": "#/$defs/HideFooterItemRequest"
+        },
+        {
+          "$ref": "#/$defs/ShowFooterItemRequest"
+        },
+        {
+          "$ref": "#/$defs/ConfirmRequest"
+        },
+        {
+          "$ref": "#/$defs/InputRequest"
+        },
+        {
+          "$ref": "#/$defs/SelectRequest"
+        },
+        {
+          "$ref": "#/$defs/SubmitMessageRequest"
+        },
+        {
+          "$ref": "#/$defs/OpenURLRequest"
+        }
+      ]
+    },
+    "Project": {
+      "properties": {
+        "cwd": {
+          "description": "Absolute working directory.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "git": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Git"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Null outside a Git worktree or when Git cannot be inspected safely."
+        }
+      },
+      "required": [
+        "cwd",
+        "git"
+      ],
+      "type": "object"
+    },
+    "ProjectChangedNotification": {
+      "additionalProperties": false,
+      "description": "The session's working directory changed; sent to user plugins only.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/events/project.changed"
+        },
+        "params": {
+          "$ref": "#/$defs/Project"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "PullRequest": {
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/PullRequestChecks",
+          "description": "Summary of the pull request's checks."
+        },
+        "number": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "url": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "number",
+        "url"
+      ],
+      "type": "object"
+    },
+    "PullRequestCheck": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "state": {
+          "$ref": "#/$defs/PullRequestCheckState"
+        },
+        "workflow": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "state",
+        "required"
+      ],
+      "type": "object"
+    },
+    "PullRequestCheckCounts": {
+      "properties": {
+        "canceled": {
+          "type": "integer"
+        },
+        "failed": {
+          "type": "integer"
+        },
+        "passed": {
+          "type": "integer"
+        },
+        "pending": {
+          "type": "integer"
+        },
+        "skipped": {
+          "type": "integer"
+        },
+        "unknown": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "passed",
+        "failed",
+        "pending",
+        "skipped",
+        "canceled",
+        "unknown"
+      ],
+      "type": "object"
+    },
+    "PullRequestCheckState": {
+      "enum": [
+        "passed",
+        "failed",
+        "pending",
+        "skipped",
+        "canceled",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "PullRequestChecks": {
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/PullRequestCheckCounts"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PullRequestCheck"
+          },
+          "type": "array"
+        },
+        "omitted": {
+          "type": "integer"
+        },
+        "required": {
+          "$ref": "#/$defs/PullRequestRequirement"
+        },
+        "state": {
+          "$ref": "#/$defs/PullRequestChecksState"
+        }
+      },
+      "required": [
+        "state",
+        "required",
+        "counts",
+        "items",
+        "omitted"
+      ],
+      "type": "object"
+    },
+    "PullRequestChecksState": {
+      "enum": [
+        "passing",
+        "failing",
+        "pending",
+        "none"
+      ],
+      "type": "string"
+    },
+    "PullRequestRequirement": {
+      "enum": [
+        "unknown",
+        "pending",
+        "satisfied",
+        "unsatisfied"
+      ],
+      "type": "string"
+    },
+    "RegisterCommandRequest": {
+      "additionalProperties": false,
+      "description": "Registers a command.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/commands/register"
+        },
+        "params": {
+          "$ref": "#/$defs/CommandRegisterParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "RegisterInterceptorRequest": {
+      "additionalProperties": false,
+      "description": "Asks Kit to consult the plugin before every tool call.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/tool-calls/register-interceptor"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "type": "object"
+    },
+    "RegisterSubagentRequest": {
+      "additionalProperties": false,
+      "description": "Registers a subagent definition.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/subagents/register"
+        },
+        "params": {
+          "$ref": "#/$defs/SubagentRegisterParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "RegisterToolRequest": {
+      "additionalProperties": false,
+      "description": "Registers a tool the model may call.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/tools/register"
+        },
+        "params": {
+          "$ref": "#/$defs/ToolRegisterParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "RequestID": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        }
+      ]
+    },
+    "SelectOption": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "description": "At most 8 KiB.",
+          "maxLength": 8192,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "description": "Single-line, at most 512 bytes.",
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb][^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        },
+        "value": {
+          "description": "Any JSON, at most 16 KiB; null is a valid value."
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SelectParams": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "description": "Markdown, at most 8 KiB.",
+          "maxLength": 8192,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/SelectOption"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "parentId": {
+          "$ref": "#/$defs/RequestID",
+          "description": "A pending Kit request this dialog serves. Kit cancels the dialog when that request ends."
+        },
+        "placeholder": {
+          "description": "Single-line, at most 512 bytes.",
+          "maxLength": 512,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "Single-line, at most 512 bytes.",
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb][^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "options"
+      ],
+      "type": "object"
+    },
+    "SelectRequest": {
+      "additionalProperties": false,
+      "description": "Asks the user to choose an option.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/ui/select"
+        },
+        "params": {
+          "$ref": "#/$defs/SelectParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "SelectResult": {
+      "oneOf": [
+        {
+          "properties": {
+            "value": {}
+          },
+          "required": [
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "Session": {
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "SessionChangedNotification": {
+      "additionalProperties": false,
+      "description": "The session was renamed.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/events/session.changed"
+        },
+        "params": {
+          "$ref": "#/$defs/Session"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "SetFooterItemRequest": {
+      "additionalProperties": false,
+      "description": "Creates or replaces a footer item.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/footer/set"
+        },
+        "params": {
+          "$ref": "#/$defs/FooterSetParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ShowFooterItemRequest": {
+      "additionalProperties": false,
+      "description": "Withdraws the plugin's hide claim.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/footer/show"
+        },
+        "params": {
+          "$ref": "#/$defs/FooterTargetParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ShutdownRequest": {
+      "additionalProperties": false,
+      "description": "Asks the plugin to stop; it answers null and exits within two seconds.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "shutdown"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "type": "object"
+    },
+    "SubagentRegisterParams": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "description": "Single-line, at most 1,024 bytes.",
+          "maxLength": 1024,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb][^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/LocalID"
+        },
+        "instructions": {
+          "description": "The subagent's instructions, at most 128 KiB.",
+          "maxLength": 131072,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb][^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        },
+        "model": {
+          "description": "Kit model selector; defaults to the session's model.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "instructions"
+      ],
+      "type": "object"
+    },
+    "SubmitMessageParams": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotencyKey": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdempotencyKey"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Repeating a key with the same text returns the original result."
+        },
+        "text": {
+          "description": "At most 128 KiB; must not be blank or contain NUL.",
+          "maxLength": 131072,
+          "minLength": 1,
+          "pattern": "^[^\\x00]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00][^\\x00]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SubmitMessageRequest": {
+      "additionalProperties": false,
+      "description": "Starts a turn in the plugin's idle session.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/session/submit-message"
+        },
+        "params": {
+          "$ref": "#/$defs/SubmitMessageParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "SubmitMessageResult": {
+      "properties": {
+        "messageId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "messageId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "SuccessResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "result": {
+          "description": "The result definition of the request's method."
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "type": "object"
+    },
+    "TextContent": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "const": "text"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "type": "object"
+    },
+    "ThemeToken": {
+      "enum": [
+        "bg",
+        "bgSurface",
+        "bgMuted",
+        "bgAccent",
+        "bgTransparent",
+        "borderDefault",
+        "borderFocused",
+        "borderAccent",
+        "borderDebug",
+        "borderStatus",
+        "composerBashBorder",
+        "composerBashExcludedBorder",
+        "textPrimary",
+        "textSecondary",
+        "textMuted",
+        "textPlaceholder",
+        "textDebug",
+        "userText",
+        "userTextFocused",
+        "userBorder",
+        "assistantText",
+        "toolText",
+        "reviewText",
+        "errorText",
+        "warningText",
+        "subagentText",
+        "debugLabel",
+        "metaText",
+        "attachmentText",
+        "cursor",
+        "pickerBg",
+        "pickerBorder",
+        "pickerFocusedBg",
+        "pickerFocusedText",
+        "pickerItemText",
+        "pickerScrollThumb",
+        "pickerScrollTrack",
+        "scrollbarFg",
+        "scrollbarBg",
+        "panelText",
+        "progressNormal",
+        "progressWarning",
+        "progressCritical",
+        "toggleOn",
+        "diffAddedBg",
+        "diffRemovedBg",
+        "diffAddedContentBg",
+        "diffRemovedContentBg",
+        "diffAddedLineNumberBg",
+        "diffRemovedLineNumberBg",
+        "diffCursorBg",
+        "diffCursorGutterBg",
+        "diffCursorAddedBg",
+        "diffCursorRemovedBg"
+      ],
+      "type": "string"
+    },
+    "ToastNotification": {
+      "additionalProperties": false,
+      "description": "Shows a notification in the session's clients.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/ui/toast"
+        },
+        "params": {
+          "$ref": "#/$defs/ToastParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ToastParams": {
+      "additionalProperties": false,
+      "properties": {
+        "persistent": {
+          "description": "Keep the notification until the user dismisses it.",
+          "type": "boolean"
+        },
+        "subtitle": {
+          "description": "At most 4,096 bytes; may contain newlines.",
+          "maxLength": 4096,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "Single-line, at most 1,024 bytes.",
+          "maxLength": 1024,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*[^\\x09-\\x0d\\x20\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb][^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        },
+        "variant": {
+          "$ref": "#/$defs/ToastVariant"
+        }
+      },
+      "required": [
+        "title",
+        "variant"
+      ],
+      "type": "object"
+    },
+    "ToastVariant": {
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ],
+      "type": "string"
+    },
+    "ToolCall": {
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "input": {
+          "type": "object"
+        },
+        "name": {
+          "description": "The model-facing tool name, such as bash or plugin__tool.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "input"
+      ],
+      "type": "object"
+    },
+    "ToolCallDecision": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "allow"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "reject-and-continue"
+            },
+            "message": {
+              "description": "Shown to the model as the call's result. At most 8 KiB.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ToolContent": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "const": "text"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "contentEncoding": "base64",
+              "minLength": 1,
+              "type": "string"
+            },
+            "mimeType": {
+              "enum": [
+                "image/png",
+                "image/jpeg",
+                "image/gif",
+                "image/webp"
+              ]
+            },
+            "type": {
+              "const": "image"
+            }
+          },
+          "required": [
+            "type",
+            "data",
+            "mimeType"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ToolExecuteParams": {
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ToolID"
+        },
+        "input": {
+          "type": "object"
+        },
+        "toolCallId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "toolCallId",
+        "input"
+      ],
+      "type": "object"
+    },
+    "ToolExecuteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "items": {
+            "$ref": "#/$defs/ToolContent"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "details": {
+          "description": "Any JSON, at most 64 KiB, kept with the call but not shown to the model."
+        },
+        "terminate": {
+          "description": "End the turn after this tool's batch completes.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
+    "ToolID": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "type": "string"
+    },
+    "ToolIDParams": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ToolID"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ToolInputSchema": {
+      "additionalProperties": false,
+      "description": "Kit's subset of JSON Schema draft 2020-12. Schemas cannot reference other schemas. At most 1,024 nodes and 16 levels.",
+      "properties": {
+        "$schema": {
+          "const": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "anyOf": {
+          "items": {
+            "$ref": "#/$defs/ToolSchemaNode"
+          },
+          "type": "array"
+        },
+        "const": {},
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "array"
+        },
+        "exclusiveMaximum": {
+          "type": "number"
+        },
+        "exclusiveMinimum": {
+          "type": "number"
+        },
+        "items": {
+          "$ref": "#/$defs/ToolSchemaNode"
+        },
+        "maxItems": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxLength": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minItems": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minLength": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolSchemaNode"
+          },
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "object"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "ToolRegisterParams": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "description": "Model-facing description, at most 8 KiB.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": "string"
+        },
+        "executionMode": {
+          "$ref": "#/$defs/ExecutionMode",
+          "description": "Defaults to sequential."
+        },
+        "id": {
+          "$ref": "#/$defs/ToolID"
+        },
+        "inputSchema": {
+          "$ref": "#/$defs/ToolInputSchema"
+        },
+        "label": {
+          "description": "Single-line display label, at most 512 bytes. Defaults to the ID.",
+          "maxLength": 512,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "promptGuidelines": {
+          "description": "Each at most 1 KiB.",
+          "items": {
+            "maxLength": 1024,
+            "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "promptSnippet": {
+          "description": "At most 8 KiB.",
+          "maxLength": 8192,
+          "pattern": "^[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "inputSchema"
+      ],
+      "type": "object"
+    },
+    "ToolRegisterResult": {
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/CanonicalID"
+        },
+        "modelName": {
+          "$ref": "#/$defs/ModelToolName"
+        }
+      },
+      "required": [
+        "id",
+        "modelName"
+      ],
+      "type": "object"
+    },
+    "ToolSchemaNode": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "const": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "anyOf": {
+          "items": {
+            "$ref": "#/$defs/ToolSchemaNode"
+          },
+          "type": "array"
+        },
+        "const": {},
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "array"
+        },
+        "exclusiveMaximum": {
+          "type": "number"
+        },
+        "exclusiveMinimum": {
+          "type": "number"
+        },
+        "items": {
+          "$ref": "#/$defs/ToolSchemaNode"
+        },
+        "maxItems": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxLength": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minItems": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minLength": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolSchemaNode"
+          },
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Turn": {
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/Message"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "messages"
+      ],
+      "type": "object"
+    },
+    "TurnCompletedNotification": {
+      "additionalProperties": false,
+      "description": "A turn settled; carries its user and assistant text.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/events/agent.turn.completed"
+        },
+        "params": {
+          "$ref": "#/$defs/TurnCompletedParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "TurnCompletedParams": {
+      "properties": {
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "turn": {
+          "$ref": "#/$defs/Turn"
+        }
+      },
+      "required": [
+        "sessionId",
+        "turn"
+      ],
+      "type": "object"
+    },
+    "TurnStartedNotification": {
+      "additionalProperties": false,
+      "description": "Kit admitted a turn.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/events/agent.turn.started"
+        },
+        "params": {
+          "$ref": "#/$defs/TurnStartedParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "TurnStartedParams": {
+      "properties": {
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "UnregisterCommandRequest": {
+      "additionalProperties": false,
+      "description": "Removes a command; removing an unknown command succeeds.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/commands/unregister"
+        },
+        "params": {
+          "$ref": "#/$defs/LocalIDParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "UnregisterInterceptorRequest": {
+      "additionalProperties": false,
+      "description": "Stops consulting the plugin before tool calls.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/tool-calls/unregister-interceptor"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "type": "object"
+    },
+    "UnregisterSubagentRequest": {
+      "additionalProperties": false,
+      "description": "Removes a subagent definition.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/subagents/unregister"
+        },
+        "params": {
+          "$ref": "#/$defs/LocalIDParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "UnregisterToolRequest": {
+      "additionalProperties": false,
+      "description": "Removes a tool; removing an unknown tool succeeds.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/tools/unregister"
+        },
+        "params": {
+          "$ref": "#/$defs/ToolIDParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/akonwi/kit/main/docs/plugin-protocol/v2/protocol.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/KitMessage"
+    },
+    {
+      "$ref": "#/$defs/PluginMessage"
+    }
+  ],
+  "description": "JSON-RPC 2.0 messages of Kit plugin protocol version 2, one per line on the plugin's stdin and stdout. Generated from github.com/akonwi/kit/api/pluginprotocol; see docs/plugin-protocol/v2.md.",
+  "title": "Kit plugin protocol 2",
+  "x-kit-errors": [
+    {
+      "code": -32700,
+      "meaning": "The line is not valid JSON or UTF-8."
+    },
+    {
+      "code": -32600,
+      "meaning": "The message is not a valid request, including a batch."
+    },
+    {
+      "code": -32601,
+      "meaning": "Unknown method."
+    },
+    {
+      "code": -32602,
+      "meaning": "Invalid params; the message names the rule broken."
+    },
+    {
+      "code": -32603,
+      "meaning": "Internal error."
+    },
+    {
+      "code": -32000,
+      "meaning": "A command or tool failed, or Kit cannot show dialogs (data.reason interactivity_unavailable)."
+    },
+    {
+      "code": -32001,
+      "meaning": "The request was cancelled."
+    },
+    {
+      "code": -32002,
+      "meaning": "The instance's generation is stopping, stopped, or replaced."
+    },
+    {
+      "code": -32003,
+      "meaning": "A duplicate contribution, or an idempotency key reused with different text."
+    },
+    {
+      "code": -32005,
+      "meaning": "A size or count limit was exceeded."
+    },
+    {
+      "code": -32006,
+      "meaning": "Try again later; data.reason says why."
+    }
+  ],
+  "x-kit-methods": {
+    "initialize": {
+      "direction": "kit-to-plugin",
+      "errors": [],
+      "message": "#/$defs/InitializeRequest",
+      "notification": false,
+      "params": "#/$defs/InitializeParams",
+      "result": "#/$defs/InitializeResult",
+      "summary": "Opens the conversation; the plugin answers before sending anything else.",
+      "title": "Initialize"
+    },
+    "kit/cancel": {
+      "direction": "both",
+      "kitMessage": "#/$defs/KitCancelNotification",
+      "kitParams": "#/$defs/KitCancelParams",
+      "message": "#/$defs/CancelNotification",
+      "notification": true,
+      "params": "#/$defs/CancelParams",
+      "summary": "Cancels a request the sender sent earlier.",
+      "title": "Cancel"
+    },
+    "kit/commands/execute": {
+      "direction": "kit-to-plugin",
+      "errors": [
+        -32000,
+        -32001
+      ],
+      "message": "#/$defs/ExecuteCommandRequest",
+      "notification": false,
+      "params": "#/$defs/CommandExecuteParams",
+      "result": "#/$defs/Null",
+      "summary": "Runs a command a user invoked.",
+      "title": "ExecuteCommand"
+    },
+    "kit/commands/register": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32003,
+        -32005
+      ],
+      "message": "#/$defs/RegisterCommandRequest",
+      "notification": false,
+      "params": "#/$defs/CommandRegisterParams",
+      "result": "#/$defs/CanonicalIDResult",
+      "summary": "Registers a command.",
+      "title": "RegisterCommand"
+    },
+    "kit/commands/unregister": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/UnregisterCommandRequest",
+      "notification": false,
+      "params": "#/$defs/LocalIDParams",
+      "result": "#/$defs/Null",
+      "summary": "Removes a command; removing an unknown command succeeds.",
+      "title": "UnregisterCommand"
+    },
+    "kit/events/agent.turn.completed": {
+      "direction": "kit-to-plugin",
+      "message": "#/$defs/TurnCompletedNotification",
+      "notification": true,
+      "params": "#/$defs/TurnCompletedParams",
+      "summary": "A turn settled; carries its user and assistant text.",
+      "title": "TurnCompleted"
+    },
+    "kit/events/agent.turn.started": {
+      "direction": "kit-to-plugin",
+      "message": "#/$defs/TurnStartedNotification",
+      "notification": true,
+      "params": "#/$defs/TurnStartedParams",
+      "summary": "Kit admitted a turn.",
+      "title": "TurnStarted"
+    },
+    "kit/events/git.changed": {
+      "direction": "kit-to-plugin",
+      "message": "#/$defs/GitChangedNotification",
+      "notification": true,
+      "params": "#/$defs/GitChangedParams",
+      "summary": "The working directory's Git state or pull request changed.",
+      "title": "GitChanged"
+    },
+    "kit/events/project.changed": {
+      "direction": "kit-to-plugin",
+      "message": "#/$defs/ProjectChangedNotification",
+      "notification": true,
+      "params": "#/$defs/Project",
+      "summary": "The session's working directory changed; sent to user plugins only.",
+      "title": "ProjectChanged"
+    },
+    "kit/events/session.changed": {
+      "direction": "kit-to-plugin",
+      "message": "#/$defs/SessionChangedNotification",
+      "notification": true,
+      "params": "#/$defs/Session",
+      "summary": "The session was renamed.",
+      "title": "SessionChanged"
+    },
+    "kit/footer/clear": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/ClearFooterItemRequest",
+      "notification": false,
+      "params": "#/$defs/LocalIDParams",
+      "result": "#/$defs/Null",
+      "summary": "Removes a footer item.",
+      "title": "ClearFooterItem"
+    },
+    "kit/footer/hide": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/HideFooterItemRequest",
+      "notification": false,
+      "params": "#/$defs/FooterTargetParams",
+      "result": "#/$defs/Null",
+      "summary": "Hides a footer item while the claim lasts.",
+      "title": "HideFooterItem"
+    },
+    "kit/footer/set": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/SetFooterItemRequest",
+      "notification": false,
+      "params": "#/$defs/FooterSetParams",
+      "result": "#/$defs/CanonicalIDResult",
+      "summary": "Creates or replaces a footer item.",
+      "title": "SetFooterItem"
+    },
+    "kit/footer/show": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/ShowFooterItemRequest",
+      "notification": false,
+      "params": "#/$defs/FooterTargetParams",
+      "result": "#/$defs/Null",
+      "summary": "Withdraws the plugin's hide claim.",
+      "title": "ShowFooterItem"
+    },
+    "kit/session/submit-message": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32003,
+        -32005
+      ],
+      "message": "#/$defs/SubmitMessageRequest",
+      "notification": false,
+      "params": "#/$defs/SubmitMessageParams",
+      "result": "#/$defs/SubmitMessageResult",
+      "summary": "Starts a turn in the plugin's idle session.",
+      "title": "SubmitMessage"
+    },
+    "kit/subagents/register": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32003,
+        -32005
+      ],
+      "message": "#/$defs/RegisterSubagentRequest",
+      "notification": false,
+      "params": "#/$defs/SubagentRegisterParams",
+      "result": "#/$defs/CanonicalIDResult",
+      "summary": "Registers a subagent definition.",
+      "title": "RegisterSubagent"
+    },
+    "kit/subagents/unregister": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/UnregisterSubagentRequest",
+      "notification": false,
+      "params": "#/$defs/LocalIDParams",
+      "result": "#/$defs/Null",
+      "summary": "Removes a subagent definition.",
+      "title": "UnregisterSubagent"
+    },
+    "kit/system/open-url": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/OpenURLRequest",
+      "notification": false,
+      "params": "#/$defs/OpenURLParams",
+      "result": "#/$defs/Null",
+      "summary": "Asks the session's attached clients to open a web page.",
+      "title": "OpenURL"
+    },
+    "kit/tool-calls/before-execute": {
+      "direction": "kit-to-plugin",
+      "errors": [
+        -32000,
+        -32001
+      ],
+      "message": "#/$defs/BeforeExecuteRequest",
+      "notification": false,
+      "params": "#/$defs/BeforeExecuteParams",
+      "result": "#/$defs/ToolCallDecision",
+      "summary": "Asks an interceptor whether a tool call may run.",
+      "title": "BeforeExecute"
+    },
+    "kit/tool-calls/register-interceptor": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/RegisterInterceptorRequest",
+      "notification": false,
+      "result": "#/$defs/Null",
+      "summary": "Asks Kit to consult the plugin before every tool call.",
+      "title": "RegisterInterceptor"
+    },
+    "kit/tool-calls/unregister-interceptor": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006
+      ],
+      "message": "#/$defs/UnregisterInterceptorRequest",
+      "notification": false,
+      "result": "#/$defs/Null",
+      "summary": "Stops consulting the plugin before tool calls.",
+      "title": "UnregisterInterceptor"
+    },
+    "kit/tools/execute": {
+      "direction": "kit-to-plugin",
+      "errors": [
+        -32000,
+        -32001
+      ],
+      "message": "#/$defs/ExecuteToolRequest",
+      "notification": false,
+      "params": "#/$defs/ToolExecuteParams",
+      "result": "#/$defs/ToolExecuteResult",
+      "summary": "Runs a tool the model called.",
+      "title": "ExecuteTool"
+    },
+    "kit/tools/register": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32003,
+        -32005
+      ],
+      "message": "#/$defs/RegisterToolRequest",
+      "notification": false,
+      "params": "#/$defs/ToolRegisterParams",
+      "result": "#/$defs/ToolRegisterResult",
+      "summary": "Registers a tool the model may call.",
+      "title": "RegisterTool"
+    },
+    "kit/tools/unregister": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32005
+      ],
+      "message": "#/$defs/UnregisterToolRequest",
+      "notification": false,
+      "params": "#/$defs/ToolIDParams",
+      "result": "#/$defs/Null",
+      "summary": "Removes a tool; removing an unknown tool succeeds.",
+      "title": "UnregisterTool"
+    },
+    "kit/ui/confirm": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32000,
+        -32005
+      ],
+      "message": "#/$defs/ConfirmRequest",
+      "notification": false,
+      "params": "#/$defs/ConfirmParams",
+      "result": "#/$defs/ConfirmResult",
+      "summary": "Asks the user a yes-or-no question.",
+      "title": "Confirm"
+    },
+    "kit/ui/input": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32000,
+        -32005
+      ],
+      "message": "#/$defs/InputRequest",
+      "notification": false,
+      "params": "#/$defs/InputParams",
+      "result": "#/$defs/InputResult",
+      "summary": "Asks the user for text.",
+      "title": "Input"
+    },
+    "kit/ui/select": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006,
+        -32000,
+        -32005
+      ],
+      "message": "#/$defs/SelectRequest",
+      "notification": false,
+      "params": "#/$defs/SelectParams",
+      "result": "#/$defs/SelectResult",
+      "summary": "Asks the user to choose an option.",
+      "title": "Select"
+    },
+    "kit/ui/toast": {
+      "direction": "plugin-to-kit",
+      "message": "#/$defs/ToastNotification",
+      "notification": true,
+      "params": "#/$defs/ToastParams",
+      "summary": "Shows a notification in the session's clients.",
+      "title": "Toast"
+    },
+    "shutdown": {
+      "direction": "kit-to-plugin",
+      "errors": [],
+      "message": "#/$defs/ShutdownRequest",
+      "notification": false,
+      "result": "#/$defs/Null",
+      "summary": "Asks the plugin to stop; it answers null and exits within two seconds.",
+      "title": "Shutdown"
+    }
+  }
+}

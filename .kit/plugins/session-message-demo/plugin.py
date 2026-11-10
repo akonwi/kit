@@ -1,4 +1,4 @@
-"""stdio-v1 fixture for plugin-submitted session messages.
+"""Plugin protocol 2 fixture for plugin-submitted session messages.
 
 Commands reply immediately and submit afterwards: the stdio loop is
 synchronous, so a handler cannot wait for its own submission response.
@@ -74,7 +74,7 @@ for line in sys.stdin:
             settle(message)
         continue
     if method == "initialize":
-        reply(message, {"protocolVersion": 1})
+        reply(message, {"protocolVersion": 2})
         for name, description, arg_name in [
             ("send", "Submit the arguments as a session message", "message"),
             ("send-keyed", "Submit the arguments with a fixed idempotency key", "message"),

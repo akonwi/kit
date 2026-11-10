@@ -333,7 +333,7 @@ func TestGitEventsIncludePRChangesAndCloneInitializationContext(t *testing.T) {
 		}
 	}
 	events := gitEvents(t, h, root)
-	if want := `{"git":{"pullRequest":{"number":13,"url":"https://github.com/a/b/pull/13","checks":{"state":"failing","required":"unsatisfied","counts":{"passed":0,"failed":1,"pending":0,"skipped":0,"canceled":0,"unknown":0},"items":[{"name":"test","workflow":"CI","state":"failed","required":true}],"omitted":0}},"root":` + mustJSONString(t, cwd) + `,"branch":"main","dirty":false}}`; events[2] != want {
+	if want := `{"git":{"root":` + mustJSONString(t, cwd) + `,"branch":"main","dirty":false,"pullRequest":{"number":13,"url":"https://github.com/a/b/pull/13","checks":{"state":"failing","required":"unsatisfied","counts":{"passed":0,"failed":1,"pending":0,"skipped":0,"canceled":0,"unknown":0},"items":[{"name":"test","workflow":"CI","state":"failed","required":true}],"omitted":0}}}}`; events[2] != want {
 		t.Fatalf("check-change event=%s\nwant %s", events[2], want)
 	}
 	original := &GitContext{Root: cwd, PullRequest: &PullRequestContext{Number: 42, Checks: failing}}

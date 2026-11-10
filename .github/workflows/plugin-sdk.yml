@@ -1,0 +1,45 @@
+name: Plugin helper
+
+on:
+  pull_request:
+    paths:
+      - "sdk/plugin/**"
+      - ".kit/plugins/ui-api-demo/**"
+      - "docs/plugin-protocol/v2/**"
+      - ".github/workflows/plugin-sdk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sdk/plugin
+    steps:
+      - uses: actions/checkout@v7
+
+      # Keep the version in step with .github/actions/setup-web.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      # The helper also runs under Node with type stripping (22.6 or later).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Types, including type-level tests, then unit and subprocess tests.
+      # Go's tests check the generated types are current.
+      - name: Check
+        run: bun run check

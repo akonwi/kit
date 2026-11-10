@@ -1,6 +1,8 @@
 # UI API demo
 
-Requires Python 3 on `PATH`. Kit discovers this project plugin automatically
+Requires Bun on `PATH`. It is written with Kit's TypeScript helper, which
+`kit-plugin.ts` links to in `sdk/plugin`; a plugin outside this repository
+copies the helper instead. Kit discovers this project plugin automatically
 when the session cwd is this repository. With the native Go build, reload the
 session after changing plugin files.
 
@@ -24,8 +26,8 @@ failure revokes it. Temporary client absence is not noninteractive mode.
 The automated daemon suite runs this flow, including cancellation, concurrent
 answers, reload, and deletion. The user also confirmed the dialog flow
 works in the TUI on macOS.
-The [native profile](../../../docs/plugin-protocol/native-v2.md) describes
-supported methods, bounds, and remaining conformance work.
+The [plugin protocol version 2 specification](../../../docs/plugin-protocol/v2.md)
+describes the dialog methods, their bounds, and `parentId`.
 
 The macOS app now lists plugin commands in its command palette, with a separate
 argument field. Plugin notifications use the app’s existing session alerts, so

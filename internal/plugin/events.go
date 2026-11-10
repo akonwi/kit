@@ -3,6 +3,8 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 const (
@@ -11,33 +13,19 @@ const (
 	maxTurnEventFrameSize = 256 << 10
 )
 
-// PublicTextContent is the text-only content exposed by public turn events.
-type PublicTextContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
+// The public turn records are owned by the protocol package.
+type (
+	// PublicTextContent is the text-only content exposed by turn events.
+	PublicTextContent = pluginprotocol.TextContent
+	// PublicMessage is a text-only user or assistant message.
+	PublicMessage = pluginprotocol.Message
+	// PublicTurn is the completed public projection of one agent turn.
+	PublicTurn = pluginprotocol.Turn
+)
 
-// PublicMessage is the text-only user or assistant message exposed to plugins.
-type PublicMessage struct {
-	Role    string              `json:"role"`
-	Content []PublicTextContent `json:"content"`
-}
+type turnStartedParams = pluginprotocol.TurnStartedParams
 
-// PublicTurn is the completed public projection of one agent turn.
-type PublicTurn struct {
-	ID       string          `json:"id"`
-	Messages []PublicMessage `json:"messages"`
-}
-
-type turnStartedParams struct {
-	SessionID string `json:"sessionId"`
-	TurnID    string `json:"turnId"`
-}
-
-type turnCompletedParams struct {
-	SessionID string     `json:"sessionId"`
-	Turn      PublicTurn `json:"turn"`
-}
+type turnCompletedParams = pluginprotocol.TurnCompletedParams
 
 // TurnStarted publishes one live turn-start event to generations ready at the
 // canonical creation boundary. Later or replacement generations do not inherit it.

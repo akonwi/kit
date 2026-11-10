@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -17,15 +15,15 @@ import (
 )
 
 func TestInteractionParsingPreservesV1FieldsAndOpaqueValues(t *testing.T) {
-	confirm, err := parseInteraction("kit/ui/confirm", json.RawMessage(`{"title":"Confirm","message":"**Markdown**\n\n\u0060\u0060\u0060go\nx()\n\u0060\u0060\u0060","confirmLabel":"Continue","cancelLabel":"Stop","defaultValue":true}`))
+	confirm, _, err := parseInteraction("kit/ui/confirm", json.RawMessage(`{"title":"Confirm","message":"**Markdown**\n\n\u0060\u0060\u0060go\nx()\n\u0060\u0060\u0060","confirmLabel":"Continue","cancelLabel":"Stop","defaultValue":true}`), 1)
 	if err != nil || confirm.Kind != InteractionConfirm || confirm.ConfirmLabel != "Continue" || confirm.CancelLabel != "Stop" || confirm.DefaultValue == nil || !*confirm.DefaultValue || !strings.Contains(confirm.Message, "```go") {
 		t.Fatalf("confirm = %#v, %v", confirm, err)
 	}
-	input, err := parseInteraction("kit/ui/input", json.RawMessage(`{"title":"Input","message":null,"placeholder":"Your note","initialValue":"initial\nvalue"}`))
+	input, _, err := parseInteraction("kit/ui/input", json.RawMessage(`{"title":"Input","message":null,"placeholder":"Your note","initialValue":"initial\nvalue"}`), 1)
 	if err != nil || input.Placeholder != "Your note" || input.InitialValue != "initial\nvalue" {
 		t.Fatalf("input = %#v, %v", input, err)
 	}
-	selected, err := parseInteraction("kit/ui/select", json.RawMessage(`{"title":"Select","filterable":true,"placeholder":"Search","options":[{"label":"Null","value":null},{"label":"Large","value":9007199254740993,"description":"Exact integer"},{"label":"Object","value":{"nested":[true,"hello"]}}]}`))
+	selected, _, err := parseInteraction("kit/ui/select", json.RawMessage(`{"title":"Select","filterable":true,"placeholder":"Search","options":[{"label":"Null","value":null},{"label":"Large","value":9007199254740993,"description":"Exact integer"},{"label":"Object","value":{"nested":[true,"hello"]}}]}`), 1)
 	if err != nil || !selected.Filterable || len(selected.Options) != 3 {
 		t.Fatalf("select = %#v, %v", selected, err)
 	}
@@ -71,7 +69,7 @@ func TestInteractionPayloadAndResultValidation(t *testing.T) {
 		{"select", `{"title":"Select","options":[{"label":"x","value":null,"unknown":1}]}`},
 		{"select", `{"title":"Select","filterable":null,"options":[{"label":"x","value":null}]}`},
 	} {
-		if _, err := parseInteraction("kit/ui/"+test.method, json.RawMessage(test.raw)); err == nil {
+		if _, _, err := parseInteraction("kit/ui/"+test.method, json.RawMessage(test.raw), 1); err == nil {
 			t.Errorf("accepted %s", test.raw)
 		}
 	}
@@ -80,7 +78,7 @@ func TestInteractionPayloadAndResultValidation(t *testing.T) {
 		{"select", `{"title":"Select","options":[` + strings.Repeat(`{"label":"x","value":null},`, maxInteractionOptions) + `{"label":"last","value":null}]}`},
 		{"select", `{"title":"Select","options":[{"label":"x","value":"` + strings.Repeat("x", maxInteractionTextBytes) + `"}]}`},
 	} {
-		if _, err := parseInteraction("kit/ui/"+test.method, json.RawMessage(test.raw)); err == nil {
+		if _, _, err := parseInteraction("kit/ui/"+test.method, json.RawMessage(test.raw), 1); err == nil {
 			t.Errorf("accepted oversized %s", test.method)
 		}
 	}
@@ -267,22 +265,7 @@ func TestUIDemoV1FixtureThroughHostInteractionAdapter(t *testing.T) {
 
 func installUIDemoFixture(t *testing.T, home apphome.Paths) {
 	t.Helper()
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("UI fixture requires python3")
-	}
-	root := filepath.Join(home.Plugins, "ui-api-demo")
-	if err := os.MkdirAll(root, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"plugin.py", "plugin.json"} {
-		data, err := os.ReadFile(filepath.Join("..", "..", ".kit", "plugins", "ui-api-demo", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, name), data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	installRepositoryPlugin(t, "ui-api-demo", filepath.Join(home.Plugins, "ui-api-demo"))
 }
 
 func TestPluginUIRequestCancellationFollowsInstanceReload(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,7 +23,14 @@ func TestPluginInstanceHelper(t *testing.T) {
 		return
 	}
 	mode := os.Args[len(os.Args)-1]
-	decoder := json.NewDecoder(os.Stdin)
+	// Record every frame Kit sends, so tests can check them against the
+	// published schema.
+	received, err := os.OpenFile("received.jsonl", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		os.Exit(1)
+	}
+	decoder := json.NewDecoder(io.TeeReader(os.Stdin, received))
+	version := json.RawMessage("1")
 	encoder := json.NewEncoder(os.Stdout)
 	if mode == "early" {
 		_ = encoder.Encode(requestMessage(json.RawMessage(`"early"`), "host/register", nil))
@@ -47,6 +55,13 @@ func TestPluginInstanceHelper(t *testing.T) {
 		switch *message.Method {
 		case "initialize":
 			_ = os.WriteFile("initial.json", message.Params, 0600)
+			var requested struct {
+				Version json.RawMessage `json:"protocolVersion"`
+			}
+			if json.Unmarshal(message.Params, &requested) == nil && len(requested.Version) > 0 {
+				version = requested.Version
+			}
+			accepted := json.RawMessage(`{"protocolVersion":` + string(version) + `}`)
 			if mode == "stall-init" {
 				signal.Ignore(syscall.SIGTERM)
 				for {
@@ -82,9 +97,9 @@ func TestPluginInstanceHelper(t *testing.T) {
 					Context json.RawMessage `json:"context"`
 				}
 				_ = json.Unmarshal(message.Params, &initial)
-				_ = encoder.Encode([]rpcMessage{responseMessage(message.ID, json.RawMessage(`{"protocolVersion":1}`), nil), requestMessage(json.RawMessage(`"immediate"`), "host/register", initial.Context)})
+				_ = encoder.Encode([]rpcMessage{responseMessage(message.ID, accepted, nil), requestMessage(json.RawMessage(`"immediate"`), "host/register", initial.Context)})
 			} else {
-				_ = encoder.Encode(responseMessage(message.ID, json.RawMessage(`{"protocolVersion":1}`), nil))
+				_ = encoder.Encode(responseMessage(message.ID, accepted, nil))
 			}
 			if mode == "footer" {
 				_ = encoder.Encode(requestMessage(json.RawMessage(`"footer-set"`), "kit/footer/set", json.RawMessage(`{"id":"status","content":[{"text":"Plugin ready","style":{"fg":"toolText","bold":true}}]}`)))
@@ -204,13 +219,20 @@ func TestPluginInstanceHelper(t *testing.T) {
 
 func testInstance(t *testing.T, parent context.Context, mode string, handlers RPCHandlers, deadlines instanceDeadlines) (*Instance, string) {
 	t.Helper()
+	return testInstanceVersion(t, parent, mode, handlers, deadlines, 0)
+}
+
+// testInstanceVersion starts the helper plugin with a manifest that declares
+// protocolVersion, or none when it is zero.
+func testInstanceVersion(t *testing.T, parent context.Context, mode string, handlers RPCHandlers, deadlines instanceDeadlines, protocolVersion int) (*Instance, string) {
+	t.Helper()
 	t.Setenv("KIT_INSTANCE_HELPER", "1")
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	installation := Installation{Root: root, Manifest: Manifest{ManifestVersion: 1, ID: "example", Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}}
+	installation := Installation{Root: root, Manifest: Manifest{ManifestVersion: 1, ProtocolVersion: protocolVersion, ID: "example", Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}}
 	instance, err := startInstance(parent, InstanceID{HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "session-one", PluginID: "example", Generation: 1}, installation, PluginContext{Project: ProjectContext{Cwd: root}, Session: SessionContext{ID: "session-one"}}, handlers, deadlines)
 	if err != nil {
 		t.Fatal(err)

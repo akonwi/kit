@@ -9,6 +9,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/akonwi/kit/api/pluginprotocol"
 )
 
 // InteractionKind identifies a v1 plugin user request, independent of model tools.
@@ -98,23 +100,38 @@ func interactionBool(fields map[string]json.RawMessage, name string) (bool, erro
 	return value, nil
 }
 
-func parseInteraction(method string, params json.RawMessage) (InteractionRequest, error) {
+// parseInteraction validates a dialog request of a protocol version. It
+// returns the request and, for version 2, the optional parent request ID.
+func parseInteraction(method string, params json.RawMessage, version int) (InteractionRequest, json.RawMessage, error) {
 	request := InteractionRequest{Kind: InteractionKind(strings.TrimPrefix(method, "kit/ui/"))}
-	allowed := []string{"title", "message"}
+	var allowed []string
 	switch request.Kind {
 	case InteractionConfirm:
-		allowed = append(allowed, "confirmLabel", "cancelLabel", "defaultValue")
+		allowed = versionMembers(version, confirmMembers)
 	case InteractionInput:
-		allowed = append(allowed, "placeholder", "initialValue")
+		allowed = versionMembers(version, inputMembers)
 	case InteractionSelect:
-		allowed = append(allowed, "options", "filterable", "placeholder")
+		allowed = versionMembers(version, selectMembers, v1SelectExtras...)
 	default:
-		return request, rpcError(-32601, "Unknown interaction method")
+		return request, nil, rpcError(-32601, "Unknown interaction method")
 	}
 	fields, err := contributionObject(params, allowed...)
 	if err != nil {
-		return request, err
+		return request, nil, err
 	}
+	parent, present := fields["parentId"]
+	if present {
+		if _, err := requestKey(parent); err != nil {
+			return request, nil, rpcError(-32602, "Invalid parameter: parentId must be a request id")
+		}
+		parent = append(json.RawMessage(nil), parent...)
+	}
+	request, err = parseInteractionFields(request, fields)
+	return request, parent, err
+}
+
+func parseInteractionFields(request InteractionRequest, fields map[string]json.RawMessage) (InteractionRequest, error) {
+	var err error
 	if request.Title, err = contributionString(fields, "title", maxInteractionTitleBytes, true); err != nil {
 		return request, err
 	}
@@ -166,7 +183,7 @@ func parseInteractionOptions(raw json.RawMessage) ([]InteractionOption, error) {
 		if err := decoder.Decode(&encoded); err != nil {
 			return nil, rpcError(-32602, "Invalid interaction option")
 		}
-		fields, err := contributionObject(encoded, "label", "value", "description")
+		fields, err := contributionObject(encoded, selectOptionMembers...)
 		if err != nil {
 			return nil, err
 		}
@@ -228,18 +245,33 @@ func interactionResult(request InteractionRequest, response InteractionResponse)
 		if response.OptionIndex < 0 || response.OptionIndex >= len(request.Options) {
 			return nil, rpcError(-32603, "Invalid interaction selection")
 		}
-		return json.Marshal(struct {
-			Value json.RawMessage `json:"value"`
-		}{request.Options[response.OptionIndex].Value})
+		return json.Marshal(pluginprotocol.SelectResult{Value: request.Options[response.OptionIndex].Value})
 	default:
 		return nil, rpcError(-32603, "Invalid interaction kind")
 	}
 }
 
 func (h *Host) handleInteraction(ctx context.Context, owner InstanceID, method string, params json.RawMessage) (json.RawMessage, error) {
-	request, err := parseInteraction(method, params)
+	request, parent, err := parseInteraction(method, params, protocolVersion(ctx))
 	if err != nil {
 		return nil, err
+	}
+	if parent != nil {
+		// The dialog lives only as long as the Kit request it serves.
+		done, pending := pendingRequestDone(ctx, parent)
+		if !pending {
+			return nil, rpcError(-32001, "Request cancelled: its parent request is not pending")
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-done:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
 	}
 	h.mu.Lock()
 	if ctx.Err() != nil {

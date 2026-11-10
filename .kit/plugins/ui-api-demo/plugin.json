@@ -1,7 +1,8 @@
 {
-  "$schema": "https://raw.githubusercontent.com/akonwi/kit/main/docs/plugin-protocol/manifest.schema.json",
+  "$schema": "https://raw.githubusercontent.com/akonwi/kit/main/docs/plugin-protocol/v2/manifest.schema.json",
   "manifestVersion": 1,
+  "protocolVersion": 2,
   "id": "ui-api-demo",
   "name": "Plugin UI Demo",
-  "transport": { "type": "stdio", "command": "python3", "args": ["-u", "plugin.py"] }
+  "transport": { "type": "stdio", "command": "bun", "args": ["plugin.ts"] }
 }

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/akonwi/kit/api/pluginprotocol"
 	"github.com/akonwi/kit/internal/apphome"
 )
 
@@ -34,21 +35,11 @@ const (
 	Project Source = "project"
 )
 
-// Manifest is the public manifest-v1 launch document.
-type Manifest struct {
-	Schema          string         `json:"$schema,omitempty"`
-	ManifestVersion int            `json:"manifestVersion"`
-	ID              string         `json:"id"`
-	Name            string         `json:"name,omitempty"`
-	Transport       StdioTransport `json:"transport"`
-}
+// Manifest is the public launch document, owned by the protocol package.
+type Manifest = pluginprotocol.Manifest
 
 // StdioTransport launches a command directly, with literal arguments.
-type StdioTransport struct {
-	Type    string   `json:"type"`
-	Command string   `json:"command"`
-	Args    []string `json:"args,omitempty"`
-}
+type StdioTransport = pluginprotocol.StdioTransport
 
 // Installation is a validated manifest and its discovery identity. Root is the
 // absolute installation directory, even when reached through a child symlink.
@@ -92,6 +83,14 @@ type DiscoveryResult struct {
 
 var pluginID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
+// ProtocolVersion is the plugin protocol version an installation speaks.
+func (installation Installation) ProtocolVersion() int {
+	if installation.Manifest.ProtocolVersion == 0 {
+		return 1
+	}
+	return installation.Manifest.ProtocolVersion
+}
+
 // ParseManifest validates the manifest-v1 shape and host-reserved command domains.
 func ParseManifest(data []byte, reservedIDs []string) (Manifest, error) {
 	var manifest Manifest
@@ -121,7 +120,7 @@ func ParseManifest(data []byte, reservedIDs []string) (Manifest, error) {
 	}
 	for key, raw := range fields {
 		switch key {
-		case "$schema", "manifestVersion", "id", "name", "transport":
+		case "$schema", "manifestVersion", "protocolVersion", "id", "name", "transport":
 		default:
 			return Manifest{}, fmt.Errorf("unknown manifest field %q", key)
 		}
@@ -133,6 +132,9 @@ func ParseManifest(data []byte, reservedIDs []string) (Manifest, error) {
 		return Manifest{}, errors.New("manifestVersion must be 1")
 	}
 	manifest.ManifestVersion = 1
+	if raw, ok := fields["protocolVersion"]; ok && !numberIs(string(raw), pluginprotocol.Version) {
+		return Manifest{}, fmt.Errorf("protocolVersion must be %d; omit it for protocol version 1", pluginprotocol.Version)
+	}
 	if !pluginID.MatchString(manifest.ID) || manifest.ID == "kit" || strings.HasPrefix(manifest.ID, "kit-") {
 		return Manifest{}, errors.New("invalid or reserved plugin id")
 	}
@@ -272,9 +274,12 @@ func Discover(ctx context.Context, options Discovery) (DiscoveryResult, error) {
 	return result, ctx.Err()
 }
 
-// numberIsOne compares an already JSON-validated number exactly, without float
-// rounding or allocating enormous integers for untrusted exponent expressions.
-func numberIsOne(raw string) bool {
+func numberIsOne(raw string) bool { return numberIs(raw, 1) }
+
+// numberIs compares an already JSON-validated number exactly to the digit
+// value (1 through 9), without float rounding or allocating enormous
+// integers for untrusted exponent expressions.
+func numberIs(raw string, value int) bool {
 	raw = strings.TrimSpace(raw)
 	mantissa, exponent, hasExponent := strings.Cut(strings.ToLower(raw), "e")
 	power := 0
@@ -288,7 +293,7 @@ func numberIsOne(raw string) bool {
 	whole, fractional, _ := strings.Cut(mantissa, ".")
 	digits := strings.TrimLeft(whole+fractional, "0")
 	trimmed := strings.TrimRight(digits, "0")
-	return trimmed == "1" && power == len(fractional)-(len(digits)-len(trimmed))
+	return value >= 1 && value <= 9 && trimmed == strconv.Itoa(value) && power == len(fractional)-(len(digits)-len(trimmed))
 }
 
 func readManifest(path string) ([]byte, error) {

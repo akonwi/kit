@@ -1,6 +1,6 @@
 # Tool demo
 
-Requires Python 3 on `PATH`. This read-only v1 subprocess plugin registers
+Requires Python 3 on `PATH`. This read-only plugin, which speaks plugin protocol 2, registers
 `tool-demo.echo`, exposed to the model as `tool-demo__echo`.
 
 Reload the session after changing the fixture, then ask the model:

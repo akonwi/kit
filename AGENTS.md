@@ -119,6 +119,9 @@ other concurrency-sensitive code when the platform supports it.
 interactive flow runs in `main.ard`. For changes there, run the checks listed
 in `apps/cli/README.md`.
 
+For TypeScript plugin helper changes, run `bun install` and `bun run check`
+in `sdk/plugin`, and see `sdk/plugin/README.md`.
+
 For browser client changes, run `bun run check` in `apps/web` (API type
 staleness, formatting and lint, typecheck, unit tests) and see
 `apps/web/README.md`. Bun is a
