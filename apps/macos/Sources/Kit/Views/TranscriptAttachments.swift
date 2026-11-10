@@ -45,7 +45,7 @@ private struct TranscriptAttachmentCard: View {
                 if let content {
                     Text(ByteCountFormatter.string(fromByteCount: content.info.size, countStyle: .file))
                         .foregroundStyle(theme.muted)
-                    Button("Save As…") { save(content) }.buttonStyle(.plain)
+                    Button("Save As…") { save(content) }.buttonStyle(HoverFillButtonStyle())
                 }
             }.font(.kit(size: 12))
             if let image = content?.image {
@@ -60,6 +60,7 @@ private struct TranscriptAttachmentCard: View {
                         }
                         .buttonStyle(.plain)
                         .onHover { hovering = $0 }
+                        .pointerStyle(TranscriptClickable.imagePreview.pointerStyle)
                         .help("Open in viewer")
                         .accessibilityHint("Opens the image in a viewer beside the transcript")
                     } else {
@@ -79,7 +80,7 @@ private struct TranscriptAttachmentCard: View {
             if let error {
                 HStack {
                     Text(error).foregroundStyle(theme.muted)
-                    if store != nil && reference.id != nil { Button("Retry") { attempt += 1 }.buttonStyle(.plain) }
+                    if store != nil && reference.id != nil { Button("Retry") { attempt += 1 }.buttonStyle(HoverFillButtonStyle()) }
                 }
             } else if content == nil {
                 HStack { KitSpinner(); Text("Loading attachment…").foregroundStyle(theme.muted) }

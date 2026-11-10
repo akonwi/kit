@@ -69,9 +69,12 @@ struct NativeTranscript: NSViewRepresentable {
     /// keep their rows, so live updates do work proportional to the changed tail.
     private var source: [TranscriptMessage] = []
     private var historyRelease: Task<Void, Never>?
+    /// Shows the hand and an underline over links in the rows' text.
+    let linkHover: TextLinkHover
 
     init(_ input: NativeTranscript) {
         self.input = input
+        linkHover = TextLinkHover(color: NSColor(input.theme.accent))
         attachments = input.attachmentClient.map { TranscriptAttachmentStore(client: $0, session: input.attachmentSession) }
         super.init()
         scroll.hasVerticalScroller = true
@@ -95,6 +98,7 @@ struct NativeTranscript: NSViewRepresentable {
         table.dataSource = self
         scroll.documentView = table
         scroll.startWheelRouting()
+        linkHover.attach(to: scroll)
         scroll.changed = { [weak self] in self?.viewportChanged() }
         scroll.userScrolled = { [weak self] in self?.userScrolled() }
         scroll.willScroll = { [weak self] event in
@@ -366,6 +370,7 @@ struct NativeTranscript: NSViewRepresentable {
         typography = next.typography
         scroll.backgroundColor = NSColor(next.theme.surface)
         table.backgroundColor = NSColor(next.theme.surface)
+        linkHover.color = NSColor(next.theme.accent)
         let header = TranscriptMessage(id: Self.headerID, role: "header",
             text: "\(next.hasHistory)|\(next.historyLoading)|\(next.historyError ?? "")", tools: [])
         // Namespace message identities separately from container-owned rows.
@@ -417,6 +422,13 @@ struct NativeTranscript: NSViewRepresentable {
         else if !diff.isEmpty, let saved { restore(saved) }
         publishVisibility()
         updateHistoryRelease(turnFinished: turnFinished)
+        // Rows reconfigured under the pointer may no longer show its link.
+        if linkHover.hovered != nil {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.stopped else { return }
+                self.linkHover.refresh()
+            }
+        }
     }
 
     /// Loaded history is released once the reader has stayed at the live
@@ -581,6 +593,7 @@ struct NativeTranscript: NSViewRepresentable {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         scrollObserver = nil
         scroll.stopWheelRouting()
+        linkHover.detach()
         scroll.changed = nil
         scroll.userScrolled = nil
         scroll.willScroll = nil

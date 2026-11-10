@@ -66,9 +66,9 @@ struct ToolActivityView: View {
                 }
             }
             .font(.kit(size: 12))
-            .padding(.leading, 8).frame(height: 24).contentShape(Rectangle())
+            .padding(.horizontal, 8).frame(height: 24).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).foregroundStyle(theme.muted)
+        .buttonStyle(HoverFillButtonStyle(outset: .zero, cornerRadius: 4)).foregroundStyle(theme.muted)
         .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(tools.count) recorded tool calls")
     }
 
@@ -319,6 +319,7 @@ private struct ToolChip: View {
             Button(action: action) { label }
                 .buttonStyle(.plain)
                 .onHover { hovering = $0 }
+                .pointerStyle(TranscriptClickable.toolChip.pointerStyle)
                 .help("Open \(text)")
         } else {
             label

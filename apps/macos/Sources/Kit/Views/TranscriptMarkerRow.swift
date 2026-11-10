@@ -80,6 +80,7 @@ struct TranscriptMarkerRow: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { hovering = $0 }
+                .pointerStyle(TranscriptClickable.forkedSession.pointerStyle)
                 .help("Open the fork")
                 .accessibilityHint("Opens the forked session")
             } else {

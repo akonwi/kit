@@ -72,6 +72,57 @@ struct MicaButtonStyle: ButtonStyle {
     }
 }
 
+/// A plain button whose label sits on a `bgMuted` fill under the pointer or
+/// while pressed, for small actions in transcript content such as a code
+/// card's Copy. The fill only paints: it reaches `outset` past what the
+/// label draws, and the label's size never changes.
+struct HoverFillButtonStyle: ButtonStyle {
+    /// How far the label's hit area reaches past what it draws, as an
+    /// `IconButtonLabel`'s margin does; the fill follows what it draws.
+    var margin: CGFloat = 0
+    /// How far the fill reaches past what the label draws.
+    var outset = CGSize(width: 4, height: 2)
+    var cornerRadius: CGFloat = 3
+
+    func makeBody(configuration: Configuration) -> some View {
+        Tracked(configuration: configuration, margin: margin, outset: outset, cornerRadius: cornerRadius)
+    }
+
+    private struct Tracked: View {
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovering = false
+        let configuration: Configuration
+        let margin: CGFloat
+        let outset: CGSize
+        let cornerRadius: CGFloat
+
+        var body: some View {
+            HoverFillLabel(highlighted: enabled && (hovering || configuration.isPressed), margin: margin, outset: outset,
+                           cornerRadius: cornerRadius) {
+                configuration.label
+            }
+            .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// A label on the fill `HoverFillButtonStyle` shows while `highlighted`.
+struct HoverFillLabel<Content: View>: View {
+    @Environment(\.mica) private var theme
+    let highlighted: Bool
+    var margin: CGFloat = 0
+    var outset = CGSize(width: 4, height: 2)
+    var cornerRadius: CGFloat = 3
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content.background {
+            RoundedRectangle(cornerRadius: cornerRadius).fill(highlighted ? theme.hover : .clear)
+                .padding(.horizontal, margin - outset.width).padding(.vertical, margin - outset.height)
+        }
+    }
+}
+
 /// A 22 pt text button for actions inside cards: toasts, the activity card,
 /// and the queued tray. The bordered form marks the card's main action.
 struct SmallButtonStyle: ButtonStyle {

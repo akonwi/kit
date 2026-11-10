@@ -312,6 +312,7 @@ struct MarkdownDocumentView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .font(.kit(size: 14)).textSelection(.enabled)
+                    .background(TextLinkHoverRegion(color: theme.accent))
                     .onChange(of: annotations?.state.revealToken, initial: true) { reveal(rows, proxy: proxy) }
                     .onChange(of: parsed?.source) { reveal(rows, proxy: proxy) }
                 }
@@ -689,13 +690,15 @@ struct FenceCard<Content: View>: View {
                 Spacer()
                 if let open {
                     Button("Open", icon: .arrowsOutSimple, size: 10, margin: Self.copyMargin, action: open)
-                        .buttonStyle(.plain).font(.kit(size: 10)).foregroundStyle(theme.muted)
+                        .buttonStyle(HoverFillButtonStyle(margin: Self.copyMargin))
+                        .font(.kit(size: 10)).foregroundStyle(theme.muted)
                 }
                 Button(copied ? "Copied" : "Copy", icon: copied ? .check : .copy, size: 10, margin: Self.copyMargin) {
                     pasteboard.clearContents()
                     pasteboard.setString(copy, forType: .string)
                     copied = true
-                }.buttonStyle(.plain).font(.kit(size: 10)).foregroundStyle(theme.muted)
+                }.buttonStyle(HoverFillButtonStyle(margin: Self.copyMargin))
+                    .font(.kit(size: 10)).foregroundStyle(theme.muted)
             }.padding(.leading, 12).padding(.trailing, 12 - Self.copyMargin).padding(.vertical, 8 - Self.copyMargin)
             Rule()
             content

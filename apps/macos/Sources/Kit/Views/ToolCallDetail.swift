@@ -351,6 +351,7 @@ private struct FileLink: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(hovering ? theme.accent : theme.text)
                 .onHover { hovering = $0 }
+                .pointerStyle(TranscriptClickable.wellFilePath.pointerStyle)
                 .help("Open \(Self.name(pane))")
         } else {
             label.foregroundStyle(theme.text)
