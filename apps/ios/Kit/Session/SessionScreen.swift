@@ -35,6 +35,9 @@ struct SessionScreen: View {
     @State private var showingScratchpad = false
     /// Which agent's transcript shows: Main's or a subagent's.
     @State private var agents: SubagentFocus
+    /// The session's branch, pull request, and checks, for the strip.
+    @State private var repository: SessionRepository
+    @State private var showingChecks = false
     private let client: ServerClient
 
     init(identity: SessionIdentity, client: ServerClient) {
@@ -71,6 +74,7 @@ struct SessionScreen: View {
         _interactions = State(initialValue: interactions)
         _scratchpad = State(initialValue: scratchpad)
         _agents = State(initialValue: agents)
+        _repository = State(initialValue: SessionRepository(session: identity.session, client: client))
         _attachments = State(initialValue: TranscriptAttachmentStore(client: client, session: identity.session))
         self.client = client
     }
@@ -94,8 +98,15 @@ struct SessionScreen: View {
                 }
             }
             .safeAreaBar(edge: .top, spacing: 0) {
-                if feed.session != nil, !agents.strip.isEmpty {
-                    AgentStrip(focus: agents, mainNeedsYou: interactions.docked != nil)
+                if feed.session != nil {
+                    VStack(spacing: 0) {
+                        if let status = repository.status {
+                            RepositoryStrip(status: status) { showingChecks = true }
+                        }
+                        if !agents.strip.isEmpty {
+                            AgentStrip(focus: agents, mainNeedsYou: interactions.docked != nil)
+                        }
+                    }
                 }
             }
             .safeAreaBar(edge: .bottom, spacing: 0) {
@@ -124,6 +135,7 @@ struct SessionScreen: View {
                 }
             }
             .sheet(item: $selecting) { SelectTextSheet(text: $0.text) }
+            .sheet(isPresented: $showingChecks) { ChecksSheet(repository: repository) }
             .sheet(isPresented: $openingFile) {
                 OpenFileSheet(files: files, client: client, session: feed.identity.session) { file in
                     openingFile = false
@@ -164,6 +176,10 @@ struct SessionScreen: View {
             .task(id: scenePhase == .active) {
                 guard scenePhase == .active else { return }
                 await feed.view()
+            }
+            .task(id: scenePhase == .active) {
+                guard scenePhase == .active else { return }
+                await repository.watch()
             }
             // Count the changes for the menu once, and again when a turn ends.
             .task {
