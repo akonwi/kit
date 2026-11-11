@@ -189,10 +189,10 @@ func TestDiscoverMissingRootsCancellationAndInvalidPaths(t *testing.T) {
 	}
 }
 
-// TestRepositoryExampleManifests checks the repository's fixtures: speech is
-// the version 1 example and every other fixture speaks version 2.
+// TestRepositoryExampleManifests checks that the repository's fixtures speak
+// version 2.
 func TestRepositoryExampleManifests(t *testing.T) {
-	versions := map[string]int{"footer-demo": 2, "open-url-demo": 2, "plugin-demo": 2, "session-message-demo": 2, "speech": 1, "subagent-demo": 2, "tool-demo": 2, "ui-api-demo": 2}
+	versions := map[string]int{"footer-demo": 2, "open-url-demo": 2, "plugin-demo": 2, "session-message-demo": 2, "speech": 2, "subagent-demo": 2, "tool-demo": 2, "ui-api-demo": 2}
 	for id, version := range versions {
 		t.Run(id, func(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join("..", "..", ".kit", "plugins", id, "plugin.json"))

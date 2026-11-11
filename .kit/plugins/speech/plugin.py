@@ -209,9 +209,9 @@ class Endpoint:
         bootstrap = False
         try:
             if method == "initialize":
-                if params.get("protocolVersion") != 1:
+                if params.get("protocolVersion") != 2:
                     raise ValueError("Unsupported protocol version")
-                result = {"protocolVersion": 1}
+                result = {"protocolVersion": 2}
                 bootstrap = platform.system() == "Darwin"
             elif method == "shutdown":
                 self.stop_speaking()
@@ -266,16 +266,15 @@ class Endpoint:
             if not line.strip():
                 continue
             try:
-                frame = json.loads(line)
-                for message in frame if isinstance(frame, list) else [frame]:
-                    if message.get("method") == "shutdown":
-                        self.handle(message)
-                    else:
-                        threading.Thread(
-                            target=self.handle,
-                            args=(message,),
-                            daemon=True,
-                        ).start()
+                message = json.loads(line)
+                if message.get("method") == "shutdown":
+                    self.handle(message)
+                else:
+                    threading.Thread(
+                        target=self.handle,
+                        args=(message,),
+                        daemon=True,
+                    ).start()
             except Exception as error:
                 print(error, file=sys.stderr)
             if self.stopping.is_set():
