@@ -51,9 +51,12 @@ struct ComposerView: View {
             }
             AnnotationStrip(state: state)
             RestoredAttachmentStrip(state: state)
-            if !state.ui.attachments.isEmpty || !state.ui.workspace.notes.isEmpty {
+            if !state.ui.attachments.isEmpty || !state.ui.workspace.notes.isEmpty || !browserAnnotations.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
+                        ForEach(browserAnnotations.items) { item in
+                            BrowserAnnotationChip(item: item, draft: browserAnnotations)
+                        }
                         if !state.ui.workspace.notes.isEmpty {
                             attachmentChip("Review · \(state.ui.workspace.notes.count) notes", icon: .chatCenteredText) {
                                 state.ui.workspace.notes = [:]
@@ -79,6 +82,12 @@ struct ComposerView: View {
                 .background(HorizontalWheelScrolling())
                 .background(theme.raised)
                 Rule()
+            }
+            if let error = browserAnnotations.error ?? browserAnnotations.screenshots.error {
+                HStack {
+                    Text(error).foregroundStyle(theme.muted)
+                    Button("Dismiss") { browserAnnotations.error = nil; browserAnnotations.screenshots.error = nil }
+                }.font(.kit(size: 12)).padding(.horizontal, 16).padding(.vertical, 8)
             }
             if !state.isDemo { ComposerAttachmentStrip(state: state) }
             if #available(macOS 26, *), dictation.hasNotice {
@@ -133,6 +142,8 @@ struct ComposerView: View {
         .onChange(of: dictationListening) { if dictationListening { focused = false } }
     }
 
+    private var browserAnnotations: BrowserAnnotationDraft { state.ui.workspace.browserAnnotations }
+
     // MARK: Dictation
 
     private var dictationSlot: DictationSlot { givenDictation ?? ownDictation }
@@ -152,6 +163,7 @@ struct ComposerView: View {
         return ComposerMic.placement(.init(
             dictating: dictation.isActive, draft: state.ui.draft,
             hasOtherContent: !state.annotationState.records.isEmpty || !state.ui.workspace.notes.isEmpty
+                || !browserAnnotations.isEmpty
                 || !state.ui.attachments.isEmpty || !state.ui.serverAttachmentIDs.isEmpty || !state.ui.uploads.items.isEmpty,
             stoppable: state.running || state.replaying || state.activeBashID != nil,
             shell: state.shellMode != nil, unavailable: state.unavailable))
@@ -269,10 +281,11 @@ struct ComposerView: View {
         if state.shellMode?.command.isEmpty == true { return true }
         if state.running { return state.operations.abortingRun != nil || state.connectionState != .connected }
         if state.replaying { return false }
-        if !state.ui.uploads.ready || state.hasRejectedImages || state.configuration.changing || state.directoryChange.pending || (state.reloadOperation.pending || state.compactionOperation.pending) { return true }
+        if !state.ui.uploads.ready || !browserAnnotations.ready || state.hasRejectedImages || state.configuration.changing || state.directoryChange.pending || (state.reloadOperation.pending || state.compactionOperation.pending) { return true }
         if !state.isDemo && (state.connectionState != .connected || state.operations.sending || state.operations.uncertain || state.operations.queuePending) { return true }
         return state.ui.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             state.annotationState.records.isEmpty && state.ui.workspace.notes.isEmpty && state.ui.attachments.isEmpty && state.ui.serverAttachmentIDs.isEmpty && state.ui.uploads.items.isEmpty
+            && browserAnnotations.isEmpty
     }
 
     private var shape: UnevenRoundedRectangle {

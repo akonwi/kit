@@ -95,6 +95,8 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var pointerFade: Task<Void, Never>?
     /// How long the pointer stays after the agent's last action.
     static let pointerLinger: Duration = .seconds(2)
+    /// Annotate mode, while it's on.
+    private(set) var annotation: BrowserAnnotationSession?
 
     init(id: UUID = UUID(), url: URL? = nil, makeEngine: @escaping @MainActor () -> any BrowserEngine) {
         self.id = id
@@ -270,8 +272,30 @@ final class BrowserTab: Identifiable {
         }
     }
 
+    // MARK: Annotation
+
+    /// Whether Annotate mode can start: the tab shows a page.
+    var canAnnotate: Bool { url != nil && failure == nil && !closed }
+
+    /// Turns Annotate mode on or off.
+    func toggleAnnotating() {
+        if annotation != nil { stopAnnotating() } else { startAnnotating() }
+    }
+
+    func startAnnotating() {
+        guard annotation == nil, canAnnotate else { return }
+        annotation = BrowserAnnotationSession(engine: liveEngine)
+    }
+
+    /// Ends Annotate mode; the page lets go of what it outlined.
+    func stopAnnotating() {
+        annotation?.end()
+        annotation = nil
+    }
+
     /// Stops the page before the tab is closed.
     func close() {
+        stopAnnotating()
         closed = true
         pointerFade?.cancel()
         engine?.close()
@@ -322,12 +346,14 @@ final class BrowserTab: Identifiable {
             if let next = state.url, next != url, failure == nil || state.loading { url = next }
         case .committed:
             failure = nil
+            annotation?.pageChanged()
             if let next = engine?.state.url, next.host() != url?.host() { favicon = nil }
         case .failed(let failed, let message):
             let target = failed ?? url
             url = target
             failure = BrowserFailure(title: "Can’t reach " + (target.map(BrowserAddress.hostLabel) ?? "the page"),
                                      detail: message, retry: target)
+            stopAnnotating()
         case .favicon(let data):
             if let image = Self.icon(from: data) { favicon = image }
         case .openedWindow(let child):

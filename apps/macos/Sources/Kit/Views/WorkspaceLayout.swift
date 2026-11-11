@@ -114,7 +114,9 @@ struct WorkspaceLayout: View {
         case .hostFile, .localFile: ExternalFilePane(state: state, pane: pane)
         case .image(let id, let filename): ImagePane(state: state, id: id, filename: filename)
         case .browser:
-            if let tab = state.ui.workspace.browser(pane) { BrowserPane(workspace: state.ui.workspace, tab: tab) }
+            if let tab = state.ui.workspace.browser(pane) {
+                BrowserPane(workspace: state.ui.workspace, tab: tab) { state.attachBrowserAnnotation($0) }
+            }
         case .terminal:
             if let tab = state.ui.workspace.terminal(pane) { TerminalPane(workspace: state.ui.workspace, tab: tab) }
         case .diagram:

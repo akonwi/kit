@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// A browser tab's pane: a toolbar with navigation, the address field, Copy
-/// Address, and Open in default browser over the page. The page draws with its own
+/// A browser tab's pane: a toolbar with navigation, the address field,
+/// Annotate, Copy Address, and Open in default browser over the page. The page draws with its own
 /// colours; a page that can't load shows Kit's message instead.
 ///
 /// A mouse's back and forward buttons step through the tab's history
@@ -16,6 +16,8 @@ struct BrowserPane: View {
     @Environment(\.mica) private var theme
     let workspace: WorkspaceState
     let tab: BrowserTab
+    /// Puts a finished annotation in the session's composer.
+    var attach: (BrowserElementAnnotation) -> Void = { _ in }
     /// What the address field holds while it's edited. A blank tab keeps
     /// it while hidden.
     @State private var draft = ""
@@ -33,6 +35,9 @@ struct BrowserPane: View {
         VStack(spacing: 0) {
             BrowserToolbar(workspace: workspace, tab: tab, draft: $draft)
                 .overlay { MouseHistoryButtons(tab: tab).accessibilityHidden(true) }
+            if tab.annotation != nil {
+                BrowserAnnotationStrip(added: workspace.browserAnnotations.items.count) { tab.stopAnnotating() }
+            }
             ZStack {
                 theme.surface
                 if tab.url != nil {
@@ -41,6 +46,9 @@ struct BrowserPane: View {
                         .allowsHitTesting(tab.failure == nil)
                         .accessibilityHidden(tab.failure != nil)
                         .workspaceFocusTarget(pane, when: tab.failure == nil)
+                    if let annotation = tab.annotation, tab.failure == nil {
+                        BrowserAnnotationOverlay(session: annotation, page: tab.view, attach: attach) { tab.stopAnnotating() }
+                    }
                     AgentPointerOverlay(pointer: tab.failure == nil ? tab.agentPointer : nil)
                 }
                 if let failure = tab.failure {
@@ -76,9 +84,12 @@ private struct BrowserToolbar: View {
                     .disabled(tab.url == nil)
             }
             address.padding(.leading, 6)
+            BrowserToolbarButton(icon: .cursorClick, help: tab.annotation == nil ? "Annotate" : "Stop Annotating",
+                                 active: tab.annotation != nil) { tab.toggleAnnotating() }
+                .disabled(!tab.canAnnotate)
+                .padding(.leading, 2)
             BrowserToolbarButton(icon: .copy, size: 13, help: "Copy Address") { tab.copyAddress() }
                 .disabled(tab.copyableAddress == nil)
-                .padding(.leading, 2)
             BrowserToolbarButton(icon: .arrowSquareOut, help: "Open in Default Browser") {
                 if let url = tab.url { NSWorkspace.shared.open(url) }
             }
@@ -241,15 +252,18 @@ private struct BrowserToolbarButton: View {
     let icon: Icon
     var size: CGFloat = 14
     let help: String
+    /// Lit in the accent while the mode it toggles is on.
+    var active = false
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             IconView(icon, size: size)
-                .foregroundStyle(enabled ? theme.text : theme.muted)
+                .foregroundStyle(active ? theme.accent : enabled ? theme.text : theme.muted)
                 .frame(width: 26, height: 26)
-                .background(hovering && enabled ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
+                .background(active ? theme.accent.opacity(0.16) : hovering && enabled ? theme.hover : .clear,
+                            in: RoundedRectangle(cornerRadius: 3))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -257,6 +271,7 @@ private struct BrowserToolbarButton: View {
         .onHover { hovering = $0 }
         .help(help)
         .accessibilityLabel(help)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 

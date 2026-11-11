@@ -30,6 +30,7 @@ enum Icon: String, CaseIterable, Sendable {
     case copy
     case cornersIn = "corners-in"
     case cornersOut = "corners-out"
+    case cursorClick = "cursor-click"
     case dotsThree = "dots-three"
     case eye
     case eyeSlash = "eye-slash"

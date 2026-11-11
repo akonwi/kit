@@ -55,6 +55,22 @@ import Testing
     private(set) var inputs: [BrowserInput] = []
     func sendInput(_ input: BrowserInput) throws { inputs.append(input) }
 
+    /// Annotation page operations asked of the page, and how it answers.
+    private(set) var annotationScripts: [(operation: String, arguments: [String: Any])] = []
+    var annotationResults: [String: String] = [:]
+    var pageImage: CGImage?
+    private(set) var imagedRects: [CGRect] = []
+    func runAnnotationScript(_ operation: String, arguments: [String: Any]) async throws -> String {
+        annotationScripts.append((operation, arguments))
+        guard let result = annotationResults[operation] else { throw BrowserAgentError("No result for \(operation).") }
+        return result
+    }
+    func pageImage(of rect: CGRect) async throws -> CGImage {
+        imagedRects.append(rect)
+        guard let pageImage else { throw BrowserAgentError("No page image.") }
+        return pageImage
+    }
+
     func send(_ event: BrowserEngineEvent) { onEvent?(event) }
     /// The page goes to `url`, as by a link or redirect; false when the
     /// tab stopped it.

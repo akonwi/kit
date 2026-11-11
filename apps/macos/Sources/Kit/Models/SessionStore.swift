@@ -11,6 +11,9 @@ final class SessionStore {
     private(set) var runningPluginCommand: String?
     @ObservationIgnored private var pluginCommandTask: Task<Void, Error>?
     @ObservationIgnored private var pluginCommandToken = UUID()
+    /// Each session's browser annotations in the message being sent,
+    /// removed from its composer once the server has it.
+    @ObservationIgnored private var browserAnnotationsSent: [String: [UUID]] = [:]
     var pluginCommandUnavailableReason: String? {
         if !(catalogClient is any PluginCommandClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
@@ -469,7 +472,20 @@ final class SessionStore {
         return ComposerView.activeModelLabel(id: model, models: models)
     }
     /// Staged images the active model cannot receive; they block sending until removed.
-    var hasRejectedImages: Bool { imageRejectingModel != nil && ui.uploads.items.contains(where: \.isImage) }
+    var hasRejectedImages: Bool {
+        imageRejectingModel != nil && (ui.uploads.items.contains(where: \.isImage) || ui.workspace.browserAnnotations.hasImages)
+    }
+
+    /// Puts a browser element annotation in the composer, uploading its
+    /// screenshot now so the message can be sent at once.
+    func attachBrowserAnnotation(_ annotation: BrowserElementAnnotation) {
+        let session = selectedID
+        ui.workspace.browserAnnotations.add(annotation, client: isDemo ? nil : composerClient, session: session,
+                                            imageRejectingModel: { [weak self] in
+            guard let self, self.selectedID == session else { return nil }
+            return self.imageRejectingModel
+        })
+    }
     var thinking: String { demo?.thinking ?? selected?.thinking ?? "" }
     var connectionState: SessionConnectionState { replica.connectionState }
     var connectionStatus: String { replica.connectionStatus }
@@ -770,11 +786,15 @@ final class SessionStore {
     func send() {
         if !isDemo, shellMode != nil { sendBash(); return }
         guard let demo else { submitLive(); return }
-        guard !ui.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !ui.workspace.notes.isEmpty || !ui.attachments.isEmpty else { return }
+        let browser = ui.workspace.browserAnnotations
+        guard !ui.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !ui.workspace.notes.isEmpty || !ui.attachments.isEmpty
+            || !browser.isEmpty else { return }
         stop()
         let suffix = ui.attachments.isEmpty ? "" : "\n\nAttachments: " + ui.attachments.joined(separator: ", ")
         let review = ui.workspace.notes.isEmpty ? "" : "\n\nReview notes:\n" + ui.workspace.notes.sorted(by: { $0.key < $1.key }).map { "- \($0.key): \($0.value)" }.joined(separator: "\n")
-        demo.append(TranscriptMessage(id: UUID().uuidString, role: "user", text: ui.draft + suffix + review, tools: []))
+        demo.append(TranscriptMessage(id: UUID().uuidString, role: "user",
+                                      text: Self.joinBrowserAnnotations(ui.draft + suffix + review, browser.messageText()), tools: []))
+        browser.acknowledge(browser.items.map(\.id))
         demo.append(TranscriptMessage(id: UUID().uuidString, role: "preview", text: "Prompt added to this preview. No model request was sent.", tools: []))
         ui.draft = ""
         ui.attachments = []
@@ -821,7 +841,8 @@ final class SessionStore {
     private func submitLive() {
         guard let client = mutationClient, connectionState == .connected else { return }
         guard !operations.queuePending, !operations.sending, !operations.uncertain else { return }
-        guard ui.uploads.ready, !configuration.changing, !directoryChange.pending, !reloadOperation.pending, !compactionOperation.pending else { return }
+        let browser = ui.workspace.browserAnnotations
+        guard ui.uploads.ready, browser.ready, !configuration.changing, !directoryChange.pending, !reloadOperation.pending, !compactionOperation.pending else { return }
         if hasRejectedImages, let model = imageRejectingModel {
             operations.reject("Remove images before sending. \(model) doesn’t accept images.")
             return
@@ -832,7 +853,7 @@ final class SessionStore {
         }
         let notes = ui.workspace.notes
         let review = notes.isEmpty ? "" : "\n\nReview notes:\n" + notes.sorted(by: { $0.key < $1.key }).map { "- \($0.key): \($0.value)" }.joined(separator: "\n")
-        let attachmentIDs = ComposerAttachments.uniqueIDs(ui.serverAttachmentIDs + ui.uploads.readyIDs)
+        let attachmentIDs = ComposerAttachments.uniqueIDs(ui.serverAttachmentIDs + ui.uploads.readyIDs + browser.attachmentIDs)
         guard attachmentIDs.count <= 8 else { operations.reject("A message can contain up to eight attachments."); return }
         let annotations = annotationState.records
         guard !annotationState.pending, !annotationState.uncertain, annotationState.editor == nil else {
@@ -841,7 +862,7 @@ final class SessionStore {
         guard annotations.count <= 64 else { operations.reject("A message can contain up to 64 annotations."); return }
         guard !annotations.contains(where: \.stale) else { operations.reject("Source changed. Replace or delete stale annotations before sending."); return }
         let annotationIDs = annotations.map(\.id)
-        let text = ui.draft + review
+        let text = Self.joinBrowserAnnotations(ui.draft + review, browser.messageText())
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, attachmentIDs.isEmpty, annotationIDs.isEmpty {
             // As in the TUI, Return in an empty composer sends the queue to the running turn.
             if running, (operations.queue?.count ?? 0) > 0 { changeQueue(.promote) }
@@ -852,7 +873,7 @@ final class SessionStore {
             guard (selected?.promptCommands ?? []).contains(where: { $0.name == command.name }) else {
                 operations.reject("Unknown prompt command: /" + command.name); return
             }
-            guard attachmentIDs.isEmpty, notes.isEmpty, annotationIDs.isEmpty else {
+            guard attachmentIDs.isEmpty, notes.isEmpty, annotationIDs.isEmpty, browser.isEmpty else {
                 operations.reject("Prompt commands do not accept attachments or annotations."); return
             }
             guard let commandClient = catalogClient as? any PromptCommandClient else {
@@ -870,6 +891,7 @@ final class SessionStore {
                 })
             return
         }
+        browserAnnotationsSent[id] = browser.items.map(\.id)
         operations.submit(client: client, session: id,
             input: WirePromptInput(text: text, attachmentIds: attachmentIDs, annotationIds: annotationIDs),
             draft: .init(text: ui.draft, notes: notes, attachmentIDs: attachmentIDs),
@@ -904,7 +926,14 @@ final class SessionStore {
         if ui.workspace.notes == draft.notes { ui.workspace.notes = [:] }
         ui.serverAttachmentIDs.removeAll { draft.attachmentIDs.contains($0) }
         ui.uploads.acknowledge(draft.attachmentIDs)
+        ui.workspace.browserAnnotations.acknowledge(browserAnnotationsSent.removeValue(forKey: selectedID) ?? [])
         operations.consumeAcknowledgedDraft()
+    }
+
+    /// The message's text, then its browser annotations' blocks.
+    static func joinBrowserAnnotations(_ text: String, _ blocks: String) -> String {
+        guard !blocks.isEmpty else { return text }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? blocks : text + "\n\n" + blocks
     }
 
     func abortRun() {

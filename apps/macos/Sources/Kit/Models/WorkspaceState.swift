@@ -804,6 +804,8 @@ final class WorkspaceState {
     var selectedFile = ""
     var changesVisible = true
     var notes: [String: String] = [:]
+    /// Browser element annotations waiting in the composer.
+    let browserAnnotations = BrowserAnnotationDraft()
     var editingLine: Int?
     var noteDraft = ""
 

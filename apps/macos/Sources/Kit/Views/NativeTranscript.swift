@@ -719,8 +719,13 @@ private struct NativeMessageRow: View {
                                     if message.role == "preview" {
                                         Text("Preview").font(.kit(size: 12, weight: .semibold))
                                     }
-                                    if !message.text.isEmpty { MarkdownView(source: message.text, onSections: message.role == "assistant" ? onSections : nil) }
+                                    let parts = message.role == "user" ? BrowserAnnotationText.split(message.text)
+                                        : (text: message.text, annotations: [BrowserAnnotationText.Sent]())
+                                    if !parts.text.isEmpty { MarkdownView(source: parts.text, onSections: message.role == "assistant" ? onSections : nil) }
                                     TranscriptAnnotations(annotations: message.annotations ?? [])
+                                    TranscriptBrowserAnnotations(annotations: parts.annotations,
+                                                                 state: presentation.drawer(for: TranscriptPresentationState.browserAnnotationsKey(message.id)),
+                                                                 onExpand: onExpand)
                                     TranscriptAttachments(attachments: message.attachments ?? [])
                                 }
                                 .padding(.horizontal, message.role == "user" ? 20 : 0)

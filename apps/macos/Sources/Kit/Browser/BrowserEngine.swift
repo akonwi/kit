@@ -118,6 +118,15 @@ enum BrowserLinkDisposition: Equatable {
     /// Delivers native input to the page as a person's, which needs the
     /// page in a window.
     func sendInput(_ input: BrowserInput) throws
+
+    // MARK: Annotation
+
+    /// Runs `operation` of Kit's annotation page script with `arguments` in
+    /// its own content world the page can't see, returning its JSON result.
+    func runAnnotationScript(_ operation: String, arguments: [String: Any]) async throws -> String
+    /// An image of `rect` of the page, in the page view's points from its
+    /// top-left corner.
+    func pageImage(of rect: CGRect) async throws -> CGImage
 }
 
 extension BrowserEngine {

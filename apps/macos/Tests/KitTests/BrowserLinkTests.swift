@@ -578,10 +578,11 @@ struct BrowserLinkDispositionTests {
         }
         let confirmation = try #require(try Drawing(host).changes(from: before))
         // The toolbar is the 38 pt above the page. The field ends before
-        // Copy Address and Open in Default Browser, 26 pt each with 2 pt
-        // before each, and the toolbar's 8 pt edge; its text is 10 pt in.
+        // Annotate, Copy Address, and Open in Default Browser, 26 pt each
+        // with 2 pt before each, and the toolbar's 8 pt edge; its text is
+        // 10 pt in.
         let page = tab.view.convert(tab.view.bounds, to: host)
-        let fieldTextEnd = page.maxX - 8 - 2 * (26 + 2) - 10
+        let fieldTextEnd = page.maxX - 8 - 3 * (26 + 2) - 10
         #expect(confirmation.minY >= page.minY - 38 && confirmation.maxY <= page.minY)
         #expect(confirmation.maxX <= fieldTextEnd + 1 && confirmation.maxX >= fieldTextEnd - 4)
         // A check mark and "Copied" at 11 pt.

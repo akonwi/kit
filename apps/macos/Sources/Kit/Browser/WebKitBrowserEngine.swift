@@ -601,6 +601,32 @@ extension WebKitBrowserEngine {
         }
     }
 
+    /// Annotation page scripts run here, apart from the page's scripts
+    /// and the agent's.
+    private static let annotationWorld = WKContentWorld.world(name: "kit.browser-annotate")
+    private static let annotationLibrary: String = Bundle.module.url(forResource: "BrowserAnnotate", withExtension: "js")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+
+    func runAnnotationScript(_ operation: String, arguments: [String: Any]) async throws -> String {
+        guard !Self.annotationLibrary.isEmpty else { throw BrowserAgentError("The annotation script is missing from this build.") }
+        let body = Self.annotationLibrary + "\nreturn globalThis.__kitAnnotate.run(op, args);"
+        let result = try await webView.callAsyncJavaScript(body, arguments: ["op": operation, "args": arguments],
+                                                           in: nil, contentWorld: Self.annotationWorld)
+        guard let text = result as? String else { throw BrowserAgentError("The page returned no result.") }
+        return text
+    }
+
+    func pageImage(of rect: CGRect) async throws -> CGImage {
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = rect
+        configuration.afterScreenUpdates = false
+        let image = try await webView.takeSnapshot(configuration: configuration)
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw BrowserAgentError("The page couldn’t be captured.")
+        }
+        return cgImage
+    }
+
     func viewportImage() async throws -> CGImage {
         let image = try await webView.takeSnapshot(configuration: nil)
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
