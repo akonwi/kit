@@ -73,6 +73,11 @@ struct SelectionActions: NSViewRepresentable {
                 guard let self, self.enabled, let window = self.host?.window else { return event }
                 if event.window === self.panel { return event }
                 guard event.window === window else { self.dismiss(); return event }
+                // A web link's own menu wins over the message's and AppKit's.
+                if TextLinkHover.showsLinkMenu(for: event) {
+                    self.dismiss()
+                    return event
+                }
                 if event.type == .rightMouseDown, self.hasSelection(in: window) {
                     self.dismiss()
                     return event

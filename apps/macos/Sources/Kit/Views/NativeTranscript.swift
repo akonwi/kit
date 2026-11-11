@@ -75,6 +75,7 @@ struct NativeTranscript: NSViewRepresentable {
     init(_ input: NativeTranscript) {
         self.input = input
         linkHover = TextLinkHover(color: NSColor(input.theme.accent))
+        linkHover.linkActions = Self.linkActions(input)
         attachments = input.attachmentClient.map { TranscriptAttachmentStore(client: $0, session: input.attachmentSession) }
         super.init()
         scroll.hasVerticalScroller = true
@@ -132,6 +133,12 @@ struct NativeTranscript: NSViewRepresentable {
         }
         configure(cell, row: row)
         return cell
+    }
+
+    /// A web link's menu opens the link as a click on it in a row does.
+    private static func linkActions(_ input: NativeTranscript) -> TextLinkHover.LinkActions {
+        let open = OpenURLAction.transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink)
+        return .init(open: { open($0) })
     }
 
     private func configure(_ cell: NativeTranscriptCell, row: Int) {
@@ -371,6 +378,7 @@ struct NativeTranscript: NSViewRepresentable {
         scroll.backgroundColor = NSColor(next.theme.surface)
         table.backgroundColor = NSColor(next.theme.surface)
         linkHover.color = NSColor(next.theme.accent)
+        linkHover.linkActions = Self.linkActions(next)
         let header = TranscriptMessage(id: Self.headerID, role: "header",
             text: "\(next.hasHistory)|\(next.historyLoading)|\(next.historyError ?? "")", tools: [])
         // Namespace message identities separately from container-owned rows.

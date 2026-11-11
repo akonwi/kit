@@ -64,6 +64,10 @@ enum TranscriptClickable: CaseIterable {
 /// underline is a view over the field that only paints: neither the field's
 /// text nor any layout changes, and selecting by dragging across a link
 /// works as before.
+///
+/// With `linkActions` set, right-clicking or Control-clicking a web link
+/// shows a menu for the link in place of AppKit's text menu, whose Open Link
+/// opens the system's default browser; see `linkMenu(for:)`.
 @MainActor final class TextLinkHover: NSResponder {
     /// The link under the pointer.
     struct Hovered: Equatable {
@@ -73,9 +77,25 @@ enum TranscriptClickable: CaseIterable {
         let underlines: [NSRect]
     }
 
+    /// What a web link's menu does.
+    struct LinkActions {
+        /// Opens a link as clicking it does.
+        var open: @MainActor (URL) -> Void
+        /// Opens a link in the system's default browser.
+        var openInDefaultBrowser: @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
+        /// Where Copy Link copies.
+        var pasteboard: NSPasteboard = .general
+    }
+
     private weak var region: NSView?
     private var area: NSTrackingArea?
     private var scrollMonitor: Any?
+    private var menuMonitor: Any?
+    /// What a web link's menu does; without them, links keep AppKit's menu.
+    var linkActions: LinkActions?
+    /// The hovers tracking a region, which right-clicks on links go to.
+    private static var attached: [Weak] = []
+    private struct Weak { weak var hover: TextLinkHover? }
     private var refreshQueued = false
     private var layout: FieldLayout?
     private let underline = TextLinkUnderlineView()
@@ -112,6 +132,14 @@ enum TranscriptClickable: CaseIterable {
             }
             return event
         }
+        menuMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
+            guard let self, let menu = self.linkMenu(for: event), let field = self.field(at: event.locationInWindow) else { return event }
+            NSMenu.popUpContextMenu(menu, with: event, for: field)
+            self.refresh()
+            return nil
+        }
+        Self.attached.removeAll { $0.hover == nil || $0.hover === self }
+        Self.attached.append(Weak(hover: self))
     }
 
     func detach() {
@@ -119,6 +147,9 @@ enum TranscriptClickable: CaseIterable {
         area = nil
         if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
         scrollMonitor = nil
+        if let menuMonitor { NSEvent.removeMonitor(menuMonitor) }
+        menuMonitor = nil
+        Self.attached.removeAll { $0.hover == nil || $0.hover === self }
         clear(resetCursor: hovered != nil)
         region = nil
         layout = nil
@@ -141,11 +172,7 @@ enum TranscriptClickable: CaseIterable {
 
     /// Shows the link under `point`, in window coordinates, if any.
     func update(at point: NSPoint) {
-        // The region may sit behind the text it tracks, so it is a place, not
-        // an ancestor. `hitTest` takes a point in the superview's coordinates.
-        guard let region, let window = region.window, let root = window.contentView,
-              region.visibleRect.contains(region.convert(point, from: nil)),
-              let hit = root.hitTest(root.superview?.convert(point, from: nil) ?? point) else {
+        guard let hit = view(at: point) else {
             clear(resetCursor: hovered != nil)
             return
         }
@@ -166,6 +193,102 @@ enum TranscriptClickable: CaseIterable {
         underline.drawsFlipped = field.isFlipped
         underline.rects = next.underlines
         field.addSubview(underline)
+    }
+
+    /// The view at `point`, in window coordinates, within the region.
+    private func view(at point: NSPoint) -> NSView? {
+        // The region may sit behind the text it tracks, so it is a place, not
+        // an ancestor. `hitTest` takes a point in the superview's coordinates.
+        // A workspace keeps hidden tabs, transparent, where shown ones are.
+        guard let region, let window = region.window, let root = window.contentView,
+              region.visibleRect.contains(region.convert(point, from: nil)),
+              sequence(first: region, next: \.superview).allSatisfy({ !$0.isHidden && $0.alphaValue > 0 }) else { return nil }
+        return root.hitTest(root.superview?.convert(point, from: nil) ?? point)
+    }
+
+    /// The selectable text field at `point`, in window coordinates. A field
+    /// with a selection lies under its field editor.
+    private func field(at point: NSPoint) -> NSTextField? {
+        let hit = view(at: point)
+        let editor = (hit as? NSTextView).flatMap { $0.isFieldEditor ? $0 : nil }
+        guard let field = (hit as? NSTextField) ?? (editor?.delegate as? NSTextField), field.isSelectable else { return nil }
+        return field
+    }
+
+    /// The menu a right-click or Control-click `event` on a web link shows:
+    /// Open Link, which opens it as a click does; Open in Default Browser;
+    /// and Copy Link. When the link's text has a selection, AppKit's items
+    /// for the selection follow, without its own items for the link. Nil for
+    /// any other event, which keeps AppKit's menu, as for a file path or a
+    /// session mention.
+    func linkMenu(for event: NSEvent) -> NSMenu? {
+        let secondary = event.type == .rightMouseDown
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+        guard secondary, let actions = linkActions, let window = region?.window, event.window === window,
+              let field = field(at: event.locationInWindow),
+              let link = link(in: field, at: field.convert(event.locationInWindow, from: nil)),
+              let url = Self.url(field.attributedStringValue.attribute(.link, at: link.range.location, effectiveRange: nil)),
+              BrowserAddress.isWeb(url) else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let target = LinkMenuTarget(url: url, actions: actions)
+        for (title, action) in [("Open Link", #selector(LinkMenuTarget.open)),
+                                ("Open in Default Browser", #selector(LinkMenuTarget.openInDefaultBrowser)),
+                                ("Copy Link", #selector(LinkMenuTarget.copyLink))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = target
+            // The menu keeps its items, and each its represented object, so
+            // the target lives as long as the menu.
+            item.representedObject = target
+            menu.addItem(item)
+        }
+        let selectionItems = Self.selectionItems(in: field, for: event)
+        if !selectionItems.isEmpty {
+            menu.autoenablesItems = true
+            menu.addItem(.separator())
+            for item in selectionItems { menu.addItem(item) }
+        }
+        return menu
+    }
+
+    /// The menu a tracked region shows for `event`, a click on a web link.
+    static func anyLinkMenu(for event: NSEvent) -> NSMenu? {
+        attached.lazy.compactMap { $0.hover?.linkMenu(for: event) }.first
+    }
+
+    /// Whether some tracked region shows its own menu for `event`, a click
+    /// on a web link, in place of the menus others would show.
+    static func showsLinkMenu(for event: NSEvent) -> Bool { anyLinkMenu(for: event) != nil }
+
+    private static func url(_ value: Any?) -> URL? {
+        switch value {
+        case let url as URL: url
+        case let string as String: URL(string: string)
+        default: nil
+        }
+    }
+
+    /// AppKit's menu items for the text selected in `field`, without its
+    /// items for the link `event` is over; none without a selection there.
+    private static func selectionItems(in field: NSTextField, for event: NSEvent) -> [NSMenuItem] {
+        // The field edits, and selects, in the window's field editor.
+        guard let editor = field.window?.firstResponder as? NSTextView, editor.isFieldEditor, editor.delegate === field,
+              editor.selectedRange().length > 0,
+              let menu = editor.menu(for: event) else { return [] }
+        var items = menu.items
+        menu.removeAllItems()
+        let linkActions: Set<Selector> = [NSSelectorFromString("_openLinkFromMenu:"), NSSelectorFromString("copyLink:")]
+        // Open With, a submenu of applications, follows Open Link.
+        if let open = items.firstIndex(where: { $0.action == NSSelectorFromString("_openLinkFromMenu:") }),
+           open + 1 < items.count, items[open + 1].hasSubmenu {
+            items.remove(at: open + 1)
+        }
+        items.removeAll { $0.action.map(linkActions.contains) == true }
+        // No separator leads, trails, or follows another.
+        var kept: [NSMenuItem] = []
+        for item in items where !(item.isSeparatorItem && (kept.last?.isSeparatorItem ?? true)) { kept.append(item) }
+        while kept.last?.isSeparatorItem == true { kept.removeLast() }
+        return kept
     }
 
     private func clear(resetCursor: Bool) {
@@ -265,6 +388,25 @@ enum TranscriptClickable: CaseIterable {
     }
 }
 
+/// Carries out a web link menu's items.
+@MainActor private final class LinkMenuTarget: NSObject {
+    let url: URL
+    let actions: TextLinkHover.LinkActions
+
+    init(url: URL, actions: TextLinkHover.LinkActions) {
+        self.url = url
+        self.actions = actions
+    }
+
+    @objc func open() { actions.open(url) }
+    @objc func openInDefaultBrowser() { actions.openInDefaultBrowser(url) }
+    @objc func copyLink() {
+        actions.pasteboard.clearContents()
+        actions.pasteboard.writeObjects([url as NSURL])
+        actions.pasteboard.setString(url.absoluteString, forType: .string)
+    }
+}
+
 /// Paints a hovered link's underline over its text field.
 final class TextLinkUnderlineView: NSView {
     var color: NSColor = .linkColor { didSet { needsDisplay = true } }
@@ -279,12 +421,18 @@ final class TextLinkUnderlineView: NSView {
 }
 
 /// Tracks links under the pointer over the view it backs; see
-/// `TextLinkHover`. Put it behind a SwiftUI region of selectable text.
+/// `TextLinkHover`. Put it behind a SwiftUI region of selectable text. A web
+/// link's menu opens the link with the environment's `openURL`, as a click
+/// on it does.
 struct TextLinkHoverRegion: NSViewRepresentable {
     let color: Color
 
     func makeNSView(context: Context) -> RegionView { RegionView(hover: context.coordinator) }
-    func updateNSView(_ view: RegionView, context: Context) { context.coordinator.color = NSColor(color) }
+    func updateNSView(_ view: RegionView, context: Context) {
+        context.coordinator.color = NSColor(color)
+        let open = context.environment.openURL
+        context.coordinator.linkActions = .init(open: { open($0) })
+    }
     func makeCoordinator() -> TextLinkHover { TextLinkHover(color: NSColor(color)) }
     static func dismantleNSView(_ view: RegionView, coordinator: TextLinkHover) { coordinator.detach() }
 
