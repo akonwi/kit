@@ -133,11 +133,14 @@ import Testing
         #expect(opened.openedWith == ["/srv/notes.md with BBEdit.app"])
     }
 
-    @Test func aSessionMentionOpensItsSession() throws {
+    @Test func aSessionMentionOpensItsSessionOrCopiesItsID() throws {
         let menus = Menus()
         defer { menus.close() }
         let menu = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "#Release notes")))
-        #expect(menus.titles(menu) == ["Open Session"] + Self.message)
+        #expect(menus.titles(menu) == ["Open Session", "Copy ID"] + Self.message)
+        menu.performActionForItem(at: 1)
+        #expect(menus.pasteboard.string(forType: .string) == "ses_release")
+        #expect(menus.sessions.sessions == [])
         menu.performActionForItem(at: 0)
         #expect(menus.sessions.sessions == ["ses_release"])
         #expect(menus.workspace.panes == [.conversation])

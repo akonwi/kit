@@ -262,7 +262,7 @@ enum TranscriptClickable: CaseIterable {
     /// The menu a right-click or Control-click `event` on a link shows. A web
     /// link offers Open Link, which opens it as a click does, Open in Default
     /// Browser, and Copy Link; a file link Open File and Copy Path; a session
-    /// mention Open Session. When the link's text has a selection, AppKit's
+    /// mention Open Session and Copy ID. When the link's text has a selection, AppKit's
     /// items for the selection follow, without its own items for the link;
     /// otherwise the message's Copy Message items follow, in a transcript.
     /// Nil for any other event, which keeps the menu it had.
@@ -309,6 +309,7 @@ enum TranscriptClickable: CaseIterable {
             }
         case .session:
             add("Open Session", #selector(LinkMenuTarget.open))
+            add("Copy ID", #selector(LinkMenuTarget.copySessionID))
         }
         let selectionItems = Self.selectionItems(in: field, for: event)
         if !selectionItems.isEmpty {
@@ -501,6 +502,11 @@ enum TranscriptClickable: CaseIterable {
         case #selector(revealInFinder), #selector(openInDefaultApp): file?.localReason == nil
         default: true
         }
+    }
+    @objc func copySessionID() {
+        guard let id = SessionMentions.session(in: url) else { return }
+        actions.pasteboard.clearContents()
+        actions.pasteboard.setString(id, forType: .string)
     }
     @objc func revealInFinder() { file?.revealInFinder() }
     @objc func openInDefaultApp() { file?.openInDefaultApp() }
