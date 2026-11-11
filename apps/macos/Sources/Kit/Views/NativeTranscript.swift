@@ -135,10 +135,8 @@ struct NativeTranscript: NSViewRepresentable {
         return cell
     }
 
-    /// A web link's menu opens the link as a click on it in a row does.
     private static func linkActions(_ input: NativeTranscript) -> TextLinkHover.LinkActions {
-        let open = OpenURLAction.transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink)
-        return .init(open: { open($0) }, file: { [weak workspace = input.workspace] in workspace?.fileActions(forLink: $0) })
+        .transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink)
     }
 
     private func configure(_ cell: NativeTranscriptCell, row: Int) {

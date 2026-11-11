@@ -63,24 +63,29 @@ struct MarkdownFileText: View {
     var body: some View {
         MarkdownDocumentView(source: source, annotations: annotations) { [workspace, pane] in workspace.showMarkdownSource(pane) }
             .environment(\.openURL, .markdownFile(workspace, file: pane, cwd: cwd))
-            .environment(\.linkedFile, { [weak workspace, pane, cwd] url in
-                guard let workspace, let path = FilePaths.path(fromLink: url),
-                      let target = MarkdownFiles.pane(forLink: path, in: pane, cwd: cwd) else { return nil }
-                return workspace.fileActions(for: target)
-            })
+            .environment(\.linkMenu, .markdownFile(workspace, file: pane, cwd: cwd))
     }
 }
 
-extension EnvironmentValues {
-    /// The file a link in rendered Markdown names, and what reveals and
-    /// opens it here, for the link's menu.
-    @Entry var linkedFile: (@MainActor (URL) -> FileTabActions?)? = nil
+extension TextLinkHover.LinkActions {
+    /// A Markdown file's link menus: Open Link and Open File open as a
+    /// plain click does, and a file link names its file as the file's
+    /// links resolve.
+    @MainActor static func markdownFile(_ workspace: WorkspaceState, file: WorkspacePane, cwd: String?) -> Self {
+        let open = OpenURLAction.markdownFile(workspace, file: file, cwd: cwd, externally: { _ in false })
+        return .init(open: { open($0) }, file: { [weak workspace] url in
+            guard let workspace, let path = FilePaths.path(fromLink: url),
+                  let target = MarkdownFiles.pane(forLink: path, in: file, cwd: cwd) else { return nil }
+            return workspace.fileActions(for: target)
+        })
+    }
 }
 
 extension OpenURLAction {
     /// Opens links in the Markdown file `file`. See `MarkdownFileText`.
-    @MainActor static func markdownFile(_ workspace: WorkspaceState, file: WorkspacePane, cwd: String?) -> OpenURLAction {
-        let web = OpenURLAction.workspace(workspace, beside: file)
+    @MainActor static func markdownFile(_ workspace: WorkspaceState, file: WorkspacePane, cwd: String?,
+                                        externally: @escaping @MainActor (URL) -> Bool = clickedExternally) -> OpenURLAction {
+        let web = OpenURLAction.workspace(workspace, beside: file, externally: externally)
         return OpenURLAction { [weak workspace] url in
             guard let path = FilePaths.path(fromLink: url) else { web(url); return .handled }
             guard let workspace, let target = MarkdownFiles.pane(forLink: path, in: file, cwd: cwd) else { return .handled }

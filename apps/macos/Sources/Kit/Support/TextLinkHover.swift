@@ -69,7 +69,8 @@ enum TranscriptClickable: CaseIterable {
 /// With `linkActions` set, right-clicking or Control-clicking a link shows
 /// a menu for it in place of AppKit's text menu, whose Open Link opens the
 /// system's default browser, or the transcript's Copy Message menu; see
-/// `linkMenu(for:)`. ⌘-clicking a web link opens the default browser.
+/// `linkMenu(for:)`. It also tells a ⌘-clicked web link, which opens in the
+/// default browser, from a clicked one; see `takeCommandClick(for:)`.
 @MainActor final class TextLinkHover: NSResponder {
     /// The link under the pointer.
     struct Hovered: Equatable {
@@ -79,9 +80,9 @@ enum TranscriptClickable: CaseIterable {
         let underlines: [NSRect]
     }
 
-    /// What a link's menu, and a ⌘-click on a web link, do.
+    /// What a link's menu does.
     struct LinkActions {
-        /// Opens a link as clicking it does.
+        /// Opens a link as clicking it does, without ⌘.
         var open: @MainActor (URL) -> Void
         /// Opens a link in the system's default browser.
         var openInDefaultBrowser: @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
@@ -137,12 +138,7 @@ enum TranscriptClickable: CaseIterable {
             return event
         }
         menuMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
-            guard let self else { return event }
-            if self.openCommandClicked(event) { return nil }
-            guard let menu = self.linkMenu(for: event), let field = self.field(at: event.locationInWindow) else { return event }
-            NSMenu.popUpContextMenu(menu, with: event, for: field)
-            self.refresh()
-            return nil
+            self?.intercept(event) ?? event
         }
         Self.attached.removeAll { $0.hover == nil || $0.hover === self }
         Self.attached.append(Weak(hover: self))
@@ -248,14 +244,36 @@ enum TranscriptClickable: CaseIterable {
         return (field, url)
     }
 
-    /// Opens a ⌘-clicked web link in the default browser, and says whether
-    /// `event` was one. The text's own click can't tell it from a plain
-    /// one: the link opens after the click, when ⌘ no longer shows as held.
-    func openCommandClicked(_ event: NSEvent) -> Bool {
+    /// What the region does with a mouse-down: shows a link's menu in place
+    /// of the text's, or notes a ⌘-click on a web link and lets the text have
+    /// it, so a ⌘-drag from the link still selects. Returns the event when
+    /// others still get it.
+    func intercept(_ event: NSEvent) -> NSEvent? {
+        noteClick(event)
+        guard let menu = linkMenu(for: event), let field = field(at: event.locationInWindow) else { return event }
+        NSMenu.popUpContextMenu(menu, with: event, for: field)
+        refresh()
+        return nil
+    }
+
+    /// The web link last ⌘-clicked, until it opens or the next plain click.
+    private static var commandClicked: URL?
+
+    /// Notes whether `event` ⌘-clicks a web link in this region, for
+    /// `takeCommandClick(for:)`. A plain click forgets one.
+    func noteClick(_ event: NSEvent) {
+        guard event.type == .leftMouseDown else { return }
         let flags = event.modifierFlags
-        guard event.type == .leftMouseDown, flags.contains(.command), !flags.contains(.control),
-              let actions = linkActions, let link = link(for: event), BrowserAddress.isWeb(link.url) else { return false }
-        actions.openInDefaultBrowser(link.url)
+        guard flags.contains(.command), !flags.contains(.control) else { Self.commandClicked = nil; return }
+        if linkActions != nil, let link = link(for: event), BrowserAddress.isWeb(link.url) { Self.commandClicked = link.url }
+    }
+
+    /// Whether `url` opens because it was ⌘-clicked, which the text's own
+    /// click can't say: it opens the link once the click ends, when ⌘ no
+    /// longer shows as held. Answers once per click.
+    static func takeCommandClick(for url: URL) -> Bool {
+        guard let clicked = commandClicked, clicked == url else { return false }
+        commandClicked = nil
         return true
     }
 
@@ -323,17 +341,10 @@ enum TranscriptClickable: CaseIterable {
         return menu
     }
 
-    /// Whether some tracked region acts on `event` itself, a click on a link
-    /// that shows its menu or a ⌘-click on a web link, in place of what
-    /// others would do with it.
+    /// Whether some tracked region shows its own menu for `event`, a click
+    /// on a link, in place of what others would show.
     static func takes(_ event: NSEvent) -> Bool {
-        attached.contains { entry in
-            guard let hover = entry.hover else { return false }
-            if event.type == .leftMouseDown, event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control) {
-                return hover.linkActions != nil && hover.link(for: event).map { BrowserAddress.isWeb($0.url) } == true
-            }
-            return hover.linkMenu(for: event) != nil
-        }
+        attached.contains { $0.hover?.linkMenu(for: event) != nil }
     }
 
     /// The menu a tracked region shows for `event`.
@@ -512,6 +523,11 @@ enum TranscriptClickable: CaseIterable {
     @objc func openInDefaultApp() { file?.openInDefaultApp() }
 }
 
+extension EnvironmentValues {
+    /// What the menus of links in rendered Markdown below do.
+    @Entry var linkMenu: TextLinkHover.LinkActions? = nil
+}
+
 /// Paints a hovered link's underline over its text field.
 final class TextLinkUnderlineView: NSView {
     var color: NSColor = .linkColor { didSet { needsDisplay = true } }
@@ -526,9 +542,9 @@ final class TextLinkUnderlineView: NSView {
 }
 
 /// Tracks links under the pointer over the view it backs; see
-/// `TextLinkHover`. Put it behind a SwiftUI region of selectable text. A web
-/// link's menu opens the link with the environment's `openURL`, as a click
-/// on it does.
+/// `TextLinkHover`. Put it behind a SwiftUI region of selectable text. Its
+/// links' menus act as the environment's `linkMenu` says, or open the link
+/// with its `openURL`, as a click on it does.
 struct TextLinkHoverRegion: NSViewRepresentable {
     let color: Color
 
@@ -536,8 +552,7 @@ struct TextLinkHoverRegion: NSViewRepresentable {
     func updateNSView(_ view: RegionView, context: Context) {
         context.coordinator.color = NSColor(color)
         let open = context.environment.openURL
-        let file = context.environment.linkedFile
-        context.coordinator.linkActions = .init(open: { open($0) }, file: { file?($0) })
+        context.coordinator.linkActions = context.environment.linkMenu ?? .init(open: { open($0) })
     }
     func makeCoordinator() -> TextLinkHover { TextLinkHover(color: NSColor(color)) }
     static func dismantleNSView(_ view: RegionView, coordinator: TextLinkHover) { coordinator.detach() }

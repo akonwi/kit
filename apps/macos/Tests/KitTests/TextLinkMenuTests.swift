@@ -38,14 +38,16 @@ import Testing
             rendered = TranscriptHoverTests.Rendered(TextLinkMenuTests.source, message: true, sessionLink: sessionLink)
             workspace.makeBrowserEngine = engines.make
             workspace.currentDirectory = { "/work" }
-            let open = OpenURLAction.transcript(workspace, beside: .conversation, sessionLink: sessionLink)
-            rendered.hover.linkActions = .init(open: { open($0) },
-                                               openInDefaultBrowser: { [defaultBrowser] in defaultBrowser.opened.append($0) },
-                                               pasteboard: pasteboard,
-                                               file: { [workspace] in workspace.fileActions(forLink: $0) })
+            // The transcript's link menus, opening nothing outside the test.
+            var actions = TextLinkHover.LinkActions.transcript(workspace, beside: .conversation, sessionLink: sessionLink)
+            actions.openInDefaultBrowser = { [defaultBrowser] in defaultBrowser.opened.append($0) }
+            actions.pasteboard = pasteboard
+            rendered.hover.linkActions = actions
         }
 
         func close() {
+            // A ⌘-click the test noted doesn't outlast it.
+            _ = TextLinkHover.takeCommandClick(for: URL(string: "https://example.com/guide")!)
             pasteboard.releaseGlobally()
             rendered.close()
         }
@@ -163,23 +165,41 @@ import Testing
         #expect(!TextLinkHover.takes(plain))
         let click = try menus.click(.leftMouseDown, on: "the docs")
         #expect(menus.rendered.hover.linkMenu(for: click) == nil)
-        #expect(!menus.rendered.hover.openCommandClicked(click))
+        #expect(menus.rendered.hover.intercept(click) === click)
         #expect(!TextLinkHover.takes(click))
     }
 
-    @Test func aCommandClickedWebLinkOpensInTheDefaultBrowser() throws {
+    @Test func aCommandClickedWebLinkOpensInTheDefaultBrowserAndStillSelects() throws {
         let menus = Menus()
         defer { menus.close() }
+        let guide = try #require(URL(string: "https://example.com/guide"))
         let web = try menus.click(.leftMouseDown, on: "the docs", modifiers: .command)
-        #expect(TextLinkHover.takes(web))
-        #expect(menus.rendered.hover.openCommandClicked(web))
-        #expect(menus.defaultBrowser.opened == [URL(string: "https://example.com/guide")!])
-        #expect(menus.workspace.panes == [.conversation])
+        // The text still gets the click, so a ⌘-drag from the link selects.
+        #expect(menus.rendered.hover.intercept(web) === web)
+        #expect(!TextLinkHover.takes(web))
+        // The link the text then opens goes to the default browser, once.
+        #expect(OpenURLAction.clickedExternally(guide))
+        #expect(!TextLinkHover.takeCommandClick(for: guide))
+
+        // A plain click forgets it.
+        _ = menus.rendered.hover.intercept(web)
+        _ = menus.rendered.hover.intercept(try menus.click(.leftMouseDown, on: "before you start"))
+        #expect(!TextLinkHover.takeCommandClick(for: guide))
         // A file opens in Kit however it's clicked.
-        let file = try menus.click(.leftMouseDown, on: "the notes", modifiers: .command)
-        #expect(!TextLinkHover.takes(file))
-        #expect(!menus.rendered.hover.openCommandClicked(file))
-        #expect(menus.defaultBrowser.opened == [URL(string: "https://example.com/guide")!])
+        _ = menus.rendered.hover.intercept(try menus.click(.leftMouseDown, on: "the notes", modifiers: .command))
+        #expect(!TextLinkHover.takeCommandClick(for: try #require(FilePaths.link("/srv/notes.md"))))
+    }
+
+    @Test func menuItemsOpenAsAPlainClickDoesWhateverKeysAreHeld() throws {
+        let menus = Menus()
+        defer { menus.close() }
+        // A ⌘-click noted for the link doesn't send Open Link elsewhere.
+        _ = menus.rendered.hover.intercept(try menus.click(.leftMouseDown, on: "the docs", modifiers: .command))
+        let menu = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "the docs")))
+        menu.performActionForItem(at: 0)
+        let pane = try #require(menus.workspace.panes.last)
+        #expect(menus.workspace.browser(pane)?.url == URL(string: "https://example.com/guide"))
+        #expect(menus.defaultBrowser.opened == [])
     }
 
     @Test func openLinkOpensABrowserTabAsAClickDoes() throws {
