@@ -59,6 +59,31 @@ struct BrowserElementCapture: Codable, Equatable {
         var title: String
         var viewport: Size
         var scroll: Point
+        /// The whole page's size, of which the viewport shows a part.
+        var content: Size? = nil
+    }
+    /// How a box scrolls on one axis, in CSS px: its overflow, the length
+    /// it shows and holds, where it's scrolled to, and the space its scroll
+    /// bar takes, 0 for overlay scroll bars.
+    struct ScrollAxis: Codable, Equatable {
+        var overflow: String
+        var visible: Double
+        var content: Double
+        var at: Double
+        var bar: Double
+    }
+    /// The axes a box scrolls on.
+    struct Scrolling: Codable, Equatable {
+        var vertical: ScrollAxis?
+        var horizontal: ScrollAxis?
+    }
+    /// The nearest box around the element that scrolls, and how much of the
+    /// element it shows: `all`, `part`, or `none`.
+    struct Scroller: Codable, Equatable {
+        var label: String
+        var vertical: ScrollAxis?
+        var horizontal: ScrollAxis?
+        var shows: String
     }
     /// The frame the element is in: `top`, `same-origin` (with the frame
     /// element's selector), or `cross-origin` when the element is a frame
@@ -81,6 +106,8 @@ struct BrowserElementCapture: Codable, Equatable {
         var rect: Rect
         /// `fixed` or `sticky` when the element doesn't scroll with the page.
         var position: String?
+        /// How the element itself scrolls, when it does.
+        var scrolling: Scrolling? = nil
         var attributes: [[String]]
         var styles: [[String]]
         var html: String
@@ -98,6 +125,7 @@ struct BrowserElementCapture: Codable, Equatable {
     var shadowHosts: [String]
     var element: Element
     var source: Source?
+    var scroller: Scroller? = nil
 }
 
 /// The text block the model gets for a browser element annotation, and
@@ -126,8 +154,11 @@ enum BrowserAnnotationText {
         var lines: [String] = []
         if !page.title.isEmpty { lines.append("Page: " + page.title) }
         lines.append("URL: " + page.url)
-        lines.append("Viewport: \(number(page.viewport.width))×\(number(page.viewport.height)) CSS px, scrolled to "
-            + "\(number(page.scroll.x)),\(number(page.scroll.y))")
+        var viewport = "Viewport: \(number(page.viewport.width))×\(number(page.viewport.height)) CSS px"
+        if let content = page.content, content.width > page.viewport.width || content.height > page.viewport.height {
+            viewport += " of a \(number(content.width))×\(number(content.height)) page"
+        }
+        lines.append(viewport + ", scrolled to \(number(page.scroll.x)),\(number(page.scroll.y))")
         var name = "Element: <\(element.tag)>"
         if let id = element.id { name += " #" + id }
         if !element.classes.isEmpty { name += " " + element.classes.map { "." + $0 }.joined(separator: " ") }
@@ -140,6 +171,18 @@ enum BrowserAnnotationText {
         var box = "Box: x \(number(rect.x)), y \(number(rect.y)), \(number(rect.width))×\(number(rect.height)) (viewport CSS px"
         if let position = element.position { box += ", position " + position }
         lines.append(box + ")")
+        if let scrolling = element.scrolling {
+            lines.append("Scrolls: " + scrolls(vertical: scrolling.vertical, horizontal: scrolling.horizontal))
+        }
+        if let scroller = capture.scroller {
+            let shown = switch scroller.shows {
+            case "all": "element fully in view in it"
+            case "none": "element scrolled out of view"
+            default: "element partly scrolled out of view"
+            }
+            lines.append("Scroll container: \(scroller.label); "
+                + scrolls(vertical: scroller.vertical, horizontal: scroller.horizontal) + "; " + shown)
+        }
         if !element.styles.isEmpty {
             lines.append("Styles: " + element.styles.compactMap { pair in
                 pair.count == 2 ? pair[0] + " " + pair[1] : nil
@@ -157,6 +200,18 @@ enum BrowserAnnotationText {
         lines.append(element.htmlTruncated ? "HTML (truncated):" : "HTML:")
         lines.append(element.html)
         return lines
+    }
+
+    /// A box's scrolling, an axis at a time.
+    private static func scrolls(vertical: BrowserElementCapture.ScrollAxis?, horizontal: BrowserElementCapture.ScrollAxis?) -> String {
+        func axis(_ name: String, _ letter: String, _ across: String, _ axis: BrowserElementCapture.ScrollAxis?) -> String? {
+            guard let axis else { return nil }
+            let bar = axis.bar > 0 ? "scroll bar \(number(axis.bar)) px \(across)" : "scroll bar takes no space"
+            return "\(name) \(number(axis.visible)) of \(number(axis.content)) px in view, scrolled to \(number(axis.at))"
+                + " (overflow-\(letter) \(axis.overflow); \(bar))"
+        }
+        return [axis("vertical", "y", "wide", vertical), axis("horizontal", "x", "tall", horizontal)]
+            .compactMap { $0 }.joined(separator: "; ")
     }
 
     private static func frame(_ capture: BrowserElementCapture) -> String {

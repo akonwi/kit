@@ -134,6 +134,29 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
             "Frame: cross-origin iframe; contents not inspectable (src https://ads.example/frame)"))
     }
 
+    @Test func scrollingIsDescribedForThePageTheElementAndItsContainer() {
+        var capture = Self.capture
+        capture.page.content = .init(width: 1280, height: 3200)
+        capture.element.scrolling = .init(
+            vertical: .init(overflow: "auto", visible: 34, content: 90, at: 12, bar: 0),
+            horizontal: .init(overflow: "scroll", visible: 135, content: 135, at: 0, bar: 15))
+        capture.scroller = .init(label: "div.plans",
+                                 vertical: .init(overflow: "auto", visible: 400, content: 1240.5, at: 120, bar: 10),
+                                 horizontal: nil, shows: "part")
+        let lines = BrowserAnnotationText.pageLines(capture)
+        #expect(lines[2] == "Viewport: 1280×800 CSS px of a 1280×3200 page, scrolled to 0,240")
+        #expect(lines[8...9] == [
+            "Scrolls: vertical 34 of 90 px in view, scrolled to 12 (overflow-y auto; scroll bar takes no space); "
+                + "horizontal 135 of 135 px in view, scrolled to 0 (overflow-x scroll; scroll bar 15 px tall)",
+            "Scroll container: div.plans; vertical 400 of 1240.5 px in view, scrolled to 120 "
+                + "(overflow-y auto; scroll bar 10 px wide); element partly scrolled out of view",
+        ])
+        capture.scroller?.shows = "none"
+        #expect(BrowserAnnotationText.pageLines(capture)[9].hasSuffix("; element scrolled out of view"))
+        capture.scroller?.shows = "all"
+        #expect(BrowserAnnotationText.pageLines(capture)[9].hasSuffix("; element fully in view in it"))
+    }
+
     @Test func aSentMessageSplitsIntoItsTextAndAnnotations() {
         let first = BrowserAnnotationText.block(number: 1, comment: "Too loud.\nUse the secondary style.", screenshot: nil,
                                                 capture: Self.capture, fence: Self.fence)

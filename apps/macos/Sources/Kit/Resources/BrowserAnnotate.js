@@ -482,6 +482,47 @@ globalThis.__kitAnnotate ||= (() => {
     return { html: out, truncated };
   }
 
+  // MARK: Scrolling
+
+  // How an element scrolls on each axis it can: its overflow, the size it
+  // shows and holds, where it's scrolled to, and the space its scroll bar
+  // takes, which is 0 for overlay scroll bars. Null when it doesn't scroll:
+  // `scroll` shows bars even when its contents fit; `auto` only when they
+  // overflow.
+  function scrollingOf(element) {
+    const style = element.ownerDocument.defaultView.getComputedStyle(element);
+    const axis = (overflow, visible, content, at, bar) => {
+      const scrolls = overflow === "scroll" || ((overflow === "auto" || overflow === "overlay") && content > visible + 1);
+      return scrolls ? { overflow, visible: round(visible), content: round(content), at: round(at), bar: Math.max(0, round(bar)) } : null;
+    };
+    const border = (side) => parseFloat(style["border" + side + "Width"] || "0");
+    const vertical = axis(style.overflowY, element.clientHeight, element.scrollHeight, element.scrollTop,
+      element.offsetWidth - element.clientWidth - border("Left") - border("Right"));
+    const horizontal = axis(style.overflowX, element.clientWidth, element.scrollWidth, element.scrollLeft,
+      element.offsetHeight - element.clientHeight - border("Top") - border("Bottom"));
+    return vertical || horizontal ? { vertical, horizontal } : null;
+  }
+
+  // The nearest element around `element` in its document that scrolls,
+  // and how much of `element` it shows. The page's own scrolling is the
+  // viewport's.
+  function scrollerOf(element) {
+    const doc = element.ownerDocument;
+    for (let current = parentOf(element); current && current.ownerDocument === doc; current = parentOf(current)) {
+      if (current === doc.body || current === doc.documentElement) return null;
+      const scrolling = scrollingOf(current);
+      if (!scrolling) continue;
+      const box = current.getBoundingClientRect();
+      const left = box.left + current.clientLeft, top = box.top + current.clientTop;
+      const right = left + current.clientWidth, bottom = top + current.clientHeight;
+      const own = element.getBoundingClientRect();
+      const inside = own.left >= left - 1 && own.right <= right + 1 && own.top >= top - 1 && own.bottom <= bottom + 1;
+      const apart = own.right <= left || own.left >= right || own.bottom <= top || own.top >= bottom;
+      return { label: label(current), ...scrolling, shows: inside ? "all" : apart ? "none" : "part" };
+    }
+    return null;
+  }
+
   function frameFor(element) {
     const doc = element.ownerDocument;
     if (doc === document) {
@@ -512,7 +553,9 @@ globalThis.__kitAnnotate ||= (() => {
         url: redact(location.href), title: clip(collapse(document.title), 200),
         viewport: { width: window.innerWidth, height: window.innerHeight },
         scroll: { x: Math.round(window.scrollX), y: Math.round(window.scrollY) },
+        content: { width: round(document.documentElement.scrollWidth), height: round(document.documentElement.scrollHeight) },
       },
+      scroller: scrollerOf(element),
       frame: frameFor(element),
       shadowHosts: shadowHosts(element),
       element: {
@@ -526,6 +569,7 @@ globalThis.__kitAnnotate ||= (() => {
         path: pathFor(element),
         rect: rectOf(element),
         position: ["fixed", "sticky"].includes(style.position) ? style.position : null,
+        scrolling: scrollingOf(element),
         attributes: attributesOf(element),
         styles: stylesOf(element),
         html: markup.html,

@@ -22,6 +22,10 @@ import WebKit
         .framed { position: absolute; top: 360px; left: 420px; width: 160px; height: 80px; border: 0; }
         .foreign { position: absolute; top: 360px; left: 600px; width: 150px; height: 80px; border: 0; }
         .long { position: absolute; top: 460px; left: 420px; width: 300px; height: 60px; overflow: hidden; }
+        .panel { position: absolute; top: 470px; left: 0; width: 200px; height: 60px; overflow-y: auto; }
+        .panel::-webkit-scrollbar { width: 10px; }
+        .panel::-webkit-scrollbar-thumb { background: #888; }
+        .item { height: 30px; }
         </style></head><body>
         <div id="root"><div class="app">
           <header class="top"><h1>Simple pricing</h1></header>
@@ -46,6 +50,8 @@ import WebKit
             <x-card></x-card>
             <iframe class="framed" srcdoc="<body style='margin:0'><p id='inside' style='margin:0;height:40px'>Framed</p></body>"></iframe>
             <iframe class="foreign"></iframe>
+            <div class="panel"><div class="item">One</div><div class="item">Two</div><div class="item">Three</div>
+              <div class="item">Four</div><div class="item">Five</div></div>
             <div class="long" \(Self.manyAttributes)>\(String(repeating: "Lorem ipsum dolor sit amet. ", count: 60))</div>
           </main>
         </div></div>
@@ -55,6 +61,7 @@ import WebKit
           document.cookie = "sid=cookie-SECRET";
           localStorage.setItem("token", "storage-SECRET");
           document.querySelector("[name=email]").value = "typed-SECRET";
+          document.querySelector(".panel").scrollTop = 40;
           const host = document.querySelector("x-card");
           host.attachShadow({ mode: "open" }).innerHTML = "<button class='inner' style='width:100px;height:30px'>Shadow</button>";
         </script>
@@ -200,6 +207,34 @@ import WebKit
         #expect(main.element.html.count <= 1201)
         #expect(main.element.html.hasSuffix("…"))
         #expect(main.element.htmlTruncated)
+    }
+
+    @Test func aCaptureSaysHowTheElementAndItsContainerScroll() async throws {
+        let (engine, server) = try await loaded()
+        defer { engine.close(); server.stop() }
+        // The panel shows 60 of its 150 px, scrolled to 40, beside a 10 px
+        // styled scroll bar.
+        let panel = BrowserElementCapture.ScrollAxis(overflow: "auto", visible: 60, content: 150, at: 40, bar: 10)
+        _ = try await run(engine, "select", ["x": 50, "y": 535, "deep": true])
+        var (capture, _) = try await self.capture(engine)
+        #expect(capture.element.text == "Two")
+        #expect(capture.element.scrolling == nil)
+        #expect(capture.scroller == .init(label: "div.panel", vertical: panel, horizontal: nil, shows: "part"))
+        _ = try await run(engine, "select", ["x": 50, "y": 565, "deep": true])
+        (capture, _) = try await self.capture(engine)
+        #expect(capture.element.text == "Three")
+        #expect(capture.scroller == .init(label: "div.panel", vertical: panel, horizontal: nil, shows: "all"))
+        _ = try await run(engine, "step", ["to": "parent"])
+        (capture, _) = try await self.capture(engine)
+        #expect(capture.element.label == "div.panel")
+        #expect(capture.element.scrolling == .init(vertical: panel, horizontal: nil))
+        #expect(capture.scroller == nil)
+        // The page fits its viewport.
+        #expect(capture.page.content == .init(width: 800, height: 600))
+        // A link in a card that doesn't scroll has no scroll container.
+        _ = try await run(engine, "select", ["x": 300, "y": 160])
+        (capture, _) = try await self.capture(engine)
+        #expect(capture.scroller == nil)
     }
 
     @Test func selectorsAreUniqueOnThePage() async throws {
