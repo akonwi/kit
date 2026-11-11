@@ -274,6 +274,27 @@ final class FakeActionsClient: SessionActionsClient, @unchecked Sendable {
     func disposeSession(_ id: String) async throws {
         lock.withLock { _disposed.append(id) }
     }
+
+    private var _reloads: [String] = []
+    private var _plugins: [WirePluginCommandInput] = []
+    var reloads: [String] { lock.withLock { _reloads } }
+    var plugins: [WirePluginCommandInput] { lock.withLock { _plugins } }
+    var reloadResult = WireReloadSessionResult(sessionId: "s", eventStreamId: "e", sources: nil, diagnostics: nil, warnings: nil)
+    var reloadError: (any Error)?
+    var pluginError: (any Error)?
+    /// Holds plugin runs until released, when set.
+    var pluginGate: AsyncStream<Void>?
+
+    func reloadSession(_ id: String) async throws -> WireReloadSessionResult {
+        lock.withLock { _reloads.append(id) }
+        if let reloadError { throw reloadError }
+        return reloadResult
+    }
+    func executePluginCommand(_ session: String, input: WirePluginCommandInput) async throws {
+        lock.withLock { _plugins.append(input) }
+        if let pluginGate { for await _ in pluginGate { break } }
+        if let pluginError { throw pluginError }
+    }
 }
 
 struct SelectTextTests {

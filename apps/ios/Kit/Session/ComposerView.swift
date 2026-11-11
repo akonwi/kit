@@ -14,8 +14,18 @@ struct ComposerBar: View {
     var revealComment: ((FileAnnotation) -> Void)? = nil
     /// Which comments a chip tap can show from here.
     var revealable: (FileAnnotation) -> Bool = { $0.isDiff }
+    /// Opens the session menu's actions from the command search. Without
+    /// it, the composer has no command button.
+    var commands: ComposerCommands? = nil
     let retryConnection: () -> Void
     @FocusState private var focused: Bool
+    /// The command search, while it's open. The composer keeps it, so the
+    /// session screen can close it from a tap outside.
+    private var search: CommandSearchState? {
+        get { composer.commandSearch }
+        nonmutating set { composer.commandSearch = newValue }
+    }
+    @State private var recents: [String] = []
     @State private var dictation = Dictation(engine: DictationSupport.engine)
     @State private var press = DictationPress()
     /// Dictated words are on their way. The strip stays until the server
@@ -33,14 +43,28 @@ struct ComposerBar: View {
                     .id(flow.id)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
-                if let queue = composer.queue {
-                    QueuedTray(queue: queue, error: composer.operations.queueError,
-                               enabled: composer.queueEnabled, running: composer.running,
-                               change: composer.changeQueue)
+                // The capsule stays one view, so its field keeps the keyboard
+                // as the search opens and closes.
+                if let commands, search != nil {
+                    CommandPanel(search: searchBinding, commands: catalog(commands), recents: recents, actions: actions,
+                                 pick: pick, choose: choose)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .accessibilityAction(.escape) { closeSearch() }
+                } else {
+                    if let command = composer.command {
+                        CommandHint(command: command)
+                    }
+                    if let queue = composer.queue {
+                        QueuedTray(queue: queue, error: composer.operations.queueError,
+                                   enabled: composer.queueEnabled, running: composer.running,
+                                   change: composer.changeQueue)
+                    }
+                    CommentChips(composer: composer, reveal: revealComment, revealable: revealable)
+                    AttachmentStrip(composer: composer)
                 }
-                CommentChips(composer: composer, reveal: revealComment, revealable: revealable)
-                AttachmentStrip(composer: composer)
+                // The list gives way first, so the field stays above the keyboard.
                 capsule
+                    .layoutPriority(1)
             }
         }
         .padding(.horizontal, 12)
@@ -50,6 +74,8 @@ struct ComposerBar: View {
         .animation(.snappy(duration: 0.2), value: composer.annotations.records.map(\.id))
         .animation(.snappy(duration: 0.25), value: interactions.docked?.id)
         .animation(.snappy(duration: 0.25), value: interactions.collapsed)
+        .animation(.snappy(duration: 0.2), value: search == nil)
+        .animation(.snappy(duration: 0.2), value: composer.command)
     }
 
     // MARK: Status line
@@ -74,7 +100,11 @@ struct ComposerBar: View {
             } else if interactions.docked != nil {
                 EmptyView()
             } else if actions.compacting {
-                CompactingLine()
+                ProgressLine(text: "Compacting context…")
+            } else if let plugin = actions.runningPlugin {
+                ProgressLine(text: "Running \(plugin)…")
+            } else if actions.reload.pending {
+                ProgressLine(text: "Reloading context…")
             } else if let session = feed.session, case .live = feed.connection, let activity = ActivityLine.Content(session) {
                 ActivityLine(content: activity)
             }
@@ -106,10 +136,21 @@ struct ComposerBar: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Cancel dictation")
                     .accessibilityIdentifier("dictation-cancel")
+                } else if search != nil {
+                    CommandButton(active: true, label: "Close commands") { closeSearch() }
+                } else if let command = composer.command {
+                    CommandButton(active: true, label: "Change command") { openSearch() }
+                        .disabled(!composer.editable)
+                    PickedCommandChip(name: command.name) { composer.command = nil }
+                        .disabled(!composer.editable)
                 } else {
                     AttachMenu(composer: composer)
+                    if commands != nil {
+                        CommandButton(active: false, label: "Commands") { openSearch() }
+                            .disabled(!composer.editable)
+                    }
                 }
-                TextField("Ask Kit…", text: $composer.draft, axis: .vertical)
+                TextField(placeholder, text: fieldText, axis: .vertical)
                     .font(.system(size: 17))
                     .foregroundStyle(composer.editable ? Theme.text : Theme.muted)
                     .lineLimit(1...6)
@@ -120,12 +161,25 @@ struct ComposerBar: View {
                     .contentShape(Rectangle())
                     .onTapGesture { focused = true }
             }
-            if mic {
-                DictationButton(dictation: dictation, look: micOnly ? .filled : .plain, press: $press,
-                                send: sendDictation)
-            }
-            if !micOnly {
-                ComposerButton(action: composer.action, send: composer.send, stop: composer.stop)
+            if search != nil {
+                Button { closeSearch() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.muted)
+                        .frame(width: 40, height: 40)
+                        .background(Theme.hover, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close commands")
+                .accessibilityIdentifier("command-close")
+            } else {
+                if mic {
+                    DictationButton(dictation: dictation, look: micOnly ? .filled : .plain, press: $press,
+                                    send: sendDictation)
+                }
+                if !micOnly {
+                    ComposerButton(action: composer.action, send: composer.send, stop: composer.stop)
+                }
             }
         }
         .padding(.leading, 8)
@@ -134,16 +188,13 @@ struct ComposerBar: View {
         .frame(minHeight: 56)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .dictationLifecycle(dictation)
-        .onChange(of: composer.draft) {
-            actions.dismissNotice()
-            dictation.dismissProblem()
-        }
         .onChange(of: dictation.isActive) { _, active in
             if active { focused = false }
         }
         // Sent or refused: a refused message's words are in the field to fix.
+        // Commands wait while a send is unanswered.
         .onChange(of: composer.editable) { _, editable in
-            if editable { sendingDictation = false }
+            if editable { sendingDictation = false } else { search = nil }
         }
         // A session with nothing in it yet, such as one just started, waits for its first message.
         .onChange(of: feed.session?.messages.isEmpty, initial: true) { _, empty in
@@ -151,7 +202,121 @@ struct ComposerBar: View {
         }
     }
 
+    // MARK: Commands
+
+    private var placeholder: String {
+        if search != nil { return search?.page == .commands ? "Search commands" : "Search" }
+        if let command = composer.command { return CommandHint.placeholder(command) }
+        return "Ask Kit…"
+    }
+
+    /// The field types the search while it's open, and the draft otherwise.
+    private var fieldText: Binding<String> {
+        Binding {
+            search?.query ?? composer.draft
+        } set: { text in
+            guard search != nil else {
+                // The field writes back unchanged text as it ends editing.
+                guard text != composer.draft else { return }
+                composer.draft = text
+                // Typing hides the last action's notice.
+                actions.dismissNotice()
+                dictation.dismissProblem()
+                return
+            }
+            // Return picks the first row; the field is multiline.
+            if text.contains("\n") {
+                search?.query = text.replacingOccurrences(of: "\n", with: "")
+                pickFirst()
+            } else {
+                search?.query = text
+            }
+        }
+    }
+
+    private var searchBinding: Binding<CommandSearchState> {
+        Binding { search ?? CommandSearchState() } set: { search = $0 }
+    }
+
+    private func catalog(_ commands: ComposerCommands) -> [SessionCommand] {
+        let session = composer.latest
+        let state = CommandState(
+            changes: commands.changes, model: actions.modelName, modelLocked: actions.modelLockedReason,
+            thinking: SessionContext.thinkingName(actions.thinking), hasThinking: !actions.thinkingLevels.isEmpty,
+            thinkingLocked: actions.thinkingLockedReason, contextPercent: session.flatMap(SessionContext.init)?.percent,
+            compactUnavailable: actions.compactionUnavailableReason, live: actions.live,
+            forkUnavailable: actions.forkUnavailableReason, reloadUnavailable: actions.reloadUnavailableReason,
+            pluginUnavailable: actions.pluginUnavailableReason, scratchpad: !actions.temporary)
+        return CommandCatalog.commands(state, prompts: session?.promptCommands ?? [], plugins: session?.pluginCommands ?? [])
+    }
+
+    private func openSearch() {
+        recents = CommandRecents().ids
+        search = CommandSearchState()
+        focused = true
+    }
+
+    private func closeSearch() {
+        search = nil
+    }
+
+    private func pickFirst() {
+        guard let search, let commands else { return }
+        switch search.page {
+        case .commands:
+            let rows = CommandCatalog.sections(catalog(commands), query: search.query, recents: recents).flatMap(\.rows)
+            if let first = rows.first(where: { $0.unavailableReason == nil }) { pick(first) }
+        case .models, .thinking:
+            break
+        }
+    }
+
+    /// Runs a built-in or a plugin command without an argument, opens the
+    /// model or thinking choices, or puts a command that takes text in a chip.
+    private func pick(_ command: SessionCommand) {
+        guard command.unavailableReason == nil, let commands else { return }
+        switch command.kind {
+        case .builtIn(.model):
+            search = CommandSearchState(page: .models)
+            return
+        case .builtIn(.thinking):
+            search = CommandSearchState(page: .thinking)
+            return
+        default: break
+        }
+        CommandRecents().record(command.id)
+        search = nil
+        switch command.kind {
+        case .builtIn(let builtIn):
+            focused = false
+            commands.perform(builtIn)
+        case .prompt(let prompt):
+            composer.command = .prompt(prompt)
+        case .plugin(let plugin) where command.takesArgument:
+            composer.command = .plugin(plugin)
+        case .plugin(let plugin):
+            focused = false
+            actions.runPlugin(plugin, args: "")
+        }
+    }
+
+    /// Applies a model or thinking level, unless it locked while the page was open.
+    private func choose(_ choice: CommandPanel.Choice) {
+        switch choice {
+        case .model(let id):
+            guard actions.modelLockedReason == nil else { return }
+            CommandRecents().record(SessionCommand(kind: .builtIn(.model), title: "").id)
+            actions.changeModel(id)
+        case .thinking(let level):
+            guard actions.thinkingLockedReason == nil else { return }
+            CommandRecents().record(SessionCommand(kind: .builtIn(.thinking), title: "").id)
+            actions.changeThinking(level)
+        }
+        search = nil
+    }
+
     private func sendDictation(_ text: String) {
+        actions.dismissNotice()
         sendingDictation = true
         composer.sendDictation(text)
         // It didn't go, such as while offline; the words wait in the field.
@@ -285,12 +450,15 @@ struct NoticeLine: View {
     private var color: Color { tone == .danger ? Theme.danger : Theme.muted }
 }
 
-/// Shown while the session's context is being compacted.
-private struct CompactingLine: View {
+/// Shown while the session's context is compacted or reloaded, or a
+/// plugin command runs.
+private struct ProgressLine: View {
+    let text: String
+
     var body: some View {
         HStack(spacing: 8) {
             LaneSpinner()
-            Text("Compacting context…")
+            Text(text)
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.muted)
             Spacer(minLength: 0)

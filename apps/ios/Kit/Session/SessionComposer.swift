@@ -51,6 +51,30 @@ final class SessionComposer {
     /// Set when the draft changes after a refusal, which hides the refusal.
     private var noticeDismissed = false
 
+    /// A command picked from the command search, shown as a chip before the
+    /// draft. The draft is what it runs with.
+    enum PickedCommand: Equatable {
+        case prompt(PromptCommand)
+        case plugin(PluginCommand)
+
+        var name: String {
+            switch self {
+            case .prompt(let command): command.name
+            case .plugin(let command): command.localID
+            }
+        }
+    }
+
+    var command: PickedCommand? {
+        didSet { if command != oldValue { noticeDismissed = true } }
+    }
+    /// The command search, while it's open over the composer.
+    var commandSearch: CommandSearchState?
+    /// Runs a plugin command with its argument. Set by the session screen.
+    @ObservationIgnored var runPlugin: (@MainActor (PluginCommand, String) -> Void)?
+    /// Why a plugin command can't run now.
+    @ObservationIgnored var pluginUnavailable: @MainActor () -> String? = { nil }
+
     init(session: String, client: any SessionSendClient) {
         self.session = session
         self.client = client
@@ -67,7 +91,7 @@ final class SessionComposer {
 
     var running: Bool { latest?.activeRunID != nil }
     private var hasContent: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !restoredAttachmentIDs.isEmpty
+        command != nil || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !restoredAttachmentIDs.isEmpty
             || !uploads.items.isEmpty || !annotations.records.isEmpty
     }
     /// The model's name when the session's model accepts no images.
@@ -130,10 +154,15 @@ final class SessionComposer {
 
     // MARK: Actions
 
-    /// Sends the draft, or a prompt command when it starts with one.
+    /// Sends the draft, runs the picked command with it, or runs a prompt
+    /// command when the draft starts with one.
     func send() {
         guard case .send(enabled: true) = action else { return }
         noticeDismissed = false
+        if let command {
+            run(command)
+            return
+        }
         let text = draft, id = session
         let attachments = ComposerAttachments.uniqueIDs(restoredAttachmentIDs + uploads.readyIDs)
         guard attachments.count <= 8 else {
@@ -175,6 +204,58 @@ final class SessionComposer {
         operations.submit(client: client, session: id,
                           input: WirePromptInput(text: text, attachmentIds: attachments, annotationIds: notes.map(\.id)),
                           draft: sent, uncertain: uncertain, acknowledged: acknowledged)
+    }
+
+    /// Runs the picked command with the draft as its argument. Commands
+    /// take no attachments or comments.
+    private func run(_ command: PickedCommand) {
+        guard !annotations.pending, !annotations.uncertain, annotations.editor == nil else {
+            operations.reject("Finish the comment you’re writing before sending.")
+            return
+        }
+        guard restoredAttachmentIDs.isEmpty, uploads.items.isEmpty, annotations.records.isEmpty else {
+            operations.reject("Commands don’t take attachments or comments.")
+            return
+        }
+        let args = draft
+        guard !args.contains("\0") else {
+            operations.reject("A command’s text can’t contain a NUL character.")
+            return
+        }
+        switch command {
+        case .plugin(let plugin):
+            guard args.utf8.count <= 64 * 1024 else {
+                operations.reject("A plugin command’s text must fit within 64 KiB.")
+                return
+            }
+            if let reason = pluginUnavailable() {
+                operations.reject(reason)
+                return
+            }
+            self.command = nil
+            draft = ""
+            runPlugin?(plugin, args)
+        case .prompt(let prompt):
+            // The same command, not another source's of the same name.
+            guard (latest?.promptCommands ?? []).contains(where: { $0.name == prompt.name && $0.location == prompt.location }) else {
+                operations.reject("\(prompt.name) is no longer available. Choose it again.")
+                return
+            }
+            guard args.utf8.count <= 128 * 1024 else {
+                operations.reject("A prompt command’s text must fit within 128 KiB.")
+                return
+            }
+            sends += 1
+            let sent = SessionOperations.Draft(text: args, notes: [:], attachmentIDs: [])
+            operations.submitCommand(
+                client: client, session: session, input: .init(name: prompt.name, args: args), draft: sent,
+                uncertain: { [weak self] in self?.recover() },
+                acknowledged: { [weak self] in
+                    guard let self else { return }
+                    if self.command == command { self.command = nil }
+                    self.applyAcknowledgedDraft()
+                })
+        }
     }
 
     /// Sends dictated words with the attachments and comments waiting. The

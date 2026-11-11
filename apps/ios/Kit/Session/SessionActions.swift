@@ -2,10 +2,11 @@ import Foundation
 import KitClient
 import Observation
 
-/// The client the session menu acts through: the model catalog and
-/// configuration, compaction, rename, fork, and delete.
+/// The client the session menu and command search act through: the model
+/// catalog and configuration, compaction, rename, fork, delete, reloading
+/// context, and plugin commands.
 typealias SessionActionsClient = ComposerClient & SessionCompactionClient & SessionNamingClient
-    & SessionForkClient & SessionDeletionClient & SessionDisposalClient
+    & SessionForkClient & SessionDeletionClient & SessionDisposalClient & SessionReloadClient & PluginCommandClient
 
 /// What the session menu can do with one session, and why an item is off.
 /// Model and thinking changes and compaction go through the shared
@@ -24,6 +25,7 @@ final class SessionActions {
     let configuration = ComposerConfiguration()
     let compaction = SessionCompactionOperation()
     let fork = SessionForkOperation()
+    let reload = SessionReloadOperation()
     private let client: any SessionActionsClient
 
     private(set) var latest: SessionExcerpt?
@@ -35,6 +37,14 @@ final class SessionActions {
     private(set) var deleteError: String?
     /// Set by each menu action, which replaces the previous notice.
     private var noticeDismissed = true
+    /// Which action's outcome the notice tells.
+    private var noticeSubject = NoticeSubject.configuration
+    private enum NoticeSubject { case configuration, compaction, reload, plugin }
+    /// The plugin command running, by name. One runs at a time.
+    private(set) var runningPlugin: String?
+    /// How the last plugin command ended, when it needs saying.
+    private var pluginOutcome: Notice?
+    @ObservationIgnored private var pluginRun = UUID()
     /// Hands a fresh snapshot to the session's feed after a change.
     @ObservationIgnored var deliver: (@MainActor (SessionExcerpt) -> Void)?
 
@@ -115,7 +125,7 @@ final class SessionActions {
     }
 
     private func apply(session: SessionExcerpt, model: String, thinking: String) {
-        noticeDismissed = false
+        speak(.configuration)
         compaction.dismissFeedback()
         Task { await configuration.change(client: client, session: session, model: model, thinking: thinking, refresh: refresh) }
     }
@@ -136,7 +146,7 @@ final class SessionActions {
 
     func compact() {
         guard compactionUnavailableReason == nil else { return }
-        noticeDismissed = false
+        speak(.compaction)
         compaction.beginNewIfResolved()
         Task {
             await compaction.perform(session: identity.session, client: client, refresh: refresh)
@@ -150,7 +160,16 @@ final class SessionActions {
     /// summary is model context, so the transcript doesn't show it.
     var notice: Notice? {
         guard !noticeDismissed else { return nil }
-        if let error = configuration.error { return Notice(text: "Couldn’t change the model. \(error)", tone: .danger) }
+        switch noticeSubject {
+        case .configuration:
+            return configuration.error.map { Notice(text: "Couldn’t change the model. \($0)", tone: .danger) }
+        case .compaction: return compactionNotice
+        case .reload: return reloadNotice
+        case .plugin: return pluginOutcome
+        }
+    }
+
+    private var compactionNotice: Notice? {
         guard compaction.showsFeedback, !compaction.pending else { return nil }
         if let error = compaction.error { return Notice(text: "Couldn’t compact. \(error)", tone: .danger) }
         if let error = compaction.refreshError { return Notice(text: "Compacted, but couldn’t refresh. \(error)", tone: .danger) }
@@ -164,6 +183,84 @@ final class SessionActions {
     func dismissNotice() {
         noticeDismissed = true
         compaction.dismissFeedback()
+    }
+
+    /// Shows the notice for the action just started, in place of the last one.
+    private func speak(_ subject: NoticeSubject) {
+        noticeSubject = subject
+        noticeDismissed = false
+        if subject != .compaction { compaction.dismissFeedback() }
+    }
+
+    // MARK: Reload
+
+    /// Why the session's context can't be reloaded now, or nil when it can.
+    var reloadUnavailableReason: String? {
+        if !live { return "Reconnect to reload" }
+        if reload.pending { return "Reloading…" }
+        if compacting { return "Wait for compaction" }
+        if configuration.changing { return "Wait for the current change" }
+        return nil
+    }
+
+    /// Reads the session's instructions, prompt commands, and agents again.
+    /// A reload that may have reached the server is never repeated on its own.
+    func reloadContext() {
+        guard reloadUnavailableReason == nil else { return }
+        speak(.reload)
+        let session = identity.session, client = client
+        Task { await reload.perform(session: session, client: client, refresh: refresh) }
+    }
+
+    private var reloadNotice: Notice? {
+        guard !reload.pending else { return nil }
+        if let error = reload.error { return Notice(text: "Couldn’t reload context. \(error)", tone: .danger) }
+        guard let result = reload.result else { return nil }
+        let issues = (result.warnings ?? []) + (result.diagnostics ?? []).map(\.message)
+        if let first = issues.first {
+            let more = issues.count > 1 ? " (+\(issues.count - 1) more)" : ""
+            return Notice(text: "Reloaded context with issues: \(first)\(more)", tone: .danger)
+        }
+        if let error = reload.refreshError { return Notice(text: "Reloaded context, but couldn’t refresh. \(error)", tone: .danger) }
+        return Notice(text: "Context reloaded.", tone: .info)
+    }
+
+    // MARK: Plugin commands
+
+    /// Why a plugin command can't run now, or nil when one can.
+    var pluginUnavailableReason: String? {
+        if !live { return "Reconnect to run" }
+        if runningPlugin != nil { return "A command is running" }
+        return nil
+    }
+
+    /// Runs a plugin command from this session's catalog. Its effects are
+    /// the plugin's, so a failure is reported and never retried.
+    func runPlugin(_ command: PluginCommand, args: String) {
+        guard pluginUnavailableReason == nil else { return }
+        guard (latest?.pluginCommands ?? []).contains(where: { $0.id == command.id && $0.instance == command.instance }) else {
+            speak(.plugin)
+            pluginOutcome = Notice(text: "\(command.localID) is no longer available. Choose it again.", tone: .danger)
+            return
+        }
+        speak(.plugin)
+        pluginOutcome = nil
+        runningPlugin = command.localID
+        let run = UUID(), session = identity.session, client = client
+        pluginRun = run
+        Task {
+            var outcome: Notice?
+            do {
+                try await client.executePluginCommand(session, input: .init(id: command.id, instance: command.instance, args: args))
+            } catch let failure as PluginCommandFailure where failure.unavailable {
+                outcome = Notice(text: "\(command.localID) is no longer available. Choose it again.", tone: .danger)
+            } catch {
+                outcome = Notice(text: "\(command.localID) failed. \(PluginCommandFailure.detail(for: error))", tone: .danger)
+            }
+            guard pluginRun == run else { return }
+            runningPlugin = nil
+            pluginOutcome = outcome
+        }
     }
 
     // MARK: Rename, fork, delete

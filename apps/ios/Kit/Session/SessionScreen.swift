@@ -67,6 +67,8 @@ struct SessionScreen: View {
             agents?.live = connection == .live
         }
         composer.modelName = { [weak actions] in actions?.modelName ?? "" }
+        composer.runPlugin = { [weak actions] in actions?.runPlugin($0, args: $1) }
+        composer.pluginUnavailable = { [weak actions] in actions?.pluginUnavailableReason }
         if let failure = ForkFirstTurnFailures.shared.take(identity) { composer.restore(failedFork: failure) }
         _feed = State(initialValue: feed)
         _composer = State(initialValue: composer)
@@ -81,6 +83,18 @@ struct SessionScreen: View {
 
     var body: some View {
         content
+            // A tap outside the command search closes it, and the keyboard with it.
+            .overlay {
+                if composer.commandSearch != nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            composer.commandSearch = nil
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        }
+                        .accessibilityHidden(true)
+                }
+            }
             .background(Theme.surface)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
@@ -116,7 +130,10 @@ struct SessionScreen: View {
                     AgentBar(agent: agent, focus: agents, actions: actions, conversation: agents.conversation(agent))
                 } else {
                     ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed,
-                                revealComment: open, revealable: { _ in true }) { feed.reconnect() }
+                                revealComment: open, revealable: { _ in true },
+                                commands: ComposerCommands(changes: ChangesFormat.summary(diff), perform: perform)) {
+                        feed.reconnect()
+                    }
                 }
             }
             .sheet(item: $sheet) { sheet in
@@ -191,6 +208,24 @@ struct SessionScreen: View {
             }
             .onChange(of: feed.session?.lastActivity) { markSeen() }
             .onDisappear { markSeen() }
+    }
+
+    // MARK: Commands
+
+    /// Does what the session menu's item of the same name does.
+    private func perform(_ command: SessionCommand.BuiltIn) {
+        switch command {
+        case .changes: showingChanges = true
+        case .openFile: openingFile = true
+        case .scratchpad: showingScratchpad = true
+        // The command search offers their choices itself.
+        case .model, .thinking: break
+        case .compact: actions.compact()
+        case .rename: sheet = .rename
+        case .fork: sheet = .fork
+        case .reload: actions.reloadContext()
+        case .details: sheet = .details
+        }
     }
 
     // MARK: Delete
