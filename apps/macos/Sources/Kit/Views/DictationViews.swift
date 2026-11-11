@@ -7,6 +7,7 @@ import SwiftUI
 // mic records; while it does, a strip with a timer and level bars stands in
 // the field's place. ✓ or Return stops it and puts the words in the field
 // to read and fix; ✕ or Esc throws it away. Nothing is sent by dictating.
+// One field dictates at a time: starting another throws this one away.
 
 extension EnvironmentValues {
     /// A dictation fields use instead of their own. Tests and previews set
@@ -134,6 +135,21 @@ extension Dictation {
     func finish(into fill: @escaping @MainActor (String) -> Void) {
         Task { if let text = await finish() { fill(text) } }
     }
+
+    /// Starts recording in this field and throws away a recording another
+    /// field has going, so only one field dictates at a time.
+    @discardableResult
+    func startAlone() async -> Bool {
+        if let other = DictatingField.current, other !== self { other.cancel() }
+        DictatingField.current = self
+        return await start()
+    }
+}
+
+/// The field that last started dictating.
+@available(macOS 26, *)
+@MainActor private enum DictatingField {
+    static weak var current: Dictation?
 }
 
 /// The recording strip: ✕, a red dot, the timer, level bars, and a hint.
@@ -239,7 +255,7 @@ struct DictationSquare: View {
     var body: some View {
         Button {
             switch dictation.phase {
-            case .idle: Task { await dictation.start() }
+            case .idle: Task { await dictation.startAlone() }
             case .recording: done()
             case .preparing, .transcribing: break
             }
@@ -285,7 +301,7 @@ struct DictationMic: View {
 
     var body: some View {
         Button {
-            Task { await dictation.start() }
+            Task { await dictation.startAlone() }
         } label: {
             ZStack {
                 if dictation.isPreparing {

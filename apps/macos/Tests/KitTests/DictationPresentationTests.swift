@@ -216,11 +216,256 @@ import Testing
         #expect(composer.window.firstResponder === editor)
     }
 
+    @Test func oneFieldDictatesAtATime() async throws {
+        guard #available(macOS 26, *) else { return }
+        let composer = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .milliseconds(10)))
+        let comment = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .milliseconds(10)))
+        #expect(await composer.dictation.startAlone())
+        #expect(await comment.dictation.startAlone())
+        #expect(composer.dictation.phase == .idle)
+        #expect(comment.dictation.phase == .recording)
+        #expect(await composer.dictation.startAlone())
+        #expect(comment.dictation.phase == .idle)
+        composer.reset()
+    }
+
+    // MARK: Browser annotation
+
+    @Test func aBrowserCommentIsDictatedIntoItsBoxWithTheCaretAfterTheWords() async throws {
+        guard #available(macOS 26, *) else { return }
+        for dark in [false, true] {
+            let slot = DictationSlot(engine: ScriptedDictationEngine(transcript: "Make it quieter.", delay: .milliseconds(10)))
+            let page = try await BrowserComment()
+            page.session.comment = "Too loud."
+            let box = try await Rendered(page.box, slot: slot, dark: dark, width: BrowserAnnotationOverlay.boxWidth + 40)
+            defer { box.close() }
+            try await eventually { box.commentEditor != nil }
+            try box.snapshot("browser-idle")
+            let idle = box.height
+
+            #expect(await slot.dictation.start())
+            try await box.settle()
+            try box.snapshot("browser-listening")
+            #expect(box.commentField == nil)
+            #expect(box.height == idle)
+
+            // Return finishes the recording; it doesn't save the comment.
+            try box.press(.return)
+            try await eventually { page.session.comment == "Too loud. Make it quieter." }
+            try await box.settle()
+            try box.snapshot("browser-filled")
+            #expect(page.added == 0)
+            let editor = try #require(box.commentEditor)
+            #expect(editor.string == "Too loud. Make it quieter.")
+            #expect(editor.selectedRange() == NSRange(location: 26, length: 0), "\(editor.selectedRange())")
+        }
+    }
+
+    @Test func escWhileDictatingABrowserCommentStopsTheRecordingAndKeepsTheBox() async throws {
+        guard #available(macOS 26, *) else { return }
+        let slot = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .milliseconds(10)))
+        let page = try await BrowserComment()
+        page.session.comment = "Too loud."
+        let box = try await Rendered(page.box, slot: slot, dark: false, width: BrowserAnnotationOverlay.boxWidth + 40)
+        defer { box.close() }
+        #expect(await slot.dictation.start())
+        try await box.settle()
+        try box.press(.escape)
+        try await eventually { slot.dictation.phase == .idle }
+        try await box.settle()
+        #expect(page.cancelled == 0)
+        #expect(page.session.comment == "Too loud.")
+        #expect(box.window.firstResponder === box.commentEditor)
+    }
+
+    @Test func keysWhileABrowserCommentGetsDictationReadyActOnDictationNotTheBox() async throws {
+        guard #available(macOS 26, *) else { return }
+        for key in [Rendered.Key.return, .escape, .up, .down] {
+            let slot = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .seconds(2)))
+            let page = try await BrowserComment()
+            if key == .return { page.session.comment = "Too loud." }
+            let box = try await Rendered(page.box, slot: slot, dark: false, width: BrowserAnnotationOverlay.boxWidth + 40)
+            defer { box.close() }
+            try await eventually { box.window.firstResponder === box.commentEditor }
+            let starting = Task { await slot.dictation.start() }
+            try await eventually { slot.dictation.isPreparing }
+            try box.press(key)
+            try await box.settle()
+            #expect(page.added == 0)
+            #expect(page.cancelled == 0)
+            #expect(page.steps == 0)
+            #expect(slot.dictation.isPreparing == (key != .escape))
+            slot.reset()
+            #expect(await starting.value == false)
+            if key == .up {
+                // Once dictation stops, the arrow steps out to the parent again.
+                try box.press(.up)
+                try await eventually { page.steps == 1 }
+            }
+        }
+    }
+
+    @Test func theArrowsDontStepWhileTheStripTakesABrowserComment() async throws {
+        guard #available(macOS 26, *) else { return }
+        let slot = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .milliseconds(10)))
+        let page = try await BrowserComment()
+        let box = try await Rendered(page.box, slot: slot, dark: false, width: BrowserAnnotationOverlay.boxWidth + 40)
+        defer { box.close() }
+        #expect(await slot.dictation.start())
+        try await box.settle()
+        try box.press(.up)
+        try box.press(.down)
+        try await box.settle()
+        #expect(page.steps == 0)
+        #expect(slot.dictation.phase == .recording)
+        slot.reset()
+    }
+
+    @Test func pickingAnotherElementThrowsTheBrowserCommentsRecordingAway() async throws {
+        guard #available(macOS 26, *) else { return }
+        for finishing in [false, true] {
+            let slot = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .milliseconds(200)))
+            let page = try await BrowserComment()
+            page.session.comment = "Too loud."
+            let box = try await Rendered(page.box, slot: slot, dark: false, width: BrowserAnnotationOverlay.boxWidth + 40)
+            defer { box.close() }
+            #expect(await slot.dictation.start())
+            try await box.settle()
+            if finishing {
+                try box.press(.return)
+                try await eventually { slot.dictation.phase == .transcribing }
+            }
+            page.engine.annotationResults["select"] = BrowserComment.selected("a.link")
+            await page.session.click(at: CGPoint(x: 50, y: 50), deep: false)
+            try await eventually { slot.dictation.phase == .idle }
+            try await Task.sleep(for: .milliseconds(400))
+            #expect(page.session.comment == "Too loud.")
+        }
+    }
+
+    @Test func theBrowserCommentsRecordingGoesWithItsBox() async throws {
+        guard #available(macOS 26, *) else { return }
+        let slot = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .milliseconds(10)))
+        let page = try await BrowserComment()
+        page.session.comment = "Too loud."
+        let overlay = try await Rendered(page.overlay, slot: slot, dark: false)
+        defer { overlay.close() }
+        try await eventually { overlay.commentField != nil }
+        #expect(await slot.dictation.start())
+        try await overlay.settle()
+        // Cancel, Save, and Esc let the selection go.
+        await page.session.deselect()
+        try await overlay.settle()
+        #expect(overlay.commentField == nil)
+        #expect(slot.dictation.phase == .idle)
+
+        // Annotate mode ends, or its tab closes or is switched away from.
+        await page.session.click(at: CGPoint(x: 50, y: 50), deep: false)
+        try await eventually { overlay.commentField != nil }
+        #expect(await slot.dictation.start())
+        try await overlay.settle()
+        page.shown = false
+        try await overlay.settle()
+        #expect(overlay.commentField == nil)
+        #expect(slot.dictation.phase == .idle)
+    }
+
+    @Test func thePagesKeysLeaveTheSelectionWhileItsCommentIsDictated() async throws {
+        guard #available(macOS 26, *) else { return }
+        let slot = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .milliseconds(10)))
+        let page = try await BrowserComment()
+        let overlay = try await Rendered(page.overlay, slot: slot, dark: false)
+        defer { overlay.close() }
+        try await eventually { overlay.commentField != nil }
+        #expect(await slot.dictation.start())
+        try await overlay.settle()
+        let pointer = try #require(overlay.pointerLayer)
+        overlay.window.makeFirstResponder(pointer)
+        try overlay.press(.up)
+        try overlay.press(.down)
+        try overlay.press(.escape)
+        try await overlay.settle()
+        #expect(page.steps == 0)
+        #expect(slot.dictation.phase == .idle)
+        #expect(page.session.page.selected != nil)
+        // Without a recording, Esc leaves the selection.
+        overlay.window.makeFirstResponder(pointer)
+        try overlay.press(.escape)
+        try await eventually { page.session.page.selected == nil }
+    }
+
+    @Test func aClickOnThePageThrowsTheBrowserCommentsRecordingAwayBeforePicking() async throws {
+        guard #available(macOS 26, *) else { return }
+        let slot = DictationSlot(engine: ScriptedDictationEngine(transcript: Self.said, delay: .milliseconds(10)))
+        let page = try await BrowserComment()
+        page.session.comment = "Too loud."
+        let overlay = try await Rendered(page.overlay, slot: slot, dark: false)
+        defer { overlay.close() }
+        try await eventually { overlay.commentField != nil }
+        #expect(await slot.dictation.start())
+        try await overlay.settle()
+        let pointer = try #require(overlay.pointerLayer)
+        page.engine.annotationResults["select"] = BrowserComment.selected("a.link")
+        let point = pointer.convert(NSPoint(x: 300, y: 300), to: nil)
+        overlay.window.sendEvent(try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+            timestamp: 0, windowNumber: overlay.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+        // Gone as the button goes down, before the page has answered.
+        #expect(slot.dictation.phase == .idle)
+        #expect(page.session.clicks == 1)
+        try await eventually { page.session.page.selected?.label == "a.link" }
+        #expect(page.session.comment == "Too loud.")
+    }
+
     private func store(running: Bool = false) -> SessionStore {
         var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "m", thinking: "high",
                                      workspace: "w", date: "", messages: [])
         session.activeRunID = running ? "run" : nil
         return SessionStore(fixture: Fixture(sessions: [session]))
+    }
+}
+
+/// A page in Annotate mode with an element selected, and its comment box
+/// or whole overlay, counting what they ask of the page.
+@MainActor @Observable private final class BrowserComment {
+    let engine = FakeBrowserEngine()
+    let session: BrowserAnnotationSession
+    private(set) var added = 0
+    private(set) var cancelled = 0
+    /// Whether the overlay shows, as Annotate mode and its tab being shown do.
+    var shown = true
+    var steps: Int { engine.annotationScripts.filter { $0.operation == "step" }.count }
+
+    static func selected(_ label: String) -> String {
+        #"{"selected":{"label":"\#(label)","rect":{"x":40,"y":40,"width":120,"height":32}},"crumbs":["main","\#(label)"],"canParent":true,"canChild":true}"#
+    }
+
+    init() async throws {
+        engine.annotationResults["select"] = Self.selected("button.cta")
+        engine.annotationResults["step"] = Self.selected("main")
+        engine.annotationResults["clear"] = "{}"
+        let defaults = try #require(UserDefaults(suiteName: "DictationPresentationTests.\(UUID())"))
+        session = BrowserAnnotationSession(engine: engine, defaults: defaults)
+        await session.click(at: CGPoint(x: 50, y: 50), deep: false)
+    }
+
+    var box: BrowserAnnotationCommentBox {
+        BrowserAnnotationCommentBox(session: session, add: { [unowned self] in added += 1 },
+                                    cancel: { [unowned self] in cancelled += 1 })
+    }
+
+    var overlay: some View {
+        Overlay(page: self).frame(height: 360)
+    }
+
+    private struct Overlay: View {
+        let page: BrowserComment
+
+        var body: some View {
+            if page.shown {
+                BrowserAnnotationOverlay(session: page.session, page: page.engine.view,
+                                         attach: { _ in }, done: {})
+            }
+        }
     }
 }
 
@@ -264,18 +509,35 @@ import Testing
 
     var answerField: NSTextField? { Self.views(InteractionInputBox.self, in: host).first?.field }
 
+    /// The browser comment box's field.
+    var commentField: NSTextField? { Self.views(NSTextField.self, in: host).first { $0.isEditable } }
+
+    /// The browser comment's editor while it has focus.
+    var commentEditor: NSTextView? {
+        guard let field = commentField, let editor = field.currentEditor() as? NSTextView else { return nil }
+        return editor
+    }
+
+    /// The Annotate overlay's layer over the page.
+    var pointerLayer: NSView? {
+        Self.allViews(in: host).first { String(describing: type(of: $0)) == "PointerView" }
+    }
+
     func close() { window.close() }
 
-    enum Key { case `return`, escape }
+    enum Key { case `return`, escape, up, down }
 
     /// Presses a key as the keyboard does, to whatever has focus.
     func press(_ key: Key) throws {
         let (code, characters): (UInt16, String) = switch key {
         case .return: (36, "\r")
         case .escape: (53, "\u{1b}")
+        case .up: (126, String(UnicodeScalar(NSUpArrowFunctionKey)!))
+        case .down: (125, String(UnicodeScalar(NSDownArrowFunctionKey)!))
         }
+        let modifiers: NSEvent.ModifierFlags = code >= 125 ? [.numericPad, .function] : []
         for type in [NSEvent.EventType.keyDown, .keyUp] {
-            window.sendEvent(try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+            window.sendEvent(try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers, timestamp: 0,
                 windowNumber: window.windowNumber, context: nil, characters: characters,
                 charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)))
         }
@@ -287,6 +549,10 @@ import Testing
         host.cacheDisplay(in: host.bounds, to: bitmap)
         try #require(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: directory)
             .appendingPathComponent("dictation-\(name)-\(dark ? "dark" : "light").png"))
+    }
+
+    private static func allViews(in view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap(allViews)
     }
 
     private static func views<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {

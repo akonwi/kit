@@ -1,4 +1,5 @@
 import AppKit
+import KitDictation
 import SwiftUI
 
 /// Annotate mode over a browser tab's page: Kit takes the pointer, draws
@@ -20,12 +21,16 @@ struct BrowserAnnotationOverlay: View {
     /// Asks the pointer layer for the keyboard.
     @State private var pointerFocus = 0
     @State private var boxHeight: CGFloat = 150
+    /// The comment box's dictation, which the page's keys defer to.
+    @State private var ownDictation = DictationSlot()
+    @Environment(\.dictationSlot) private var givenDictation
 
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
             ZStack(alignment: .topLeading) {
-                AnnotationPointerLayer(session: session, page: page, focusRequest: pointerFocus, escape: escape)
+                AnnotationPointerLayer(session: session, page: page, focusRequest: pointerFocus,
+                                       dictation: dictationSlot, escape: escape)
                 outlines(in: size)
                     .allowsHitTesting(false)
                 if let selected = session.page.selected {
@@ -63,8 +68,12 @@ struct BrowserAnnotationOverlay: View {
         return CGSize(width: x, height: y)
     }
 
+    private var dictationSlot: DictationSlot { givenDictation ?? ownDictation }
+
     private func escape() {
-        if session.page.selected != nil {
+        if dictationSlot.isActive {
+            dictationSlot.reset()
+        } else if session.page.selected != nil {
             Task { await session.deselect() }
         } else {
             done()
@@ -143,6 +152,7 @@ struct BrowserAnnotationOverlay: View {
 
     private var commentBox: some View {
         BrowserAnnotationCommentBox(session: session, add: add, cancel: { Task { await session.deselect() } })
+            .environment(\.dictationSlot, dictationSlot)
     }
 
     private func add() {
@@ -173,35 +183,27 @@ private struct SelectionBox: View {
 }
 
 /// The comment box on a selection: its ancestors to step through, the
-/// comment, and whether its screenshot goes with it.
+/// comment, and whether its screenshot goes with it. The comment can be
+/// dictated, as code comments are; a recording goes when the box closes
+/// or another element is picked.
 struct BrowserAnnotationCommentBox: View {
     @Environment(\.mica) private var theme
     @Bindable var session: BrowserAnnotationSession
     let add: () -> Void
     let cancel: () -> Void
     @FocusState private var focused: Bool
+    @State private var selection: TextSelection?
+    @State private var caretToEnd = false
+    /// The field's height before the strip took its place, which the strip keeps.
+    @State private var fieldHeight: CGFloat?
+    @State private var ownDictation = DictationSlot()
+    @Environment(\.dictationSlot) private var givenDictation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            crumbs
-            TextField("", text: $session.comment, prompt: Text("Comment on this element…").foregroundStyle(theme.muted),
-                      axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.kit(size: 13))
-                .foregroundStyle(theme.text)
-                .lineLimit(2...8)
-                .focused($focused)
-                .onSubmit(add)
-                .onExitCommand(perform: cancel)
-                // An empty comment has no lines to move through, so the
-                // arrows step out to the parent and back in.
-                .onKeyPress(.upArrow) { stepIfEmpty(.parent) }
-                .onKeyPress(.downArrow) { stepIfEmpty(.child) }
-                .padding(.horizontal, 10).padding(.vertical, 8)
-                .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(focused ? theme.accent.opacity(0.6) : theme.border, lineWidth: 1))
-                .accessibilityLabel("Comment on the selected element")
+            crumbs.disabled(dictating)
+            field
+            if #available(macOS 26, *), dictation.hasNotice { DictationNotice(dictation: dictation) }
             if let error = session.error {
                 Text(error).font(.kit(size: 11)).foregroundStyle(theme.danger)
                     .fixedSize(horizontal: false, vertical: true)
@@ -216,7 +218,8 @@ struct BrowserAnnotationCommentBox: View {
                 Button("Cancel", action: cancel).buttonStyle(SmallButtonStyle(bordered: true))
                 Button("Save", action: add)
                     .buttonStyle(SmallButtonStyle(prominent: true))
-                    .disabled(session.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session.adding)
+                    .disabled(session.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session.adding
+                              || dictating)
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -224,12 +227,103 @@ struct BrowserAnnotationCommentBox: View {
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.strongBorder, lineWidth: 1))
         .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
         .onAppear { focused = true }
-        .onChange(of: session.page.selected?.label) { focused = true }
-        .onChange(of: session.clicks) { if session.page.selected != nil { focused = true } }
+        .onDisappear { dictationSlot.reset() }
+        // Words said about one element don't go to another.
+        .onChange(of: session.page.selected?.label) {
+            dictationSlot.reset()
+            focused = true
+        }
+        .onChange(of: session.clicks) {
+            dictationSlot.reset()
+            if session.page.selected != nil { focused = true }
+        }
+        .onChange(of: focused) {
+            guard focused, caretToEnd else { return }
+            caretToEnd = false
+            selection = TextSelection(insertionPoint: session.comment.endIndex)
+        }
+        .onChange(of: session.comment) {
+            if #available(macOS 26, *) { dictation.dismissProblem() }
+        }
+    }
+
+    /// The comment, or the recording strip in its place while dictating.
+    private var field: some View {
+        HStack(alignment: .top, spacing: 4) {
+            if #available(macOS 26, *), dictation.listening {
+                DictationStrip(dictation: dictation, done: finishDictation, cancelled: focusAtEnd, size: 13)
+                DictationSquare(dictation: dictation, size: 20, done: finishDictation)
+            } else {
+                TextField("", text: $session.comment, selection: $selection,
+                          prompt: Text("Comment on this element…").foregroundStyle(theme.muted), axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.kit(size: 13))
+                    .foregroundStyle(theme.text)
+                    .lineLimit(2...8)
+                    .focused($focused)
+                    .onSubmit { if !dictating { add() } }
+                    .onExitCommand { if dictating { dictationSlot.reset() } else { cancel() } }
+                    // An empty comment has no lines to move through, so the
+                    // arrows step out to the parent and back in.
+                    .onKeyPress(.upArrow) { stepIfEmpty(.parent) }
+                    .onKeyPress(.downArrow) { stepIfEmpty(.child) }
+                    .padding(.vertical, 2)
+                    .accessibilityLabel("Comment on the selected element")
+                if #available(macOS 26, *) {
+                    DictationMic(dictation: dictation, size: 20, iconSize: 13)
+                }
+            }
+        }
+        .frame(height: dictationListening ? fieldHeight : nil, alignment: .top)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            if !dictationListening { fieldHeight = height }
+        }
+        .padding(.leading, 10).padding(.trailing, DictationSupport.available ? 4 : 10).padding(.vertical, 6)
+        .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4)
+            .strokeBorder(focused || dictating ? theme.accent.opacity(0.6) : theme.border, lineWidth: 1))
+    }
+
+    // MARK: Dictation
+
+    private var dictationSlot: DictationSlot { givenDictation ?? ownDictation }
+
+    @available(macOS 26, *)
+    private var dictation: Dictation { dictationSlot.dictation }
+
+    private var dictating: Bool {
+        if #available(macOS 26, *) { return dictation.isActive }
+        return false
+    }
+
+    /// Whether the recording strip stands in the comment's place.
+    private var dictationListening: Bool {
+        if #available(macOS 26, *) { return dictation.listening }
+        return false
+    }
+
+    /// Stops recording and puts the words after the comment, with the
+    /// field focused and the caret after them.
+    private func finishDictation() {
+        guard #available(macOS 26, *) else { return }
+        let session = session
+        dictation.finish { text in
+            let current = session.comment
+            session.comment = DictationText.join(
+                current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : current, text)
+            focusAtEnd()
+        }
+    }
+
+    /// Back to the comment with the caret at its end, as the strip goes.
+    /// Focus selects the whole comment, so the caret moves once it has.
+    private func focusAtEnd() {
+        caretToEnd = true
+        focused = true
     }
 
     private func stepIfEmpty(_ step: BrowserAnnotationSession.Step) -> KeyPress.Result {
-        guard session.comment.isEmpty else { return .ignored }
+        guard session.comment.isEmpty, !dictating else { return .ignored }
         Task { await session.step(step) }
         return .handled
     }
@@ -310,16 +404,20 @@ private struct StepButton: View {
 /// Takes the pointer over the page while annotating: moves outline, clicks
 /// select, ⌘ picks the innermost element, the wheel scrolls the page, Esc
 /// leaves the selection and then the mode, and the arrows step out and in.
+/// While the comment is dictated the arrows wait, Esc throws the recording
+/// away, and a click throws it away before picking anything.
 private struct AnnotationPointerLayer: NSViewRepresentable {
     let session: BrowserAnnotationSession
     let page: NSView
     let focusRequest: Int
+    let dictation: DictationSlot
     let escape: () -> Void
 
     func makeNSView(context: Context) -> PointerView {
         let view = PointerView()
         view.session = session
         view.page = page
+        view.dictation = dictation
         view.escape = escape
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return view
@@ -328,6 +426,7 @@ private struct AnnotationPointerLayer: NSViewRepresentable {
     func updateNSView(_ view: PointerView, context: Context) {
         view.session = session
         view.page = page
+        view.dictation = dictation
         view.escape = escape
         if view.focusRequest != focusRequest {
             view.focusRequest = focusRequest
@@ -338,6 +437,7 @@ private struct AnnotationPointerLayer: NSViewRepresentable {
     final class PointerView: NSView {
         weak var session: BrowserAnnotationSession?
         weak var page: NSView?
+        var dictation: DictationSlot?
         var escape: () -> Void = {}
         var focusRequest = 0
         private var tracking: NSTrackingArea?
@@ -379,6 +479,9 @@ private struct AnnotationPointerLayer: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             window?.makeFirstResponder(self)
+            // Before the click picks anything, so words said about this
+            // element can't land on the next.
+            dictation?.reset()
             let location = point(event), deep = event.modifierFlags.contains(.command)
             Task { @MainActor [weak self] in await self?.session?.click(at: location, deep: deep) }
         }
@@ -398,8 +501,8 @@ private struct AnnotationPointerLayer: NSViewRepresentable {
         override func keyDown(with event: NSEvent) {
             switch event.keyCode {
             case 53: escape()
-            case 126 where session?.page.selected != nil: Task { @MainActor [weak self] in await self?.session?.step(.parent) }
-            case 125 where session?.page.selected != nil: Task { @MainActor [weak self] in await self?.session?.step(.child) }
+            case 126 where session?.page.selected != nil && dictation?.isActive != true: Task { @MainActor [weak self] in await self?.session?.step(.parent) }
+            case 125 where session?.page.selected != nil && dictation?.isActive != true: Task { @MainActor [weak self] in await self?.session?.step(.child) }
             default: super.keyDown(with: event)
             }
         }
