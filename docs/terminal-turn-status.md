@@ -73,6 +73,10 @@ compaction, or after answering a request outside a turn, Kit reports `idle`
 rather than the earlier outcome again. A shell command typed in the composer is
 the user's own work and does not count as working.
 
+A client showing a single workspace view (`kit --view`, see
+[workspace views in panes](features/workspace-views.md)) reports no title,
+progress, or program status, so a terminal shows one status per session.
+
 Reports are sent whether or not the terminal answered the protocol's feature
 query, since terminals that act on them may not answer it. Cooper disables them
 inside tmux, GNU Screen, and Zellij, and when `COOPER_PROGRAM_STATUS` is `0`,

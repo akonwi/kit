@@ -20,8 +20,9 @@ compaction model apply to newly opened session runtimes or after `/reload`,
 and `readClaudeConfigs` when a runtime next loads or reloads. Editing the file
 by hand works the same way.
 
-Client preferences in the same file, such as `theme`, `diffWrapLines`, and
-`diffLayout` (`unified` or `split`), stay with each client. The server's
+Client preferences in the same file, such as `theme`, `diffWrapLines`,
+`diffLayout` (`unified` or `split`), and `workspacePanes` (`rex` or `tabs`;
+see [workspace views in panes](workspace-views.md)), stay with each client. The server's
 access settings under `server` are changed with `kit server expose` or by
 editing the file, not through the API.
 

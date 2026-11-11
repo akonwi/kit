@@ -41,6 +41,7 @@ use kit/tui/model
 use kit/tui/model_refresh
 use kit/tui/pairing
 use kit/tui/rename
+use kit/tui/rex_panes
 use kit/tui/scratchpad
 use kit/tui/selection_menu
 use kit/tui/session_debug
@@ -172,6 +173,8 @@ struct Props {
   terminal: terminal_status::Terminal,
   // Opens a file or URL with the system's default application.
   open_url: fn(Str) Void!Error,
+  // Opens workspace views in Rex panes, or none to keep them in tabs here.
+  panes: (&mut rex_panes::Placer)?,
 }
 
 struct Shell {
@@ -220,15 +223,25 @@ struct Shell {
   connect_button: &mut cui::BoxRef,
   // Rebound to each attachment's retained transcript.
   transcript_control: &mut transcript_pane::Control,
+  // A single view's own tab (ADR 0067), once it opens; and whether the view
+  // is opening it, so that opening shows here rather than in a pane.
+  view_id: Str,
+  view_opening: Bool,
+  // Whether opening a pane failed, after which views open as tabs here.
+  panes_failed: Bool,
 }
 
 fn new(props: &mut Props) &mut Shell {
-  let phase = match props.options.Authenticated {
+  // A single view shows what the session already has, so it never asks to
+  // connect a provider.
+  let phase = match props.options.Authenticated or props.options.View.Kind != "" {
     true => Phase::loading,
     false => Phase::auth,
   }
   let notifications = toast::control()
   &mut Shell{
+    // The client showing the whole session offers updates; a single view
+    // leaves them to it.
     props: props,
     phase: phase,
     error: "",
@@ -247,7 +260,7 @@ fn new(props: &mut Props) &mut Shell {
     selection_menu: Maybe::new<SelectionMenu>(),
     surface: cui::box_ref(),
     models: model_refresh::refresher(props.options.Client, notifications),
-    updates: updates::updater(props.options.Client, props.options.Server == ""),
+    updates: updates::updater(props.options.Client, props.options.Server == "" and props.options.View.Kind == ""),
     theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
     workspace: workspace::tabs(),
     scratchpad_control: scratchpad::pane_ref(),
@@ -258,6 +271,9 @@ fn new(props: &mut Props) &mut Shell {
     notifications: notifications,
     connect_button: cui::box_ref(),
     transcript_control: transcript_pane::control(),
+    view_id: "",
+    view_opening: false,
+    panes_failed: false,
   }
 }
 
@@ -339,7 +355,7 @@ impl Shell {
   // the composer. It clears a non-empty composer; otherwise it detaches. A
   // draft behind the interaction dock is kept.
   fn mut interrupt() Bool {
-    if self.phase != Phase::ready or self.attached.feedback_pending() or (not self.clear_draft()) {
+    if self.viewing() or self.phase != Phase::ready or self.attached.feedback_pending() or (not self.clear_draft()) {
       (self.props.quit)()
     }
     true
@@ -547,6 +563,32 @@ impl Shell {
   }
 
   fn mut conversation() cui::View {
+    match self.viewing() {
+      true => self.view_conversation(),
+      false => self.session_conversation(),
+    }
+  }
+
+  // A single view: its pane, without the transcript or composer. Tabs it
+  // opens here, outside a multiplexer, join it in a strip.
+  fn mut view_conversation() cui::View {
+    let colors = self.props.themes.current()
+    let children = &mut List::new<cui::View>()
+    if self.workspace.open.size() > 1 {
+      children.push(self.workspace_tabs())
+      children.push(layout::divider(colors.border))
+    }
+    self.push_workspace_panes(children)
+    if not self.workspace.shown() {
+      children.push(layout::empty_state(colors, "Nothing to show. Press ctrl+c to close."))
+    }
+    cui::box(
+      children.*,
+      styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
+    )
+  }
+
+  fn mut session_conversation() cui::View {
     let colors = self.props.themes.current()
     let children = &mut List::new<cui::View>()
     if self.workspace.shown() {
@@ -571,6 +613,55 @@ impl Shell {
         ),
       ),
     )
+    self.push_workspace_panes(children)
+    // Agent activity can change height as streamed follow-ups arrive. Keep it
+    // out of Scratchpad so those updates cannot resize the focused editor and
+    // force its cursor back into view.
+    // A dock stays presented beneath dialogs; it only stops owning input.
+    let request = self.attached.interaction()
+    let docked = self.docked()
+    // Elsewhere only the chips show, so the status line's changes don't
+    // resize the pane.
+    if not docked {
+      let pending = self.pending()
+      if pending.status or chrome::has_chips(pending) {
+        children.push(chrome::pending_row(self.props.themes, pending))
+      }
+    }
+    // The dock's frame, or the Bash panel's, separates it from the
+    // workspace and footer.
+    if not self.framed() {
+      children.push(layout::divider(colors.border))
+    }
+    // The composer stays mounted behind the dock so its draft survives.
+    children.push(
+      cui::box(
+        [self.composer_view()],
+        key: "composer.host",
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::column,
+          flex_shrink: 0.0,
+          display: match docked {
+            true => ui::Display::none,
+            false => ui::Display::flex,
+          },
+        ),
+      ),
+    )
+    match request {
+      pending => children.push(self.dock_view(pending)),
+      _ => (),
+    }
+    self.track_dock(docked)
+    cui::box(
+      children.*,
+      styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
+    )
+  }
+
+  // Pushes the open workspace panes onto children. Hidden panes stay
+  // mounted, keeping their place.
+  fn mut push_workspace_panes(children: &mut [cui::View]) {
     // An open Scratchpad stays mounted while hidden so its autosave keeps
     // running; it saves before unmounting when its tab closes.
     if self.workspace.has(workspace::scratchpad().id) {
@@ -710,49 +801,6 @@ impl Shell {
         children.push(self.subagent_view(tab))
       }
     }
-    // Agent activity can change height as streamed follow-ups arrive. Keep it
-    // out of Scratchpad so those updates cannot resize the focused editor and
-    // force its cursor back into view.
-    // A dock stays presented beneath dialogs; it only stops owning input.
-    let request = self.attached.interaction()
-    let docked = self.docked()
-    // Elsewhere only the chips show, so the status line's changes don't
-    // resize the pane.
-    if not docked {
-      let pending = self.pending()
-      if pending.status or chrome::has_chips(pending) {
-        children.push(chrome::pending_row(self.props.themes, pending))
-      }
-    }
-    // The dock's frame, or the Bash panel's, separates it from the
-    // workspace and footer.
-    if not self.framed() {
-      children.push(layout::divider(colors.border))
-    }
-    // The composer stays mounted behind the dock so its draft survives.
-    children.push(
-      cui::box(
-        [self.composer_view()],
-        key: "composer.host",
-        styles: ui::style(
-          flex_direction: ui::FlexDirection::column,
-          flex_shrink: 0.0,
-          display: match docked {
-            true => ui::Display::none,
-            false => ui::Display::flex,
-          },
-        ),
-      ),
-    )
-    match request {
-      pending => children.push(self.dock_view(pending)),
-      _ => (),
-    }
-    self.track_dock(docked)
-    cui::box(
-      children.*,
-      styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
-    )
   }
 
   fn mut scratchpad_view() cui::View {
@@ -794,16 +842,18 @@ impl Shell {
   // close affordance.
   fn mut workspace_tabs() cui::View {
     let entries = &mut List::new<tab_strip::Entry>()
-    entries.push(
-      tab_strip::Entry{
-        label: "Agent",
-        selected: self.workspace.on_agent(),
-        show: self.command("workspace.agent", "Show Agent", fn() {
-          self.show_tab(workspace::agent)
-        }),
-        close: Maybe::new<keymap::SimpleCommand>(),
-      },
-    )
+    if not self.viewing() {
+      entries.push(
+        tab_strip::Entry{
+          label: "Agent",
+          selected: self.workspace.on_agent(),
+          show: self.command("workspace.agent", "Show Agent", fn() {
+            self.show_tab(workspace::agent)
+          }),
+          close: Maybe::new<keymap::SimpleCommand>(),
+        },
+      )
+    }
     let labels = self.workspace.labels()
     for tab, index in self.workspace.open {
       let id = tab.id
@@ -1306,7 +1356,7 @@ impl Shell {
           side: annotation.Side,
           line: annotation.StartLine,
         }
-        self.open_tab(workspace::diff())
+        self.open_tab_revealing(workspace::diff(), Maybe::new(annotation.ID))
       },
       false => {
         match self.attached.workspace_id == "" or annotation.Stale {
@@ -1320,7 +1370,7 @@ impl Shell {
               annotation.StartLine,
             )
             tab.reveals_note = true
-            self.open_tab(tab.*)
+            self.open_tab_revealing(tab.*, Maybe::new(annotation.ID))
           },
         }
       },
@@ -1597,11 +1647,11 @@ impl cui::Component for Shell {
     // need a terminal that reports Ctrl+[ apart from Escape.
     if self.phase == Phase::ready and self.modal_closed() and self.workspace.shown() {
       let next = keymap::simple_command("workspace.next", "Next tab", fn() Bool {
-        self.show_tab(self.workspace.beside(1))
+        self.step_tab(1)
         true
       })
       let previous = keymap::simple_command("workspace.previous", "Previous tab", fn() Bool {
-        self.show_tab(self.workspace.beside(-1))
+        self.step_tab(-1)
         true
       })
       commands.push(next)
@@ -1611,7 +1661,7 @@ impl cui::Component for Shell {
     }
     // While a request is pending, the dock's Escape cancels it instead. A
     // running shell command is stopped before the turn.
-    if self.phase == Phase::ready and self.modal_closed() and (not self.selection_menu.is_some()) and (not self.attached.feedback_pending()) and self.attached.can_interrupt() {
+    if self.phase == Phase::ready and (not self.viewing()) and self.modal_closed() and (not self.selection_menu.is_some()) and (not self.attached.feedback_pending()) and self.attached.can_interrupt() {
       let abort = keymap::simple_command("run.abort", "Abort run", fn() Bool {
         self.attached.interrupt()
       })
@@ -2453,6 +2503,9 @@ impl Shell {
     )
     self.phase = Phase::ready
     self.attached.start(attached.snapshot.ActiveTurnID, attached.snapshot.ActiveBashExecutionID)
+    if self.viewing() {
+      self.open_view()
+    }
   }
 
   // The root effects an attachment may request. Each callback runs inside the
@@ -2502,6 +2555,7 @@ impl Shell {
     self.notifications.clear()
     self.workspace = workspace::tabs()
     self.scratchpad_control = scratchpad::pane_ref()
+    self.view_id = ""
   }
 
   private fn on_scratchpad() Bool {
@@ -2550,8 +2604,83 @@ impl Shell {
     }
   }
 
-  // Opens `tab`, or selects it if it is already open.
+  // Opens `tab`: in a pane beside this client when it opens views in panes,
+  // otherwise as a tab here, or selects it if it is already open.
   fn mut open_tab(tab: workspace::Tab) {
+    self.open_tab_revealing(tab, Maybe::new<Uint64>())
+  }
+
+  // Opens `tab` as open_tab does. A pane for it shows `annotation`, which a
+  // tab here shows from the reveal already recorded.
+  fn mut open_tab_revealing(tab: workspace::Tab, annotation: Uint64?) {
+    if self.view_opening {
+      self.view_opening = false
+      self.view_id = tab.id
+    }
+    match self.places(tab) {
+      true => self.place(tab, annotation),
+      false => self.open_tab_here(tab),
+    }
+  }
+
+  // Whether `tab` opens in a pane: this client opens views in panes, none
+  // has failed to open, and the tab is neither this view's own nor open here.
+  private fn places(tab: workspace::Tab) Bool {
+    self.props.panes.is_some() and (not unsafe::is_nil(self.props.options.Views)) and (not self.panes_failed) and tab.id != self.view_id and (not self.workspace.has(tab.id)) and self.attached.info.is_some()
+  }
+
+  // Opens `tab` in a pane, in the background. If that fails, it opens here,
+  // and so do later tabs. The attachment's lifetime bounds the opening, so
+  // switching sessions abandons it. A pane's identity includes the session.
+  private fn mut place(tab: workspace::Tab, annotation: Uint64?) {
+    let info = self.attached.info.or(protocol::SessionInfo{})
+    let scope = self.session_scope_id
+    let view = cli::View{
+      Kind: workspace::view_kind(tab.kind),
+      Path: tab.path,
+      Line: tab.line,
+      Conversation: tab.conversation_id.or(""),
+      Annotation: annotation.or(Uint64::from(0)),
+    }
+    let request = rex_panes::View{
+      id: "{info.ID}:{tab.id}",
+      label: tab.label,
+      cwd: info.CWD,
+      command: self.props.options.Views.Command(info.ID, view),
+      retarget: tab.line > 0 or annotation.is_some(),
+    }
+    let panes = self.props.panes.expect("panes to place in")
+    match self.attached.lifetime {
+      lifetime => {
+        async::start(fn() {
+          match panes.open(lifetime.Context, request) {
+            ok(_) => (),
+            err(error) => {
+              self.dispatch(fn() {
+                // A switched session abandoned the opening; that is no failure.
+                if scope == self.session_scope_id {
+                  if not self.panes_failed {
+                    self.notify(
+                      "Couldn't open a pane",
+                      "{error}. Kit shows views as tabs here instead.",
+                      toast::Variant::warning,
+                      false,
+                    )
+                  }
+                  self.panes_failed = true
+                  self.open_tab_here(tab)
+                }
+              })
+            },
+          }
+        })
+      },
+      _ => self.open_tab_here(tab),
+    }
+  }
+
+  // Opens `tab` as a tab here, or selects it if it is already open.
+  private fn mut open_tab_here(tab: workspace::Tab) {
     if self.workspace.add(tab) {
       self.show_tab(tab.id)
     } else {
@@ -2585,8 +2714,71 @@ impl Shell {
     if id == workspace::scratchpad().id and self.scratchpad_control.close(true) {
       ()
     } else if self.workspace.close(id) and selected {
+      self.leave_agent()
       self.entered_tab()
     }
+  }
+
+  // A single view has no Agent tab: closing its selected tab selects
+  // another one it opened, if any.
+  private fn mut leave_agent() {
+    if self.viewing() and self.workspace.on_agent() {
+      let _ = self.workspace.select(self.workspace.beside_secondary(1))
+    }
+  }
+
+  // Selects the tab `delta` places from the selected one, wrapping through
+  // Agent except in a single view, which has none.
+  private fn mut step_tab(delta: Int) {
+    match self.viewing() {
+      true => self.show_tab(self.workspace.beside_secondary(delta)),
+      false => self.show_tab(self.workspace.beside(delta)),
+    }
+  }
+
+  // Whether this client shows a single view rather than the whole session.
+  fn viewing() Bool {
+    self.props.options.View.Kind != ""
+  }
+
+  // Opens the tab of the view this client shows. A Diff or File view
+  // revealing an annotation opens it as the annotation's chip does; one the
+  // session no longer has opens the view without it.
+  private fn mut open_view() {
+    let view = self.props.options.View
+    mut revealed = Maybe::new<sessionbridge::Annotation>()
+    for annotation in self.attached.annotations {
+      if view.Annotation != Uint64::from(0) and annotation.ID == view.Annotation {
+        revealed = Maybe::new(annotation)
+      }
+    }
+    self.view_opening = true
+    if view.Kind == "subagent" {
+      let id = view.Conversation
+      self.attached.reload_subagents_then(fn() {
+        self.dispatch(fn() {
+          self.view_opening = true
+          self.open_subagent(id)
+          self.view_opening = false
+        })
+      })
+    } else {
+      match revealed {
+        annotation => self.open_annotation(annotation),
+        _ => {
+          if view.Kind == "diff" {
+            self.open_tab(workspace::diff())
+          } else if view.Kind == "scratchpad" {
+            self.open_tab(workspace::scratchpad())
+          } else if view.Kind == "host-file" {
+            self.open_tab(workspace::host_file(view.Path, view.Line))
+          } else {
+            self.open_server_path(view.Path, view.Line)
+          }
+        },
+      }
+    }
+    self.view_opening = false
   }
 
   // Readies the newly selected tab. The Scratchpad focuses its editor once
@@ -2643,6 +2835,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
       quit: fn() {},
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      panes: Maybe::new<&mut rex_panes::Placer>(),
       open_url: fn(target: Str) Void!Error {
         Result::ok(())
       },
@@ -2714,6 +2907,7 @@ test fn rename_requests_carry_their_opening_settings_with_the_dialog() Void!Str 
       quit: fn() {},
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      panes: Maybe::new<&mut rex_panes::Placer>(),
       open_url: fn(target: Str) Void!Error {
         Result::ok(())
       },
@@ -2773,6 +2967,7 @@ test fn ctrl_c_clears_staged_files_before_quitting() Void!Str {
       },
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      panes: Maybe::new<&mut rex_panes::Placer>(),
       open_url: fn(target: Str) Void!Error {
         Result::ok(())
       },
@@ -2840,6 +3035,7 @@ test fn a_pending_request_replaces_the_composer_until_it_settles() Void!Str {
       quit: fn() {},
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      panes: Maybe::new<&mut rex_panes::Placer>(),
       open_url: fn(target: Str) Void!Error {
         Result::ok(())
       },
@@ -2936,6 +3132,7 @@ private fn ready_shell() &mut Shell {
       quit: fn() {},
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      panes: Maybe::new<&mut rex_panes::Placer>(),
       open_url: fn(target: Str) Void!Error {
         Result::ok(())
       },
@@ -3158,6 +3355,7 @@ test fn logout_outcomes_raise_toasts_from_their_worker() Void!Str {
       quit: fn() {},
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      panes: Maybe::new<&mut rex_panes::Placer>(),
       open_url: fn(target: Str) Void!Error {
         Result::ok(())
       },
@@ -3194,4 +3392,153 @@ test fn logout_outcomes_raise_toasts_from_their_worker() Void!Str {
     terminal.frame().text().contains("credentials come from the environment"),
     "the error toast carries the server's reason:\n{terminal.frame().text()}",
   )
+}
+
+// A single view of a session, attached without a server handle; mounting
+// skips bootstrap.
+private fn viewing_subject(quits: &mut [Int]) &mut Shell {
+  let subject = new(
+    &mut Props{
+      options: cli::TUIOptions{Context: context::Background(), View: cli::View{Kind: "diff"}},
+      themes: theme::context(theme::store(theme::system())),
+      quit: fn() {
+        quits.push(1)
+      },
+      attach: bootstrap::attach,
+      terminal: terminal_status::detached(),
+      panes: Maybe::new<&mut rex_panes::Placer>(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
+    },
+  )
+  subject.phase = Phase::ready
+  subject.attached = attached_session::detached(cli::TUIOptions{}, inert_attachment_host())
+  subject.attached.active = true
+  subject.attached.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", Name: "Fix pager"}},
+  )
+  subject
+}
+
+private fn painted_rows(terminal: headless::TestApp) [Str] {
+  let painted = &mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    painted.push(strings::TrimRight(row, " "))
+  }
+  painted.*
+}
+
+private fn assert_rows(terminal: headless::TestApp, expected: [Str], what: Str) Void!Str {
+  let rows = painted_rows(terminal)
+  let shown = strings::Join(rows, "|\n")
+  mut index = 0
+  while index < expected.size() {
+    try testing::assert(
+      rows.at(index).or("") == expected.at(index).or(""),
+      "row {index}; {what}:\n{shown}|",
+    )
+    index =+ 1
+  }
+  Result::ok(())
+}
+
+test fn a_single_view_opens_other_tabs_beside_its_own_without_agent() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject(quits)
+  subject.view_opening = true
+  subject.open_tab(workspace::scratchpad())
+  // Without a multiplexer to open panes in, another tab opens here.
+  subject.open_tab(workspace::host_file("/srv/notes.md", 0))
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  assert_rows(
+    terminal,
+    [
+      "  Fix pager",
+      "────────────────────────────────────────────────────────────",
+      "  Scratchpad     notes.md ×",
+      "────────────────────────────────────────────────────────────",
+      " /srv/notes.md",
+    ],
+    "the view's tabs share a strip without Agent or a composer",
+  )
+}
+
+test fn a_single_view_with_nothing_open_says_how_to_close_it() Void!Str {
+  let terminal = headless::new(60, 9)
+  defer terminal.destroy()
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject(quits)
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  assert_rows(
+    terminal,
+    [
+      "  Fix pager",
+      "────────────────────────────────────────────────────────────",
+      "",
+      "                            k i t",
+      "                         ━━━━━━━━━━━",
+      "",
+      "           Nothing to show. Press ctrl+c to close.",
+    ],
+    "the empty view centers its instruction",
+  )
+}
+
+test fn closing_a_single_views_tab_selects_another_of_its_tabs() Void!Str {
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject(quits)
+  subject.view_opening = true
+  subject.open_tab(workspace::scratchpad())
+  subject.open_tab(workspace::host_file("/srv/notes.md", 0))
+  subject.open_tab(workspace::diff())
+  try testing::assert(
+    subject.view_id == "scratchpad" and subject.workspace.selected == "diff",
+    "the first opening is the view's own tab",
+  )
+  subject.close_tab("diff")
+  try testing::assert(
+    subject.workspace.selected == "host-file:/srv/notes.md",
+    "the tab before takes its place",
+  )
+  subject.step_tab(1)
+  try testing::assert(subject.workspace.selected == "scratchpad", "stepping skips Agent")
+  subject.close_tab("host-file:/srv/notes.md")
+  testing::assert(subject.workspace.selected == "scratchpad", "the view's own tab remains")
+}
+
+test fn ctrl_c_closes_a_single_view_at_once() Void!Str {
+  let terminal = headless::new(60, 9)
+  defer terminal.destroy()
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject(quits)
+  subject.attached.attachments = [
+    attachments::uploaded(protocol::AttachmentInfo{ID: "attachment-1", Filename: "notes.txt"}),
+  ]
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.key(
+    event::key(
+      "c",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: true,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+  testing::assert(quits.size() == 1, "a view has no draft to clear first")
 }

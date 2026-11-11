@@ -77,6 +77,9 @@ type interactiveOptions struct {
 	Thinking     string
 	// Server is the server to attach to; the zero value is this home's own.
 	Server attachTarget
+	// View is the one workspace view to show, or the zero View for the
+	// whole session.
+	View View
 }
 
 func resolveCWD(requested string) (string, error) {

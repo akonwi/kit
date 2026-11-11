@@ -29,7 +29,10 @@ type Settings struct {
 	DiffWrapLines   bool
 	// DiffLayout is the client's preferred diff layout, DiffLayoutUnified
 	// (the default) or DiffLayoutSplit.
-	DiffLayout     string
+	DiffLayout string
+	// WorkspacePanes is where the terminal client shows workspace views,
+	// WorkspacePanesRex (the default) or WorkspacePanesTabs.
+	WorkspacePanes string
 	ModelOverrides map[string]ModelOverride
 	// PromptCacheRetention is "short" (the default) or "long".
 	PromptCacheRetention string
@@ -93,6 +96,14 @@ const (
 const (
 	DiffLayoutUnified = "unified"
 	DiffLayoutSplit   = "split"
+)
+
+// Workspace pane values. Rex opens each workspace view in a pane of the Rex
+// session hosting the terminal client, when there is one, and in the
+// client's own tab strip otherwise; Tabs always uses the tab strip.
+const (
+	WorkspacePanesTabs = "tabs"
+	WorkspacePanesRex  = "rex"
 )
 
 // Store serializes settings operations performed through one application-owned
@@ -441,7 +452,7 @@ func (s *Store) load() (Settings, []Warning, error) {
 	if err != nil {
 		return Settings{}, nil, malformed(fmt.Errorf("decode settings %q: %w", s.path, err))
 	}
-	result := Settings{Theme: theme.SystemName, DiffLayout: DiffLayoutUnified, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: fields}
+	result := Settings{Theme: theme.SystemName, DiffLayout: DiffLayoutUnified, WorkspacePanes: WorkspacePanesRex, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: fields}
 	var warnings []Warning
 	if raw, ok := fields["theme"]; ok {
 		var name string
@@ -465,6 +476,14 @@ func (s *Store) load() (Settings, []Warning, error) {
 			warnings = append(warnings, Warning{Field: "diffLayout", Err: errors.New(`must be "unified" or "split"; using unified`)})
 		} else {
 			result.DiffLayout = layout
+		}
+	}
+	if raw, ok := fields["workspacePanes"]; ok {
+		var panes string
+		if err := json.Unmarshal(raw, &panes); err != nil || (panes != WorkspacePanesTabs && panes != WorkspacePanesRex) {
+			warnings = append(warnings, Warning{Field: "workspacePanes", Err: errors.New(`must be "rex" or "tabs"; using rex`)})
+		} else {
+			result.WorkspacePanes = panes
 		}
 	}
 	if raw, ok := fields["defaultModel"]; ok {
@@ -640,6 +659,7 @@ func defaultSettings() Settings {
 
 func cloneSettings(source Settings) Settings {
 	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, CompactionModel: source.CompactionModel, DiffWrapLines: source.DiffWrapLines, DiffLayout: source.DiffLayout,
+		WorkspacePanes:       source.WorkspacePanes,
 		PromptCacheRetention: source.PromptCacheRetention, ReadClaudeConfigs: source.ReadClaudeConfigs, ServerListen: source.ServerListen,
 		ServerAllowedHosts: slices.Clone(source.ServerAllowedHosts), ServerAllowedOrigins: slices.Clone(source.ServerAllowedOrigins), fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {

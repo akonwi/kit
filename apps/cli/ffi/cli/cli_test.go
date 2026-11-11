@@ -147,13 +147,18 @@ Available Commands:
   version     Print version information
 
 Flags:
-      --cwd string        working directory used for session lookup or creation
-  -h, --help              help for kit
-      --model string      override the startup provider/model
-  -s, --session string    open a long or unambiguous short session ID
-      --temp              use a temporary session discarded on exit
-      --thinking string   override the startup reasoning level
-  -v, --version           print version information
+      --annotation uint       with --view diff or file, the annotation to reveal
+      --conversation string   with --view subagent, the conversation to show
+      --cwd string            working directory used for session lookup or creation
+  -h, --help                  help for kit
+      --line int              with --view file or host-file, the line to show
+      --model string          override the startup provider/model
+      --path string           with --view file or host-file, the file to show
+  -s, --session string        open a long or unambiguous short session ID
+      --temp                  use a temporary session discarded on exit
+      --thinking string       override the startup reasoning level
+  -v, --version               print version information
+      --view string           show only one view of the session: diff, file, host-file, subagent, or scratchpad
 
 Use "kit [command] --help" for more information about a command.
 `

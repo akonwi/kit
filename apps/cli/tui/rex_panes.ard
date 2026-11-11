@@ -1,0 +1,744 @@
+use ard/testing
+
+use go:bytes
+use go:context
+use go:encoding/json
+use go:kit/ffi/contextbridge
+use go:os
+use go:os/exec
+use go:path/filepath
+use go:strings
+use go:sync
+
+// Opens workspace views in panes of the Rex session that hosts the terminal
+// client (ADR 0067).
+//
+// It drives the rex command-line tool that ships with the Rex server, found
+// through REX_BIN_DIR, and never starts a Rex server. Each call is bounded,
+// and any failure is returned so the client can show the view in its own
+// tabs instead.
+
+// The oldest Rex API revision Kit has been checked against.
+let min_api_revision = 12
+
+// A workspace view to show in a pane.
+struct View {
+  // Identifies the view: opening an ID that has an open pane reuses it.
+  id: Str,
+  // Names the pane.
+  label: Str,
+  // The pane's working directory, used when it exists here.
+  cwd: Str,
+  // Runs the view.
+  command: [Str],
+  // Replaces an open pane for `id` with a new one in the same place, so the
+  // view shows this opening's line or annotation.
+  retarget: Bool,
+}
+
+// Opens views in panes beside the client's own pane, and remembers the panes
+// it opened, by view ID, for the life of the client. Its methods may run on
+// any goroutine; they run one at a time.
+struct Placer {
+  session: Str,
+  block: Str,
+  // Runs rex with arguments after the executable and returns its standard
+  // output, or a failure as "rex SUBCOMMAND: MESSAGE".
+  run: fn(context::Context, [Str]) Str!Str,
+  lock: &mut sync::Mutex,
+  detected: Bool,
+  // The first failure to open a pane, or empty. Every later opening fails
+  // with it, so the client keeps later views in its own tabs.
+  failure: Str,
+  // The block showing each view; `order` lists the blocks in the order they
+  // were opened, and `last` is the newest.
+  panes: [Str: Str],
+  order: [Str],
+  last: Str,
+}
+
+// The rex replies Kit reads. Unknown fields are ignored.
+private struct Location {
+  block_id: Str,
+  api_revision: Int,
+}
+
+private struct ViewBlock {
+  block_id: Str,
+}
+
+private struct ViewLayer {
+  blocks: [ViewBlock],
+}
+
+private struct ViewWindow {
+  layers: [ViewLayer],
+}
+
+private struct SessionView {
+  windows: [ViewWindow],
+}
+
+private struct Created {
+  block_ids: [Str],
+}
+
+// A Placer when the environment says the client runs directly in a Rex
+// terminal, or none. It runs nothing: the Rex server is first asked when a
+// view opens.
+fn detect(getenv: fn(Str) Str) (&mut Placer)? {
+  // Another multiplexer between Kit and Rex owns the layout the user sees.
+  let nested = getenv("TMUX") != "" or getenv("STY") != "" or getenv("ZELLIJ") != ""
+  let session = getenv("REX_SESSION")
+  let block = getenv("REX_BLOCK")
+  let directory = getenv("REX_BIN_DIR")
+  match getenv("TERM_PROGRAM") == "rex" and (not nested) and session != "" and block != "" and directory != "" {
+    true => Maybe::new(new(session, block, command_runner(filepath::Join(directory, "rex")))),
+    false => Maybe::new<&mut Placer>(),
+  }
+}
+
+// A Placer for the client running in `block` of the Rex session, calling rex
+// through `run`.
+fn new(session: Str, block: Str, run: fn(context::Context, [Str]) Str!Str) &mut Placer {
+  &mut Placer{
+    session: session,
+    block: block,
+    run: run,
+    lock: &mut sync::Mutex{},
+    detected: false,
+    failure: "",
+    panes: Map::new<Str>(),
+    order: [],
+    last: "",
+  }
+}
+
+// Runs the rex executable at `path`, within five seconds. It never starts a
+// Rex server, and a failure carries what rex printed to standard error.
+fn command_runner(path: Str) fn(context::Context, [Str]) Str!Str {
+  fn(ctx: context::Context, args: [Str]) Str!Str {
+    let bounded = contextbridge::WithTimeout(ctx, 5000)
+    defer bounded.Cancel()
+    let arguments = &mut List::new<Str>()
+    arguments.push("--autostart=false")
+    for arg in args {
+      arguments.push(arg)
+    }
+    let command = exec::CommandContext(bounded.Context, path, arguments.*...)
+    let stdout = &mut bytes::Buffer{}
+    let stderr = &mut bytes::Buffer{}
+    command.Stdout = stdout
+    command.Stderr = stderr
+    let subcommand = args.at(0).or("")
+    match command.Run() {
+      ok(_) => Result::ok(stdout.String()),
+      err(error) => {
+        let message = strings::TrimPrefix(strings::TrimSpace(stderr.String()), "Error: ")
+        match message == "" {
+          true => Result::err("rex {subcommand}: {error}"),
+          false => Result::err("rex {subcommand}: {message}"),
+        }
+      },
+    }
+  }
+}
+
+impl Placer {
+  // Shows `view` in a pane. A pane already showing its ID is focused, or
+  // replaced in place when `view.retarget` is set. Otherwise the first view
+  // opens to the right of the client's pane and each later one below the
+  // last one opened, as long as it is still open.
+  //
+  // After one opening fails, every later one fails the same way. An opening
+  // canceled through `ctx` is not a failure, and a pane it made but no longer
+  // needs is closed.
+  fn mut open(ctx: context::Context, view: View) Void!Str {
+    self.lock.Lock()
+    defer self.lock.Unlock()
+    if not self.detected {
+      try self.detect(ctx)
+    }
+    match {
+      view.id == "" or view.command.size() == 0 => Result::err("the view has no ID or command"),
+      self.failure != "" => Result::err(self.failure),
+      contextbridge::Done(ctx) => Result::err("canceled"),
+      _ => {
+        let result = self.place(ctx, view)
+        match result {
+          err(message) => {
+            if not contextbridge::Done(ctx) {
+              self.failure = message
+            }
+          },
+          ok(_) => (),
+        }
+        result
+      },
+    }
+  }
+
+  // Closes every pane this Placer opened that is still open.
+  fn mut close(ctx: context::Context) {
+    self.lock.Lock()
+    defer self.lock.Unlock()
+    if self.detected and self.order.size() > 0 {
+      match self.open_blocks(ctx) {
+        ok(open) => {
+          for block in self.order {
+            if open.get(block).or(false) {
+              let _ = (self.run)(ctx, ["block", "close", "-s", self.session, block])
+            }
+          }
+          self.panes = Map::new<Str>()
+          self.order = []
+          self.last = ""
+        },
+        err(_) => (),
+      }
+    }
+  }
+
+  // Checks once that the Rex server knows the client's pane and is new
+  // enough. A canceled check is asked again next time.
+  private fn mut detect(ctx: context::Context) Void!Str {
+    let failure = match (self.run)(ctx, ["whoami", "--json"]) {
+      ok(output) => {
+        let location = &mut Location{block_id: "", api_revision: 0}
+        match json::Unmarshal(output.bytes(), location) {
+          err(_) => "rex whoami: unreadable reply",
+          ok(_) => {
+            match {
+              location.block_id != self.block => "the Rex server doesn't know this terminal",
+              location.api_revision < min_api_revision => {
+                "Rex API revision {location.api_revision} is older than {min_api_revision}; update Rex"
+              },
+              _ => "",
+            }
+          },
+        }
+      },
+      err(message) => message,
+    }
+    match contextbridge::Done(ctx) {
+      true => Result::err("canceled"),
+      false => {
+        self.detected = true
+        self.failure = failure
+        match failure == "" {
+          true => Result::ok(()),
+          false => Result::err(failure),
+        }
+      },
+    }
+  }
+
+  private fn mut place(ctx: context::Context, view: View) Void!Str {
+    let open = try self.open_blocks(ctx)
+    let existing = self.panes.get(view.id).or("")
+    match {
+      existing != "" and open.get(existing).or(false) and (not view.retarget) => {
+        let _ = try (self.run)(ctx, ["focus", "-s", self.session, existing])
+        Result::ok(())
+      },
+      existing != "" and open.get(existing).or(false) => self.replace(ctx, existing, view),
+      _ => {
+        let below = self.last != "" and open.get(self.last).or(false)
+        let anchor = match below {
+          true => self.last,
+          false => self.block,
+        }
+        let direction = match below {
+          true => "below",
+          false => "right",
+        }
+        let block = try self.split(ctx, anchor, direction, view)
+        match contextbridge::Done(ctx) {
+          true => {
+            self.discard(block)
+            Result::err("canceled")
+          },
+          false => {
+            self.remember(view.id, block, "")
+            Result::ok(())
+          },
+        }
+      },
+    }
+  }
+
+  // Shows `view` in a new pane that splits `existing`, which then closes and
+  // leaves the new one its whole space. If the old pane can't close, the new
+  // one closes instead, so one pane still shows the view.
+  private fn mut replace(ctx: context::Context, existing: Str, view: View) Void!Str {
+    let replacement = try self.split(ctx, existing, "right", view)
+    match (self.run)(ctx, ["block", "close", "-s", self.session, existing]) {
+      err(message) => {
+        self.discard(replacement)
+        Result::err(message)
+      },
+      ok(_) => {
+        self.remember(view.id, replacement, existing)
+        Result::ok(())
+      },
+    }
+  }
+
+  // Lists the blocks placed in the session's windows.
+  private fn open_blocks(ctx: context::Context) [Str: Bool]!Str {
+    let output = try (self.run)(ctx, ["api", "call", "-s", self.session, "session.view"])
+    let view = &mut SessionView{windows: []}
+    match json::Unmarshal(output.bytes(), view) {
+      err(_) => Result::err("rex session.view: unreadable reply"),
+      ok(_) => {
+        let open = &mut Map::new<Bool>()
+        for window in view.windows {
+          for layer in window.layers {
+            for block in layer.blocks {
+              open.set(block.block_id, true)
+            }
+          }
+        }
+        Result::ok(open.*)
+      },
+    }
+  }
+
+  // Opens `view` in a new pane on the `direction` side of `anchor`; Rex
+  // focuses it.
+  private fn split(ctx: context::Context, anchor: Str, direction: Str, view: View) Str!Str {
+    let args = &mut List::new<Str>()
+    for arg in ["split", "-s", self.session, "-b", anchor, "--split", direction, "--shell", "none", "--json"] {
+      args.push(arg)
+    }
+    if view.label != "" {
+      args.push("--label")
+      args.push(view.label)
+    }
+    if is_directory(view.cwd) {
+      args.push("-c")
+      args.push(view.cwd)
+    }
+    args.push("--")
+    for part in view.command {
+      args.push(part)
+    }
+    let output = try (self.run)(ctx, args.*)
+    let created = &mut Created{block_ids: []}
+    let block = match json::Unmarshal(output.bytes(), created) {
+      ok(_) => created.block_ids.at(0).or(""),
+      err(_) => "",
+    }
+    match block == "" {
+      true => Result::err("rex split: unreadable reply"),
+      false => Result::ok(block),
+    }
+  }
+
+  // Closes a pane this Placer won't keep, without the context of the opening
+  // that made it, which may have ended.
+  private fn discard(block: Str) {
+    let bounded = contextbridge::WithTimeout(context::Background(), 5000)
+    defer bounded.Cancel()
+    let _ = (self.run)(bounded.Context, ["block", "close", "-s", self.session, block])
+  }
+
+  // Records `block` as the pane for `id`, in place of `replaced` if set.
+  private fn mut remember(id: Str, block: Str, replaced: Str) {
+    let panes = &mut Map::new<Str>()
+    for key, value in self.panes {
+      panes.set(key, value)
+    }
+    panes.set(id, block)
+    self.panes = panes.*
+    let order = &mut List::new<Str>()
+    for existing in self.order {
+      match existing == replaced {
+        true => order.push(block),
+        false => order.push(existing),
+      }
+    }
+    if replaced == "" {
+      order.push(block)
+      self.last = block
+    } else if self.last == replaced {
+      self.last = block
+    }
+    self.order = order.*
+  }
+}
+
+// Whether `path` names a directory on this machine.
+private fn is_directory(path: Str) Bool {
+  match path == "" {
+    true => false,
+    false => {
+      match os::Stat(path) {
+        ok(info) => info.IsDir(),
+        err(_) => false,
+      }
+    },
+  }
+}
+
+// A pretend Rex server for tests: it records each rex invocation and answers
+// for a session whose open blocks are `open`.
+private struct FakeRex {
+  calls: [[Str]],
+  whoami: Str,
+  open: [Str],
+  next: Int,
+  // Fails invocations by subcommand with a message.
+  failures: [Str: Str],
+  // Cancels the context when a split finishes, if set.
+  cancel_after_split: fn()?,
+}
+
+private fn fake_rex() &mut FakeRex {
+  &mut FakeRex{
+    calls: [],
+    whoami: `{{"block_id":"block:agent","session_id":"session:s","api_revision":12}}`,
+    open: ["block:agent"],
+    next: 0,
+    failures: Map::new<Str>(),
+    cancel_after_split: Maybe::new<fn()>(),
+  }
+}
+
+impl FakeRex {
+  fn mut runner() fn(context::Context, [Str]) Str!Str {
+    fn(ctx: context::Context, args: [Str]) Str!Str {
+      self.answer(args)
+    }
+  }
+
+  private fn mut answer(args: [Str]) Str!Str {
+    let calls = &mut List::new<[Str]>()
+    for call in self.calls {
+      calls.push(call)
+    }
+    calls.push(args)
+    self.calls = calls.*
+    let name = args.at(0).or("")
+    match self.failures.get(name) {
+      message => Result::err(message),
+      _ => {
+        match {
+          name == "whoami" => Result::ok(self.whoami),
+          name == "api" => {
+            let blocks = &mut List::new<Str>()
+            for block in self.open {
+              blocks.push(`{{"block_id":"{block}"}}`)
+            }
+            let joined = strings::Join(blocks.*, ",")
+            Result::ok(`{{"windows":[{{"layers":[{{"blocks":[{joined}]}}]}}]}}`)
+          },
+          name == "split" => {
+            self.next = self.next + 1
+            let block = "block:view{self.next}"
+            self.open_block(block)
+            match self.cancel_after_split {
+              cancel => cancel(),
+              _ => (),
+            }
+            Result::ok(`{{"block_ids":["{block}"]}}`)
+          },
+          name == "block" => {
+            self.close_block(args.at(args.size() - 1).or(""))
+            Result::ok("{{}}")
+          },
+          _ => Result::ok("{{}}"),
+        }
+      },
+    }
+  }
+
+  private fn mut open_block(block: Str) {
+    let open = &mut List::new<Str>()
+    for existing in self.open {
+      open.push(existing)
+    }
+    open.push(block)
+    self.open = open.*
+  }
+
+  private fn mut close_block(block: Str) {
+    let open = &mut List::new<Str>()
+    for existing in self.open {
+      if existing != block {
+        open.push(existing)
+      }
+    }
+    self.open = open.*
+  }
+
+  private fn mut fail(name: Str, message: Str) {
+    let failures = &mut Map::new<Str>()
+    failures.set(name, message)
+    self.failures = failures.*
+  }
+
+  private fn mut succeed() {
+    self.failures = Map::new<Str>()
+  }
+
+  // The recorded invocations other than whoami and session.view, one line
+  // each.
+  private fn commands() [Str] {
+    let lines = &mut List::new<Str>()
+    for call in self.calls {
+      let name = call.at(0).or("")
+      if name != "whoami" and name != "api" {
+        lines.push(strings::Join(call, " "))
+      }
+    }
+    lines.*
+  }
+}
+
+private fn view(id: Str) View {
+  View{
+    id: id,
+    label: id,
+    cwd: "",
+    command: ["kit", "--view", id],
+    retarget: false,
+  }
+}
+
+private fn assert_commands(fake: &mut FakeRex, expected: [Str]) Void!Str {
+  let got = fake.commands()
+  let shown = strings::Join(got, "\n")
+  let wanted = strings::Join(expected, "\n")
+  testing::assert(shown == wanted, "commands =\n{shown}\nwant\n{wanted}")
+}
+
+private fn environment(overrides: [Str: Str]) fn(Str) Str {
+  fn(name: Str) Str {
+    match overrides.get(name) {
+      value => value,
+      _ => {
+        match {
+          name == "TERM_PROGRAM" => "rex",
+          name == "REX_SESSION" => "session:s",
+          name == "REX_BLOCK" => "block:agent",
+          name == "REX_BIN_DIR" => "/Applications/Rex/bin",
+          _ => "",
+        }
+      },
+    }
+  }
+}
+
+private fn one(name: Str, value: Str) [Str: Str] {
+  let map = &mut Map::new<Str>()
+  map.set(name, value)
+  map.*
+}
+
+test fn detect_requires_a_rex_terminal_without_another_multiplexer() Void!Str {
+  try testing::assert(detect(environment(Map::new<Str>())).is_some(), "a Rex terminal places views")
+  try testing::assert(detect(environment(one("TERM_PROGRAM", "ghostty"))).is_none(), "Ghostty doesn't")
+  try testing::assert(
+    detect(environment(one("TMUX", "/tmp/tmux-501/default,1,0"))).is_none(),
+    "tmux inside Rex doesn't",
+  )
+  try testing::assert(
+    detect(environment(one("REX_BLOCK", ""))).is_none(),
+    "nor a terminal without a block",
+  )
+  testing::assert(
+    detect(environment(one("REX_BIN_DIR", ""))).is_none(),
+    "nor one without the rex tool",
+  )
+}
+
+test fn the_first_view_opens_right_of_the_client_and_later_ones_below() Void!Str {
+  let fake = fake_rex()
+  let placer = new("session:s", "block:agent", fake.runner())
+  let ctx = context::Background()
+  let directory = os::TempDir()
+  let first = &mut view("diff")
+  first.cwd = directory
+  try placer.open(ctx, first.*)
+  try placer.open(ctx, view("file"))
+  assert_commands(
+    fake,
+    [
+      "split -s session:s -b block:agent --split right --shell none --json --label diff -c {directory} -- kit --view diff",
+      "split -s session:s -b block:view1 --split below --shell none --json --label file -- kit --view file",
+    ],
+  )
+}
+
+test fn opening_an_open_view_focuses_or_replaces_its_pane() Void!Str {
+  let fake = fake_rex()
+  let placer = new("session:s", "block:agent", fake.runner())
+  let ctx = context::Background()
+  try placer.open(ctx, view("diff"))
+  try placer.open(ctx, view("diff"))
+  let retarget = &mut view("diff")
+  retarget.retarget = true
+  try placer.open(ctx, retarget.*)
+  try placer.open(ctx, view("file"))
+  assert_commands(
+    fake,
+    [
+      "split -s session:s -b block:agent --split right --shell none --json --label diff -- kit --view diff",
+      "focus -s session:s block:view1",
+      "split -s session:s -b block:view1 --split right --shell none --json --label diff -- kit --view diff",
+      "block close -s session:s block:view1",
+      // The replacement is the last view opened.
+      "split -s session:s -b block:view2 --split below --shell none --json --label file -- kit --view file",
+    ],
+  )
+}
+
+test fn a_view_whose_pane_was_closed_opens_again() Void!Str {
+  let fake = fake_rex()
+  let placer = new("session:s", "block:agent", fake.runner())
+  let ctx = context::Background()
+  try placer.open(ctx, view("diff"))
+  fake.open = ["block:agent"]
+  try placer.open(ctx, view("diff"))
+  assert_commands(
+    fake,
+    [
+      "split -s session:s -b block:agent --split right --shell none --json --label diff -- kit --view diff",
+      "split -s session:s -b block:agent --split right --shell none --json --label diff -- kit --view diff",
+    ],
+  )
+}
+
+test fn opening_fails_when_rex_doesnt_know_the_client_or_is_too_old() Void!Str {
+  for whoami in [
+    `{{"block_id":"block:other","api_revision":12}}`,
+    `{{"block_id":"block:agent","api_revision":11}}`,
+    "nope",
+  ] {
+    let fake = fake_rex()
+    fake.whoami = whoami
+    let placer = new("session:s", "block:agent", fake.runner())
+    try testing::assert(placer.open(context::Background(), view("diff")).is_err(), "{whoami} fails")
+    try testing::assert(
+      placer.open(context::Background(), view("diff")).is_err() and fake.calls.size() == 1,
+      "{whoami} isn't asked again",
+    )
+  }
+  Result::ok(())
+}
+
+test fn a_failed_opening_keeps_later_views_out_of_panes() Void!Str {
+  let fake = fake_rex()
+  fake.fail("split", "rex split: window is full")
+  let placer = new("session:s", "block:agent", fake.runner())
+  let ctx = context::Background()
+  let failed = match placer.open(ctx, view("diff")) {
+    err(message) => message,
+    ok(_) => "",
+  }
+  try testing::assert(failed == "rex split: window is full", "the failure is reported: {failed}")
+  fake.succeed()
+  fake.calls = []
+  let later = match placer.open(ctx, view("file")) {
+    err(message) => message,
+    ok(_) => "",
+  }
+  try testing::assert(later == "rex split: window is full", "a later opening fails the same way: {later}")
+  testing::assert(fake.calls.size() == 0, "without asking Rex")
+}
+
+test fn a_retarget_that_cannot_close_the_old_pane_keeps_it() Void!Str {
+  let fake = fake_rex()
+  let placer = new("session:s", "block:agent", fake.runner())
+  let ctx = context::Background()
+  try placer.open(ctx, view("file"))
+  fake.fail("block", "rex block: busy")
+  let retarget = &mut view("file")
+  retarget.retarget = true
+  try testing::assert(placer.open(ctx, retarget.*).is_err(), "the retarget fails")
+  fake.succeed()
+  fake.calls = []
+  placer.close(ctx)
+  // The replacement's close failed too, so both are still open; the old one
+  // is still tracked and closes with the client.
+  assert_commands(fake, ["block close -s session:s block:view1"])
+}
+
+test fn a_canceled_opening_closes_the_pane_it_made_and_is_no_failure() Void!Str {
+  let fake = fake_rex()
+  let canceled = contextbridge::WithCancel(context::Background())
+  fake.cancel_after_split = Maybe::new(canceled.Cancel)
+  let placer = new("session:s", "block:agent", fake.runner())
+  try testing::assert(placer.open(canceled.Context, view("diff")).is_err(), "the opening is canceled")
+  try testing::assert(
+    fake.open.size() == 1 and fake.open.at(0).or("") == "block:agent",
+    "the canceled opening's pane closed",
+  )
+  fake.cancel_after_split = Maybe::new<fn()>()
+  testing::assert(
+    placer.open(context::Background(), view("diff")).is_ok(),
+    "a later opening still works",
+  )
+}
+
+test fn closing_closes_only_the_open_panes_it_placed() Void!Str {
+  let fake = fake_rex()
+  let placer = new("session:s", "block:agent", fake.runner())
+  let ctx = context::Background()
+  try placer.open(ctx, view("diff"))
+  try placer.open(ctx, view("file"))
+  try placer.open(ctx, view("scratchpad"))
+  // The user closed the file pane and opened one of their own.
+  fake.open = ["block:agent", "block:view1", "block:view3", "block:theirs"]
+  fake.calls = []
+  placer.close(ctx)
+  assert_commands(
+    fake,
+    ["block close -s session:s block:view1", "block close -s session:s block:view3"],
+  )
+}
+
+test fn closing_without_panes_asks_nothing() Void!Str {
+  let fake = fake_rex()
+  new("session:s", "block:agent", fake.runner()).close(context::Background())
+  testing::assert(fake.calls.size() == 0, "nothing ran")
+}
+
+test fn the_command_runner_never_starts_a_server_and_reports_rex_errors() Void!Str {
+  let directory = try os::MkdirTemp(
+    "",
+    "rex-panes",
+  ).map_err(fn(error: Error) Str {
+    error.error()
+  })
+  defer {
+    let _ = os::RemoveAll(directory)
+  }
+  let script = filepath::Join(directory, "rex")
+  let body = "#!/bin/sh\nif [ \"$2\" = fail ]; then echo 'Error: block not found' >&2; exit 1; fi\necho \"$@\"\n"
+  try os::WriteFile(
+    script,
+    body.bytes(),
+    493,
+  ).map_err(fn(error: Error) Str {
+    error.error()
+  })
+  let run = command_runner(script)
+  let output = match run(context::Background(), ["whoami", "--json"]) {
+    ok(text) => text,
+    err(message) => "failed: {message}",
+  }
+  try testing::assert(
+    output == "--autostart=false whoami --json\n",
+    "rex gets --autostart=false: {output}",
+  )
+  let failure = match run(context::Background(), ["fail"]) {
+    ok(text) => "succeeded: {text}",
+    err(message) => message,
+  }
+  testing::assert(
+    failure == "rex fail: block not found",
+    "the failure carries rex's message: {failure}",
+  )
+}

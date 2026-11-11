@@ -17,10 +17,12 @@ use go:kit/ffi/contextbridge
 use kit/tui/bootstrap
 use kit/tui/modal
 use kit/tui/palette
+use kit/tui/rex_panes
 use kit/tui/sessions
 use kit/tui/shell
 use kit/tui/terminal_status
 use kit/tui/theme
+use go:os
 
 // Kit's terminal client, built with Cooper.
 
@@ -31,46 +33,70 @@ fn run(options: cli::TUIOptions) Void!Error {
   let system = application.theme()
   defer application.destroy()
   let themes = theme::context(theme::store(theme::resolve(options.ThemeDefinition, system)))
+  let panes = match options.WorkspacePanes == "tabs" {
+    true => Maybe::new<&mut rex_panes::Placer>(),
+    false => rex_panes::detect(os::Getenv),
+  }
   let props = shell::Props{
+    // A single view leaves the session's status to the client showing the
+    // whole session, so the multiplexer shows one status per session.
     options: options,
     themes: themes,
     quit: fn() {
       application.context.destroy_live()
     },
     attach: bootstrap::attach,
-    terminal: terminal_status::Terminal{
-      set_title: fn(value: Str) Bool {
-        application.context.set_title(value)
-      },
-      progress: fn(state: terminal_progress::State) Bool {
-        application.context.progress(state, Maybe::new<Int>())
-      },
-      bell: fn() Bool {
-        application.context.bell()
-      },
-      notify: fn(message: Str, title: Str) Bool {
-        application.context.notify(message, title: title)
-      },
-      program_status: fn(report: program_status::Report) Bool {
-        application.context.program_status(report)
-      },
-      program_status_supported: fn() Bool {
-        application.context.program_status_supported()
-      },
-      focused: fn() Bool {
-        match application.context.terminal_focus() {
-          focus => focus == event::TerminalFocus::gained,
-          _ => false,
-        }
-      },
+    terminal: match options.View.Kind == "" {
+      true => terminal(application),
+      false => terminal_status::detached(),
     },
     open_url: fn(target: Str) Void!Error {
       application.context.open_url(target)
     },
+    panes: panes,
   }
   let renderer = cui::mount(application, cui::child(shell::new, props))
   defer renderer.destroy()
-  application.run()
+  let result = application.run()
+  // The client showing the whole session closes the panes it opened; a
+  // single view leaves its panes to the user.
+  if options.View.Kind == "" {
+    match panes {
+      placer => placer.close(context::Background()),
+      _ => (),
+    }
+  }
+  result
+}
+
+// The hosting terminal, which shows the session's status.
+private fn terminal(application: cooper::App) terminal_status::Terminal {
+  terminal_status::Terminal{
+    set_title: fn(value: Str) Bool {
+      application.context.set_title(value)
+    },
+    progress: fn(state: terminal_progress::State) Bool {
+      application.context.progress(state, Maybe::new<Int>())
+    },
+    bell: fn() Bool {
+      application.context.bell()
+    },
+    notify: fn(message: Str, title: Str) Bool {
+      application.context.notify(message, title: title)
+    },
+    program_status: fn(report: program_status::Report) Bool {
+      application.context.program_status(report)
+    },
+    program_status_supported: fn() Bool {
+      application.context.program_status_supported()
+    },
+    focused: fn() Bool {
+      match application.context.terminal_focus() {
+        focus => focus == event::TerminalFocus::gained,
+        _ => false,
+      }
+    },
+  }
 }
 
 let picker_min_rows = 10

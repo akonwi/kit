@@ -45,6 +45,41 @@ type TUIOptions struct {
 	DiffPreferenceService DiffPreferenceService
 	// Relaunch receives the client's request to relaunch after an update.
 	Relaunch *Relaunch
+	// View is the one workspace view this client shows in place of the
+	// whole session, or the zero View for the whole session.
+	View View
+	// WorkspacePanes is where workspace views open: "rex" for Rex panes
+	// when the client runs in Rex, or "tabs" for the client's own tabs.
+	WorkspacePanes string
+	// Views builds the command lines that show this client's session's
+	// views in panes, or is nil when views can't open in panes.
+	Views *ViewLauncher
+}
+
+// The kinds of View.
+const (
+	ViewDiff       = "diff"
+	ViewFile       = "file"
+	ViewHostFile   = "host-file"
+	ViewSubagent   = "subagent"
+	ViewScratchpad = "scratchpad"
+)
+
+// View names one workspace view of a session: a terminal client started
+// with `kit --view` shows only it (ADR 0067).
+type View struct {
+	// Kind is one of ViewDiff, ViewFile, ViewHostFile, ViewSubagent, and
+	// ViewScratchpad, or empty for the whole session.
+	Kind string
+	// Path is a File view's workspace-relative path, or a host File view's
+	// absolute or ~/ path on the session's server.
+	Path string
+	// Line is the line a File view opens at, or 0.
+	Line int
+	// Conversation is a Subagent view's conversation.
+	Conversation string
+	// Annotation is the annotation a Diff or File view reveals, or 0.
+	Annotation uint64
 }
 
 // DeviceLogin performs OpenAI Codex device-code login on the attached server.

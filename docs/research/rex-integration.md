@@ -41,6 +41,8 @@ and Kit at 97f0beea.
 - Composer: view panes have none. The Agent pane owns the only composer.
 - Retargeting: restart the view in place for now, and add client intents if
   this ships.
+- Setting: panes are on by default in Rex; `"workspacePanes": "tabs"` opts
+  out.
 - ADR: draft one if work goes ahead.
 
 The spike results are under [Spike](#spike-2026-11-11).

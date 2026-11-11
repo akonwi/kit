@@ -566,6 +566,30 @@ func TestLoadDiffLayout(t *testing.T) {
 	}
 }
 
+func TestLoadWorkspacePanes(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		document string
+		panes    string
+		warned   bool
+	}{
+		{`{}`, WorkspacePanesRex, false},
+		{`{"workspacePanes":"rex"}`, WorkspacePanesRex, false},
+		{`{"workspacePanes":"tabs"}`, WorkspacePanesTabs, false},
+		{`{"workspacePanes":"tmux"}`, WorkspacePanesRex, true},
+		{`{"workspacePanes":false}`, WorkspacePanesRex, true},
+	} {
+		path := filepath.Join(t.TempDir(), "settings.json")
+		if err := os.WriteFile(path, []byte(test.document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, warnings, err := newTestStore(t, path).Load()
+		if err != nil || loaded.WorkspacePanes != test.panes || (len(warnings) == 1 && warnings[0].Field == "workspacePanes") != test.warned {
+			t.Errorf("Load(%s) = %q, %v, %v; want %q, warned %v", test.document, loaded.WorkspacePanes, warnings, err, test.panes, test.warned)
+		}
+	}
+}
+
 func TestLoadPromptCacheRetention(t *testing.T) {
 	t.Parallel()
 

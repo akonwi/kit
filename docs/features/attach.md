@@ -26,6 +26,11 @@ different server that appears at the same address.
 
 `local` names this home's own server; `kit attach local` behaves like `kit`.
 
+`kit attach SERVER --session ID --view KIND` shows one workspace view of a
+session instead of the whole session, as `kit --view` does for this home's
+server. It never starts a server, even `local`. See
+[workspace views in panes](workspace-views.md).
+
 ## Servers at a URL
 
 A server on another machine is reached at the URL it is served at, such as a

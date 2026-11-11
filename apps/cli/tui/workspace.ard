@@ -232,6 +232,36 @@ impl Tabs {
     }
   }
 
+  // The id of the secondary tab `delta` places from the selected one,
+  // wrapping among the secondary tabs and skipping Agent; Agent when none is
+  // open.
+  fn beside_secondary(delta: Int) Str {
+    let count = self.open.size()
+    match count == 0 {
+      true => agent,
+      false => {
+        // From Agent, the first step forward is the first tab and the first
+        // step back is the last.
+        let current = self.position(self.selected) - 1
+        let place = match current < 0 {
+          true => {
+            match delta > 0 {
+              true => -1,
+              false => 0,
+            }
+          },
+          false => current,
+        }
+        let shifted = (place + delta) % count
+        let step = match shifted < 0 {
+          true => shifted + count,
+          false => shifted,
+        }
+        self.open.at(step).expect("an open tab").id
+      },
+    }
+  }
+
   // Each open tab's label: its own, or for File tabs sharing a name, the
   // path.
   fn labels() [Str] {
@@ -283,6 +313,17 @@ impl Tabs {
   }
 }
 
+// The `kit --view` kind that shows tabs of the kind.
+fn view_kind(kind: Kind) Str {
+  match kind {
+    Kind::scratchpad => "scratchpad",
+    Kind::file => "file",
+    Kind::host_file => "host-file",
+    Kind::diff => "diff",
+    Kind::subagent => "subagent",
+  }
+}
+
 // Whether tabs of the kind show a file.
 fn is_file(kind: Kind) Bool {
   kind == Kind::file or kind == Kind::host_file
@@ -330,6 +371,21 @@ test fn moving_wraps_through_agent() Void!Str {
   try testing::assert(subject.beside(-1) == "a", "previous goes back one")
   let _ = subject.select(agent)
   testing::assert(subject.beside(-1) == "b" and subject.beside(1) == "a", "Agent wraps both ways")
+}
+
+test fn moving_among_secondary_tabs_skips_agent() Void!Str {
+  let subject = tabs()
+  try testing::assert(subject.beside_secondary(1) == agent, "with no tabs it stays on Agent")
+  let _ = subject.open(named("a"))
+  let _ = subject.open(named("b"))
+  let _ = subject.open(named("c"))
+  try testing::assert(subject.beside_secondary(1) == "a", "next from the last tab wraps to the first")
+  try testing::assert(subject.beside_secondary(-1) == "b", "previous goes back one")
+  let _ = subject.select(agent)
+  testing::assert(
+    subject.beside_secondary(1) == "a" and subject.beside_secondary(-1) == "c",
+    "from Agent, next is the first tab and previous the last",
+  )
 }
 
 test fn closing_selects_the_neighbor() Void!Str {

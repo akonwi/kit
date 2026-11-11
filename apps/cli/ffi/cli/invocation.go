@@ -13,6 +13,7 @@ import (
 	kit "github.com/akonwi/kit/api"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/savedservers"
 	"github.com/akonwi/kit/internal/settings"
 	kittheme "github.com/akonwi/kit/internal/theme"
 )
@@ -145,6 +146,8 @@ type Environment struct {
 	themeName  string
 	diffWrap   bool
 	diffLayout string
+	// workspacePanes is where the client opens workspace views.
+	workspacePanes string
 }
 
 // OpenEnvironment validates the working directory, connects to the server,
@@ -173,6 +176,12 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 	var serverPaths apphome.Paths
 	var client *kit.Client
 	switch {
+	case target.own() && invocation.options.View.Kind != "":
+		// A single view, from `kit --view` or `kit attach local --view`,
+		// attaches to this home's server as it runs; it never starts or
+		// replaces it.
+		serverPaths = paths
+		client, err = connectAttachTarget(ctx, attachTarget{Name: savedservers.LocalName, Home: paths.Home})
 	case target.own():
 		serverPaths = paths
 		client, err = bootstrapLocalClient(ctx, paths)
@@ -248,6 +257,7 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 		themeName:       loadedSettings.Theme,
 		diffWrap:        loadedSettings.DiffWrapLines,
 		diffLayout:      loadedSettings.DiffLayout,
+		workspacePanes:  loadedSettings.WorkspacePanes,
 	}
 }
 
@@ -353,6 +363,11 @@ func (e Environment) prepared(
 		},
 		client: e.Client,
 		target: e.target,
+	}
+	prepared.Options.View = options.View
+	prepared.Options.WorkspacePanes = e.workspacePanes
+	if executable, err := os.Executable(); err == nil {
+		prepared.Options.Views = &ViewLauncher{executable: executable, home: e.paths.Home, target: e.target}
 	}
 	if options.Temporary {
 		prepared.temporaryID = options.NewSessionID

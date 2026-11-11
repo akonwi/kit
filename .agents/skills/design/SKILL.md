@@ -307,7 +307,7 @@ Do not store JSX, components, or callbacks in pane descriptors. Identity reflect
 
 - `WorkspacePaneHost` owns the full-width Agent/workspace tab strip, labeled overflow, modal pane picker, selection, and retention.
 - Agent is permanently first and contains the existing transcript presentation unchanged; omit the strip while no secondary pane is open.
-- The composer remains fixed and available beneath every selected tab. `Tab` and `Shift+Tab` move focus between the selected Agent/workspace content and composer; active modal or interaction layers trap those focus intents locally.
+- The composer remains fixed and available beneath every selected tab of the client showing the whole session (single views have none; see below). `Tab` and `Shift+Tab` move focus between the selected Agent/workspace content and composer; active modal or interaction layers trap those focus intents locally.
 - Directory browsing uses the modal workspace file picker, not a retained Explorer tab. Opening a file creates or selects its File tab.
 - Annotations render inline at their anchored lines or ranges and project immediately as synchronized structured chips above the fixed composer on every tab. Activating a chip reveals its resource and anchor. Review is a target-scoped workflow over annotations across File and Diff tabs, not a Review tab; target, changed-file, draft-summary, and submission flows use bounded modals.
 - The subagent roster uses a modal status picker. Only explicitly opened durable conversations become retained tabs.
@@ -333,6 +333,23 @@ Do not store JSX, components, or callbacks in pane descriptors. Identity reflect
 - Gate keyboard layers, mouse interaction, focus, polling, and expensive watchers with the pane's `active` state where appropriate.
 - Call `onFocusRequest` before a mouse action assumes keyboard ownership.
 - Terminal resizing preserves the selected tab and retained state; width changes only label packing, overflow, wrapping, and feature-owned internal layout.
+
+### Single views
+
+A terminal client started with `kit --view` (or `kit attach … --view`) shows one workspace view
+([ADR 0067](../../../docs/adrs/0067-place-workspace-views-in-rex-panes.md)).
+Under Rex, unless `workspacePanes` is `tabs`, Kit opens every view this
+way, in its own Rex pane. The multiplexer's pane then plays the tab's role.
+
+- Keep the session header and footer, and put the view's pane directly
+  beneath the header rule. There's no Agent tab, transcript, composer, dock,
+  or annotation chips. The client showing the whole session owns those.
+- A tab strip appears only when the view has opened a second view of its
+  own, and it has no Agent entry.
+- With nothing open, center the wordmark over a muted instruction that says
+  how to close the view.
+- A single view reports no terminal status and raises no session-level
+  alerts.
 
 ### In-pane drawers
 

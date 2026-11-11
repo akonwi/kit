@@ -128,6 +128,9 @@ func newRootCommand(deps commandDependencies) *cobra.Command {
 			if err := validateInteractiveOptions(options, false); err != nil {
 				return err
 			}
+			if err := validateView(options.View, options); err != nil {
+				return err
+			}
 			return resultForCode(deps.interactive(command.Context(), options, command.OutOrStdout(), command.ErrOrStderr()))
 		},
 		PersistentPreRunE: func(command *cobra.Command, _ []string) error {
@@ -162,6 +165,7 @@ func newRootCommand(deps commandDependencies) *cobra.Command {
 		return usageError{message: err.Error()}
 	})
 	bindInteractiveFlags(root, &options)
+	bindViewFlags(root, &options.View)
 
 	root.AddCommand(
 		newNewCommand(deps),
@@ -535,6 +539,9 @@ func newAttachCommand(deps commandDependencies) *cobra.Command {
 			if err := validateInteractiveOptions(options, false); err != nil {
 				return err
 			}
+			if err := validateView(options.View, options); err != nil {
+				return err
+			}
 			server := ""
 			if len(arguments) == 1 {
 				server = arguments[0]
@@ -543,6 +550,7 @@ func newAttachCommand(deps commandDependencies) *cobra.Command {
 		},
 	}
 	bindInteractiveFlags(command, &options)
+	bindViewFlags(command, &options.View)
 	return command
 }
 
