@@ -38,7 +38,7 @@ export const PROTOCOL_VERSION = 2;
  * it, so a copy taken from tag `vX.Y.Z` says `"X.Y.Z"`; it is `"unreleased"`
  * before the first release that includes the helper.
  */
-export const KIT_RELEASE: string = "0.59.0";
+export const KIT_RELEASE: string = "0.60.0";
 
 /** How long stopping waits for a setup that is still running. */
 const SETUP_STOP_GRACE_MS = 1500;
