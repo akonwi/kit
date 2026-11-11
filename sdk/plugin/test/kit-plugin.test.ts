@@ -385,6 +385,77 @@ describe("events", () => {
     expect(turns).toEqual(["started turn_1", "completed turn_1"]);
   });
 
+  test("session status is current from setup, on change, and on request", async () => {
+    const usage = (input: number, total: number) => ({
+      input,
+      output: 10,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: input + 10,
+      cost: { input: total, output: 0, cacheRead: 0, cacheWrite: 0, total },
+    });
+    const first = {
+      sessionId: "session-test",
+      model: "anthropic/claude-sonnet-4-5",
+      thinkingLevel: "medium",
+      parent: null,
+      context: null,
+      usage: usage(100, 0.25),
+    };
+    const second = { ...first, context: { tokens: 1200, window: 200000 }, usage: usage(300, 0.5) };
+    const seen: unknown[] = [];
+    let plugin: Kit | undefined;
+    const kit = await startTestPlugin(
+      (connected) => {
+        plugin = connected;
+        seen.push(["setup", connected.session.status?.model]);
+        connected.on("session.status.changed", (status) => void seen.push(["changed", status.usage.cost.total, connected.session.status?.context]));
+      },
+      { status: first },
+    );
+    await kit.emit("session.status.changed", second);
+    expect(seen).toEqual([
+      ["setup", "anthropic/claude-sonnet-4-5"],
+      ["changed", 0.5, { tokens: 1200, window: 200000 }],
+    ]);
+    expect(await plugin?.session.getStatus()).toEqual(second);
+    expect(plugin?.session.status).toEqual(second);
+  });
+
+  test("compaction events reach listeners", async () => {
+    const seen: unknown[] = [];
+    const kit = await startTestPlugin((plugin) => {
+      plugin.on("compaction.started", ({ compactionId, turnId }) => void seen.push(["started", compactionId, turnId]));
+      plugin.on("compaction.completed", ({ compactionId, failureReason }) => void seen.push(["completed", compactionId, failureReason]));
+    });
+    await kit.emit("compaction.started", { sessionId: "session-test", compactionId: "compaction_1", turnId: null });
+    await kit.emit("compaction.completed", {
+      sessionId: "session-test",
+      compactionId: "compaction_1",
+      turnId: null,
+      failureReason: null,
+    });
+    expect(seen).toEqual([
+      ["started", "compaction_1", null],
+      ["completed", "compaction_1", null],
+    ]);
+  });
+
+  test("status is null on a Kit without session status", async () => {
+    let plugin: Kit | undefined;
+    await startTestPlugin(
+      (connected) => {
+        plugin = connected;
+      },
+      { status: null },
+    );
+    expect(plugin?.session.status).toBeNull();
+    const failure = await plugin?.session.getStatus().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(KitError);
+    expect((failure as KitError).code).toBe(ErrorCode.MethodNotFound);
+  });
+
   test("unknown notifications and members are ignored", async () => {
     const names: unknown[] = [];
     const kit = await startTestPlugin((plugin) => {

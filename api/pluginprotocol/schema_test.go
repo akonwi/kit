@@ -96,6 +96,12 @@ var validMessages = map[string][]string{
 		`{"jsonrpc":"2.0","id":7,"error":{"code":-32006,"message":"Session is busy","data":{"reason":"session_busy"}}}`,
 		// Objects Kit sends are open: a newer Kit may add members.
 		`{"jsonrpc":"2.0","method":"kit/events/session.changed","params":{"id":"session_1","name":null,"future":true}}`,
+		`{"jsonrpc":"2.0","id":"kit-7","method":"initialize","params":{"protocolVersion":2,"kit":{"version":"0.60.0"},"instance":{"id":"pluginhost_0123:1"},"context":{"project":{"cwd":"/repo","git":null},"session":{"id":"session_1","name":null}},"status":{"sessionId":"session_1","model":"openai/gpt-5","thinkingLevel":"","parent":null,"context":null,"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}}}}}`,
+		`{"jsonrpc":"2.0","method":"kit/events/session.status.changed","params":{"sessionId":"session_2","model":"anthropic/claude-sonnet-4-5","thinkingLevel":"medium","parent":{"id":"session_1","name":null},"context":{"tokens":48210,"window":200000},"usage":{"input":812345,"output":40211,"cacheRead":700000,"cacheWrite":52000,"reasoning":9000,"totalTokens":1613556,"cost":{"input":2.44,"output":0.6,"cacheRead":0.21,"cacheWrite":0.2,"total":3.45}}}}`,
+		`{"jsonrpc":"2.0","id":"plugin-2","result":{"sessionId":"session_2","model":"anthropic/claude-sonnet-4-5","thinkingLevel":"medium","parent":{"id":"session_1","name":null},"context":{"tokens":48210,"window":200000},"usage":{"input":812345,"output":40211,"cacheRead":700000,"cacheWrite":52000,"reasoning":9000,"totalTokens":1613556,"cost":{"input":2.44,"output":0.6,"cacheRead":0.21,"cacheWrite":0.2,"total":3.45}}}}`,
+		`{"jsonrpc":"2.0","method":"kit/events/compaction.started","params":{"sessionId":"session_1","compactionId":"compaction_1","turnId":null}}`,
+		`{"jsonrpc":"2.0","method":"kit/events/compaction.completed","params":{"sessionId":"session_1","compactionId":"compaction_1","turnId":"turn_1","failureReason":null}}`,
+		`{"jsonrpc":"2.0","method":"kit/events/compaction.completed","params":{"sessionId":"session_1","compactionId":"compaction_1","turnId":null,"failureReason":"provider_error"}}`,
 	},
 	"plugin": {
 		`{"jsonrpc":"2.0","id":"kit-1","result":{"protocolVersion":2}}`,
@@ -118,6 +124,7 @@ var validMessages = map[string][]string{
 		`{"jsonrpc":"2.0","id":14,"method":"kit/ui/input","params":{"title":"Name","placeholder":"name","initialValue":""}}`,
 		`{"jsonrpc":"2.0","id":15,"method":"kit/ui/select","params":{"title":"Target","options":[{"label":"File","value":{"kind":"file"}},{"label":"None","value":null,"description":null}],"placeholder":null}}`,
 		`{"jsonrpc":"2.0","id":16,"method":"kit/session/submit-message","params":{"text":"Continue.","idempotencyKey":"loop-1"}}`,
+		`{"jsonrpc":"2.0","id":17,"method":"kit/session/status"}`,
 		`{"jsonrpc":"2.0","id":17,"method":"kit/system/open-url","params":{"url":"https://example.com/docs"}}`,
 		`{"jsonrpc":"2.0","id":"kit-5","result":{"content":[{"type":"text","text":"spoke"},{"type":"image","data":"iVBORw0KGgo=","mimeType":"image/png"}],"details":{"ok":true},"terminate":false}}`,
 		`{"jsonrpc":"2.0","id":"kit-6","result":{"action":"reject-and-continue","message":"The user rejected this command."}}`,
@@ -127,6 +134,11 @@ var validMessages = map[string][]string{
 
 // invalidMessages are messages a sender must not write.
 var invalidMessages = map[string][]string{
+	"kit": {
+		`{"jsonrpc":"2.0","method":"kit/events/compaction.completed","params":{"sessionId":"session_1","compactionId":"compaction_1","turnId":null,"failureReason":"exploded"}}`,
+		`{"jsonrpc":"2.0","method":"kit/events/session.status.changed","params":{"sessionId":"session_1","model":"openai/gpt-5","thinkingLevel":"","parent":null,"context":{"tokens":1,"window":0},"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}}}}`,
+		`{"jsonrpc":"2.0","method":"kit/events/session.status.changed","params":{"sessionId":"session_1","model":"openai/gpt-5","thinkingLevel":""}}`,
+	},
 	"plugin": {
 		`[{"jsonrpc":"2.0","id":1,"method":"kit/tools/unregister","params":{"id":"x"}}]`,
 		`{"jsonrpc":"2.0","id":1,"method":"kit/footer/set","params":{"id":"status","content":[{"text":"x"}],"side":"right"}}`,
@@ -139,6 +151,7 @@ var invalidMessages = map[string][]string{
 		`{"jsonrpc":"2.0","id":1,"method":"kit/tools/register","params":{"id":"Bad","description":"x","inputSchema":{"type":"object"}}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"kit/tools/register","params":{"id":"ok","description":"x","inputSchema":{"type":"object","$ref":"#/x"}}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"kit/tool-calls/register-interceptor","params":{}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"kit/session/status","params":{}}`,
 		`{"jsonrpc":"2.0","method":"kit/ui/toast","params":{"title":"x","variant":"debug"}}`,
 		`{"jsonrpc":"2.0","method":"kit/ui/toast","params":{"title":"x","variant":"info","extra":1}}`,
 		`{"jsonrpc":"2.0","method":"kit/cancel","params":{"id":"kit-3","reason":"done"}}`,

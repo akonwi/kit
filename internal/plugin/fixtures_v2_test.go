@@ -252,6 +252,8 @@ func (s *fixtureSession) handle(line []byte, awaited string) (json.RawMessage, b
 		result = pluginprotocol.SelectResult{Value: options.Options[0].Value}
 	case "kit/session/submit-message":
 		result = pluginprotocol.SubmitMessageResult{MessageID: "message_1", TurnID: "turn_1"}
+	case "kit/session/status":
+		result = testStatus(100, 0.01)
 	default:
 		result = nil
 	}

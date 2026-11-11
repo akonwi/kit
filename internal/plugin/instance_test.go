@@ -212,7 +212,10 @@ func TestPluginInstanceHelper(t *testing.T) {
 			// Keep reading so cancellation and shutdown can proceed concurrently.
 		case "kit/cancel":
 		default:
-			_ = encoder.Encode(responseMessage(message.ID, message.Params, nil))
+			// Plugins ignore notifications they do not know.
+			if message.ID != nil {
+				_ = encoder.Encode(responseMessage(message.ID, message.Params, nil))
+			}
 		}
 	}
 }
@@ -233,7 +236,7 @@ func testInstanceVersion(t *testing.T, parent context.Context, mode string, hand
 	}
 	root := t.TempDir()
 	installation := Installation{Root: root, Manifest: Manifest{ManifestVersion: 1, ProtocolVersion: protocolVersion, ID: "example", Transport: StdioTransport{Type: "stdio", Command: executable, Args: []string{"-test.run=^TestPluginInstanceHelper$", "--", mode}}}}
-	instance, err := startInstance(parent, InstanceID{HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "session-one", PluginID: "example", Generation: 1}, installation, PluginContext{Project: ProjectContext{Cwd: root}, Session: SessionContext{ID: "session-one"}}, handlers, deadlines)
+	instance, err := startInstance(parent, InstanceID{HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "session-one", PluginID: "example", Generation: 1}, installation, PluginContext{Project: ProjectContext{Cwd: root}, Session: SessionContext{ID: "session-one"}}, nil, handlers, deadlines)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,12 +463,12 @@ func TestInstanceIdentityAndContextValidation(t *testing.T) {
 	installation := Installation{Root: t.TempDir(), Manifest: Manifest{ManifestVersion: 1, ID: "example", Transport: StdioTransport{Type: "stdio", Command: "./must-not-launch"}}}
 	initial := PluginContext{Project: ProjectContext{Cwd: t.TempDir()}, Session: SessionContext{ID: "session-one"}}
 	for _, id := range []InstanceID{{HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "session-one", PluginID: "example"}, {HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "other-session", PluginID: "example", Generation: 1}, {HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "session-one", PluginID: "different-plugin", Generation: 1}} {
-		if _, err := StartInstance(t.Context(), id, installation, initial, RPCHandlers{}); err == nil || errors.Is(err, os.ErrNotExist) {
+		if _, err := StartInstance(t.Context(), id, installation, initial, nil, RPCHandlers{}); err == nil || errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("identity reached launch: %v", err)
 		}
 	}
 	initial.Project.Cwd = "relative"
-	if _, err := StartInstance(t.Context(), InstanceID{HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "session-one", PluginID: "example", Generation: 1}, installation, initial, RPCHandlers{}); err == nil || errors.Is(err, os.ErrNotExist) {
+	if _, err := StartInstance(t.Context(), InstanceID{HostID: "pluginhost_0123456789abcdef0123456789abcdef", SessionID: "session-one", PluginID: "example", Generation: 1}, installation, initial, nil, RPCHandlers{}); err == nil || errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("invalid cwd reached launch: %v", err)
 	}
 }

@@ -306,6 +306,10 @@ export interface KitEvents {
   "git.changed": GitChangedParams;
   "turn.started": TurnStartedParams;
   "turn.completed": TurnCompletedParams;
+  /** The session's status changed; `kit.session.status` is already current. */
+  "session.status.changed": SessionStatus;
+  "compaction.started": CompactionParams;
+  "compaction.completed": CompactionCompletedParams;
 }
 
 /** The session the plugin runs in. */
@@ -316,6 +320,17 @@ export interface SessionAPI extends Readonly<Session> {
    * cannot start a turn now; Kit does not queue the message.
    */
   submitMessage(text: string, options?: RequestOptions & { idempotencyKey?: string }): Promise<SubmitMessageResult>;
+  /**
+   * The session's model, context use, and cumulative usage and cost, kept
+   * current. Null when Kit sent none, as Kit releases before session status
+   * do.
+   */
+  readonly status: Readonly<SessionStatus> | null;
+  /**
+   * Asks Kit for the latest status and updates `status`. Rejects with
+   * `ErrorCode.MethodNotFound` on a Kit release without session status.
+   */
+  getStatus(options?: RequestOptions): Promise<SessionStatus>;
 }
 
 /** What a plugin can do, grouped by kind. */
@@ -402,6 +417,9 @@ const events: Record<string, keyof KitEvents> = {
   "kit/events/git.changed": "git.changed",
   "kit/events/agent.turn.started": "turn.started",
   "kit/events/agent.turn.completed": "turn.completed",
+  "kit/events/session.status.changed": "session.status.changed",
+  "kit/events/compaction.started": "compaction.started",
+  "kit/events/compaction.completed": "compaction.completed",
 };
 
 function describe(error: unknown): string {
@@ -424,6 +442,7 @@ export function connect(setup: Setup, io: PluginIO): Connection {
   let dispose: Disposer | undefined;
   let info: InitializeParams | undefined;
   let session: Session = { id: "", name: null };
+  let status: SessionStatus | null = null;
   let project: Project = { cwd: "", git: null };
   let nextId = 0;
   let markReady: () => void = () => {};
@@ -525,6 +544,13 @@ export function connect(setup: Setup, io: PluginIO): Connection {
           options?.idempotencyKey === undefined ? { text } : { text, idempotencyKey: options.idempotencyKey },
           options,
         ),
+      get status() {
+        return status;
+      },
+      async getStatus(options) {
+        status = await request("kit/session/status", undefined, options);
+        return status;
+      },
     },
     get project() {
       return project;
@@ -739,6 +765,7 @@ export function connect(setup: Setup, io: PluginIO): Connection {
       info = init;
       session = init.context.session;
       project = init.context.project;
+      status = init.status ?? null;
       initialized = true;
       send({ id, result: { protocolVersion: PROTOCOL_VERSION } });
       setupDone = runSetup();
@@ -781,6 +808,7 @@ export function connect(setup: Setup, io: PluginIO): Connection {
     if (event === "session.changed") session = params as Session;
     if (event === "project.changed") project = params as Project;
     if (event === "git.changed") project = { ...project, git: (params as GitChangedParams).git };
+    if (event === "session.status.changed") status = params as SessionStatus;
     for (const listener of [...(listeners.get(event) ?? [])]) {
       void track(
         Promise.resolve()
@@ -924,6 +952,24 @@ export interface CommandRegisterParams {
   id: LocalID;
 }
 
+export interface CompactionCompletedParams {
+  compactionId: string;
+  /** Null when compaction succeeded. */
+  failureReason: CompactionFailureReason | null;
+  sessionId: string;
+  /** Null for a compaction outside a turn, such as one a client asked for. */
+  turnId: string | null;
+}
+
+export type CompactionFailureReason = "summary_truncated" | "summary_invalid" | "policy_stop" | "provider_error" | "not_adaptable" | "canceled" | "conflict" | "internal_error";
+
+export interface CompactionParams {
+  compactionId: string;
+  sessionId: string;
+  /** Null for a compaction outside a turn, such as one a client asked for. */
+  turnId: string | null;
+}
+
 export interface ConfirmParams {
   /** At most 128 bytes. */
   cancelLabel?: string | null;
@@ -944,6 +990,11 @@ export type ConfirmResult = boolean;
 export interface Context {
   project: Project;
   session: Session;
+}
+
+export interface ContextStatus {
+  tokens: number;
+  window: number;
 }
 
 export interface ErrorData {
@@ -1010,6 +1061,8 @@ export interface InitializeParams {
   instance: InstanceInfo;
   kit: KitInfo;
   protocolVersion: 2;
+  /** The session's status when the instance starts. */
+  status?: SessionStatus;
 }
 
 export interface InitializeResult {
@@ -1061,6 +1114,11 @@ export type Null = null;
 export interface OpenURLParams {
   /** An absolute http or https URL without credentials. */
   url: string;
+}
+
+export interface ParentSession {
+  id: string;
+  name: string | null;
 }
 
 export interface Project {
@@ -1137,6 +1195,38 @@ export type SelectResult = {
 export interface Session {
   id: string;
   name: string | null;
+}
+
+export interface SessionStatus {
+  /** Null before Kit knows the model's context window. */
+  context: ContextStatus | null;
+  /** The provider/id model selector. */
+  model: string;
+  /** The session this one was started from, such as a subagent's parent; null for none. */
+  parent: ParentSession | null;
+  sessionId: string;
+  /** The applied thinking level. */
+  thinkingLevel: string;
+  /** Cumulative provider usage and cost in US dollars, for this session only. */
+  usage: SessionUsage;
+}
+
+export interface SessionUsage {
+  cacheRead: number;
+  cacheWrite: number;
+  cost: SessionUsageCost;
+  input: number;
+  output: number;
+  reasoning: number;
+  totalTokens: number;
+}
+
+export interface SessionUsageCost {
+  cacheRead: number;
+  cacheWrite: number;
+  input: number;
+  output: number;
+  total: number;
 }
 
 export interface SubagentRegisterParams {
@@ -1338,6 +1428,8 @@ export interface PluginRequests {
   "kit/ui/select": { params: SelectParams; result: SelectResult };
   /** Starts a turn in the plugin's idle session. */
   "kit/session/submit-message": { params: SubmitMessageParams; result: SubmitMessageResult };
+  /** Returns the session's latest status. */
+  "kit/session/status": { params: undefined; result: SessionStatus };
   /** Asks the session's attached clients to open a web page. */
   "kit/system/open-url": { params: OpenURLParams; result: Null };
 }
@@ -1378,6 +1470,12 @@ export interface KitNotifications {
   "kit/events/agent.turn.started": TurnStartedParams;
   /** A turn settled; carries its user and assistant text. */
   "kit/events/agent.turn.completed": TurnCompletedParams;
+  /** Reports the session's status after any member changed; a newer status replaces one still queued. */
+  "kit/events/session.status.changed": SessionStatus;
+  /** Reports that the session started compacting its conversation. */
+  "kit/events/compaction.started": CompactionParams;
+  /** Reports that a compaction ended, with its failure reason if it failed. */
+  "kit/events/compaction.completed": CompactionCompletedParams;
 }
 
 /** Error codes, by name. */

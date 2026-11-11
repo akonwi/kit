@@ -1,8 +1,9 @@
 """Test-only plugin for protocol 2 that withdraws what it registers.
 
 Its churn command unregisters a command and its tool, registers and
-unregisters an interceptor, and cancels a dialog it opened, so the conformance
-test sees every plugin request the repository's fixtures do not send. Never
+unregisters an interceptor, cancels a dialog it opened, and asks for the
+session's status, so the conformance test sees every plugin request the
+repository's fixtures do not send. Never
 installed automatically.
 """
 import json
@@ -43,6 +44,7 @@ for line in sys.stdin:
         request("stop-intercepting", "kit/tool-calls/unregister-interceptor")
         request("dialog", "kit/ui/confirm", {"title": "Withdrawn at once"})
         send({"jsonrpc": "2.0", "method": "kit/cancel", "params": {"id": "dialog"}})
+        request("status", "kit/session/status")
         reply(identifier, None)
     elif method == "kit/tools/execute":
         reply(identifier, {"content": [{"type": "text", "text": "scratch"}]})

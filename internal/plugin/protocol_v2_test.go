@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/api/pluginprotocol"
 	"github.com/akonwi/kit/internal/apphome"
 	kitversion "github.com/akonwi/kit/internal/version"
@@ -349,6 +350,9 @@ func TestVersion2MessagesKitSendsMatchTheSchema(t *testing.T) {
 	}
 	host.TurnStarted("turn_1")
 	host.TurnCompleted(PublicTurn{ID: "turn_1", Messages: []PublicMessage{{Role: pluginprotocol.RoleUser, Content: []PublicTextContent{{Type: "text", Text: "hi"}}}}}, "")
+	host.SetStatus(testStatus(1000, 0.5))
+	host.CompactionChanged(Compaction{ID: "compaction_1"})
+	host.CompactionChanged(Compaction{ID: "compaction_1", Completed: true, FailureReason: contract.CompactionFailureProviderError})
 	host.Rename("Renamed")
 	git.Dirty = true
 	host.refreshGit()
@@ -356,7 +360,8 @@ func TestVersion2MessagesKitSendsMatchTheSchema(t *testing.T) {
 	eventuallyHost(t, func() bool {
 		data, _ := os.ReadFile(filepath.Join(root, "received.jsonl"))
 		return bytes.Contains(data, []byte(`"kit/events/project.changed"`)) && bytes.Contains(data, []byte(`"kit/events/session.changed"`)) &&
-			bytes.Contains(data, []byte(`"kit/events/git.changed"`)) && bytes.Contains(data, []byte(`"kit/events/agent.turn.completed"`))
+			bytes.Contains(data, []byte(`"kit/events/git.changed"`)) && bytes.Contains(data, []byte(`"kit/events/agent.turn.completed"`)) &&
+			bytes.Contains(data, []byte(`"kit/events/session.status.changed"`)) && bytes.Contains(data, []byte(`"kit/events/compaction.completed"`))
 	})
 	ctx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()

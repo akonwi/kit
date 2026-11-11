@@ -1241,6 +1241,7 @@ func (p *daemonEchoProviders) ID() string { return "test" }
 func (p *daemonEchoProviders) Models() []droids.Model {
 	alternate := p.model()
 	alternate.ID, alternate.Name, alternate.Input = "echo-alt", "Echo Alternate", []string{"text", "image"}
+	alternate.ContextWindow = 64_000
 	return []droids.Model{p.model(), alternate}
 }
 func (p *daemonEchoProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {

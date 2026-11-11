@@ -38,6 +38,7 @@ import {
   type RequestID,
   type SelectParams,
   type Session,
+  type SessionStatus,
   type Setup,
   type SubagentRegisterParams,
   type SubmitMessageParams,
@@ -59,6 +60,14 @@ export interface TestKitOptions {
   pluginId?: string;
   session?: Session;
   project?: Project;
+  /**
+   * The session's status at initialize and from `kit/session/status`.
+   * Defaults to a session on `test/model` with no usage and no known
+   * context window; emitting `session.status.changed` replaces it. Null
+   * acts as a Kit release without session status: initialize carries none
+   * and `kit/session/status` is not found.
+   */
+  status?: SessionStatus | null;
   kitVersion?: string;
   instanceId?: string;
   /**
@@ -144,6 +153,9 @@ const eventMethods: Record<keyof KitEvents, string> = {
   "git.changed": "kit/events/git.changed",
   "turn.started": "kit/events/agent.turn.started",
   "turn.completed": "kit/events/agent.turn.completed",
+  "session.status.changed": "kit/events/session.status.changed",
+  "compaction.started": "kit/events/compaction.started",
+  "compaction.completed": "kit/events/compaction.completed",
 };
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -288,6 +300,22 @@ export async function startTestPlugin(setup: Setup, options: TestKitOptions = {}
   const footer = new Map<string, FooterSegment[]>();
   const hidden = new Set<string>();
   const toasts: ToastParams[] = [];
+  let status: SessionStatus | null = options.status !== undefined ? options.status : {
+    sessionId: options.session?.id ?? "session-test",
+    model: "test/model",
+    thinkingLevel: "off",
+    parent: null,
+    context: null,
+    usage: {
+      input: 0,
+      output: 0,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+  };
   const messages: SubmitMessageParams[] = [];
   const urls: string[] = [];
   const dialogs: Dialog[] = [];
@@ -487,18 +515,20 @@ export async function startTestPlugin(setup: Setup, options: TestKitOptions = {}
       case "kit/system/open-url":
         urls.push((params as { url: string }).url);
         return null;
+      case "kit/session/status":
+        if (status) return status;
+        break;
     }
     throw new KitError(ErrorCode.MethodNotFound, `Method not found: ${method}`);
   }
 
+  const session = options.session ?? { id: "session-test", name: null };
   const initialize: InitializeParams = {
     protocolVersion: 2,
     kit: { version: options.kitVersion ?? "test" },
     instance: { id: options.instanceId ?? `${pluginId}:1` },
-    context: {
-      session: options.session ?? { id: "session-test", name: null },
-      project: options.project ?? { cwd: "/project", git: null },
-    },
+    context: { session, project: options.project ?? { cwd: "/project", git: null } },
+    ...(status ? { status } : {}),
   };
   const initialized = call("initialize", initialize);
   if (options.waitForSetup !== false) {
@@ -552,6 +582,7 @@ export async function startTestPlugin(setup: Setup, options: TestKitOptions = {}
         callOptions,
       )) as ToolCallDecision,
     async emit(event, params) {
+      if (event === "session.status.changed") status = params as SessionStatus;
       deliver({ method: eventMethods[event], params });
       await settle();
     },

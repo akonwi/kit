@@ -164,6 +164,123 @@
       ],
       "type": "object"
     },
+    "CompactionCompletedNotification": {
+      "additionalProperties": false,
+      "description": "Reports that a compaction ended, with its failure reason if it failed.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/events/compaction.completed"
+        },
+        "params": {
+          "$ref": "#/$defs/CompactionCompletedParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "CompactionCompletedParams": {
+      "properties": {
+        "compactionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "failureReason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompactionFailureReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Null when compaction succeeded."
+        },
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "turnId": {
+          "description": "Null for a compaction outside a turn, such as one a client asked for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId",
+        "compactionId",
+        "turnId",
+        "failureReason"
+      ],
+      "type": "object"
+    },
+    "CompactionFailureReason": {
+      "enum": [
+        "summary_truncated",
+        "summary_invalid",
+        "policy_stop",
+        "provider_error",
+        "not_adaptable",
+        "canceled",
+        "conflict",
+        "internal_error"
+      ],
+      "type": "string"
+    },
+    "CompactionParams": {
+      "properties": {
+        "compactionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "turnId": {
+          "description": "Null for a compaction outside a turn, such as one a client asked for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId",
+        "compactionId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "CompactionStartedNotification": {
+      "additionalProperties": false,
+      "description": "Reports that the session started compacting its conversation.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/events/compaction.started"
+        },
+        "params": {
+          "$ref": "#/$defs/CompactionParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "ConfirmParams": {
       "additionalProperties": false,
       "properties": {
@@ -255,6 +372,23 @@
       "required": [
         "project",
         "session"
+      ],
+      "type": "object"
+    },
+    "ContextStatus": {
+      "properties": {
+        "tokens": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tokens",
+        "window"
       ],
       "type": "object"
     },
@@ -462,6 +596,27 @@
       ],
       "type": "object"
     },
+    "GetSessionStatusRequest": {
+      "additionalProperties": false,
+      "description": "Returns the session's latest status.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestID"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/session/status"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "type": "object"
+    },
     "Git": {
       "properties": {
         "branch": {
@@ -580,6 +735,10 @@
         },
         "protocolVersion": {
           "const": 2
+        },
+        "status": {
+          "$ref": "#/$defs/SessionStatus",
+          "description": "The session's status when the instance starts."
         }
       },
       "required": [
@@ -799,6 +958,15 @@
         },
         {
           "$ref": "#/$defs/TurnCompletedNotification"
+        },
+        {
+          "$ref": "#/$defs/SessionStatusChangedNotification"
+        },
+        {
+          "$ref": "#/$defs/CompactionStartedNotification"
+        },
+        {
+          "$ref": "#/$defs/CompactionCompletedNotification"
         }
       ]
     },
@@ -914,6 +1082,25 @@
       ],
       "type": "object"
     },
+    "ParentSession": {
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
     "PluginMessage": {
       "anyOf": [
         {
@@ -990,6 +1177,9 @@
         },
         {
           "$ref": "#/$defs/SubmitMessageRequest"
+        },
+        {
+          "$ref": "#/$defs/GetSessionStatusRequest"
         },
         {
           "$ref": "#/$defs/OpenURLRequest"
@@ -1437,6 +1627,141 @@
         "jsonrpc",
         "method",
         "params"
+      ],
+      "type": "object"
+    },
+    "SessionStatus": {
+      "properties": {
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Null before Kit knows the model's context window."
+        },
+        "model": {
+          "description": "The provider/id model selector.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParentSession"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The session this one was started from, such as a subagent's parent; null for none."
+        },
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "thinkingLevel": {
+          "description": "The applied thinking level.",
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/SessionUsage",
+          "description": "Cumulative provider usage and cost in US dollars, for this session only."
+        }
+      },
+      "required": [
+        "sessionId",
+        "model",
+        "thinkingLevel",
+        "parent",
+        "context",
+        "usage"
+      ],
+      "type": "object"
+    },
+    "SessionStatusChangedNotification": {
+      "additionalProperties": false,
+      "description": "Reports the session's status after any member changed; a newer status replaces one still queued.",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "kit/events/session.status.changed"
+        },
+        "params": {
+          "$ref": "#/$defs/SessionStatus"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "SessionUsage": {
+      "properties": {
+        "cacheRead": {
+          "type": "integer"
+        },
+        "cacheWrite": {
+          "type": "integer"
+        },
+        "cost": {
+          "$ref": "#/$defs/SessionUsageCost"
+        },
+        "input": {
+          "type": "integer"
+        },
+        "output": {
+          "type": "integer"
+        },
+        "reasoning": {
+          "type": "integer"
+        },
+        "totalTokens": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input",
+        "output",
+        "cacheRead",
+        "cacheWrite",
+        "reasoning",
+        "totalTokens",
+        "cost"
+      ],
+      "type": "object"
+    },
+    "SessionUsageCost": {
+      "properties": {
+        "cacheRead": {
+          "type": "number"
+        },
+        "cacheWrite": {
+          "type": "number"
+        },
+        "input": {
+          "type": "number"
+        },
+        "output": {
+          "type": "number"
+        },
+        "total": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "input",
+        "output",
+        "cacheRead",
+        "cacheWrite",
+        "total"
       ],
       "type": "object"
     },
@@ -2504,6 +2829,22 @@
       "summary": "Kit admitted a turn.",
       "title": "TurnStarted"
     },
+    "kit/events/compaction.completed": {
+      "direction": "kit-to-plugin",
+      "message": "#/$defs/CompactionCompletedNotification",
+      "notification": true,
+      "params": "#/$defs/CompactionCompletedParams",
+      "summary": "Reports that a compaction ended, with its failure reason if it failed.",
+      "title": "CompactionCompleted"
+    },
+    "kit/events/compaction.started": {
+      "direction": "kit-to-plugin",
+      "message": "#/$defs/CompactionStartedNotification",
+      "notification": true,
+      "params": "#/$defs/CompactionParams",
+      "summary": "Reports that the session started compacting its conversation.",
+      "title": "CompactionStarted"
+    },
     "kit/events/git.changed": {
       "direction": "kit-to-plugin",
       "message": "#/$defs/GitChangedNotification",
@@ -2527,6 +2868,14 @@
       "params": "#/$defs/Session",
       "summary": "The session was renamed.",
       "title": "SessionChanged"
+    },
+    "kit/events/session.status.changed": {
+      "direction": "kit-to-plugin",
+      "message": "#/$defs/SessionStatusChangedNotification",
+      "notification": true,
+      "params": "#/$defs/SessionStatus",
+      "summary": "Reports the session's status after any member changed; a newer status replaces one still queued.",
+      "title": "SessionStatusChanged"
     },
     "kit/footer/clear": {
       "direction": "plugin-to-kit",
@@ -2595,6 +2944,21 @@
       "result": "#/$defs/Null",
       "summary": "Withdraws the plugin's hide claim.",
       "title": "ShowFooterItem"
+    },
+    "kit/session/status": {
+      "direction": "plugin-to-kit",
+      "errors": [
+        -32602,
+        -32603,
+        -32001,
+        -32002,
+        -32006
+      ],
+      "message": "#/$defs/GetSessionStatusRequest",
+      "notification": false,
+      "result": "#/$defs/SessionStatus",
+      "summary": "Returns the session's latest status.",
+      "title": "GetSessionStatus"
     },
     "kit/session/submit-message": {
       "direction": "plugin-to-kit",

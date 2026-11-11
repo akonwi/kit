@@ -8,6 +8,8 @@ type InitializeParams struct {
 	Kit             KitInfo      `json:"kit"`
 	Instance        InstanceInfo `json:"instance"`
 	Context         Context      `json:"context"`
+	// Status is omitted by Kit releases that predate session status.
+	Status *SessionStatus `json:"status,omitempty" doc:"The session's status when the instance starts."`
 }
 
 // KitInfo describes the Kit server speaking to the plugin.

@@ -283,18 +283,21 @@ type runtime struct {
 	plugins                    PluginHost
 	closePluginSubagentCatalog func()
 	pluginNotifications        pluginNotificationHub
-	pullRequestInformerCancel  context.CancelFunc
-	pullRequestInformerSource  PullRequestStatusSubscription
-	pullRequestInformerDone    chan struct{}
-	droid                      *droids.Droid
-	model                      droids.Model
-	store                      droids.Store
-	closeStore                 func() error
-	bundle                     RuntimeBundle
-	workspace                  *workspaceScope
-	events                     *eventLog
-	eventCursor                droids.EventSequence
-	eventChanged               chan struct{}
+	// pluginStatus feeds the session's status to its plugin host; nil
+	// without one.
+	pluginStatus              *pluginStatusFeed
+	pullRequestInformerCancel context.CancelFunc
+	pullRequestInformerSource PullRequestStatusSubscription
+	pullRequestInformerDone   chan struct{}
+	droid                     *droids.Droid
+	model                     droids.Model
+	store                     droids.Store
+	closeStore                func() error
+	bundle                    RuntimeBundle
+	workspace                 *workspaceScope
+	events                    *eventLog
+	eventCursor               droids.EventSequence
+	eventChanged              chan struct{}
 
 	subagentEventMu       sync.Mutex
 	subagentEventPending  *NewEvent
@@ -2957,6 +2960,10 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		interception.binding.Store(&pluginInterceptorBinding{host: policy})
 		if host, ok := loaded.plugins.(PluginToastHost); ok {
 			host.SetToastObserver(loaded.pluginNotifications.publish)
+		}
+		if host, ok := loaded.plugins.(PluginStatusHost); ok {
+			loaded.pluginStatus = newPluginStatusFeed(host, record, snapshot)
+			loaded.events.observe(loaded.pluginStatus.observe)
 		}
 		if host, ok := loaded.plugins.(PluginInteractionHost); ok {
 			host.SetInteractionObserver(func(ctx context.Context, input PluginInteractionInput, available func() bool) (PluginInteractionResult, error) {

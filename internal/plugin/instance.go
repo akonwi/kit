@@ -120,11 +120,11 @@ type Instance struct {
 // StartInstance launches an isolated generation and initializes it in the
 // background. A runtime host can wait sequentially on WaitReady in its own
 // background startup worker without imposing a readiness barrier on turns.
-func StartInstance(parent context.Context, id InstanceID, installation Installation, initial PluginContext, handlers RPCHandlers) (*Instance, error) {
-	return startInstance(parent, id, installation, initial, handlers, defaultInstanceDeadlines)
+func StartInstance(parent context.Context, id InstanceID, installation Installation, initial PluginContext, status *SessionStatus, handlers RPCHandlers) (*Instance, error) {
+	return startInstance(parent, id, installation, initial, status, handlers, defaultInstanceDeadlines)
 }
 
-func startInstance(parent context.Context, id InstanceID, installation Installation, initial PluginContext, handlers RPCHandlers, deadlines instanceDeadlines) (*Instance, error) {
+func startInstance(parent context.Context, id InstanceID, installation Installation, initial PluginContext, status *SessionStatus, handlers RPCHandlers, deadlines instanceDeadlines) (*Instance, error) {
 	if err := parent.Err(); err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 		return nil, err
 	}
 	version := installation.ProtocolVersion()
-	params, err := initializeParams(version, id, initial)
+	params, err := initializeParams(version, id, initial, status)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,9 @@ func startInstance(parent context.Context, id InstanceID, installation Installat
 }
 
 // initializeParams encodes the initialize request of a protocol version.
-func initializeParams(version int, id InstanceID, initial PluginContext) (json.RawMessage, error) {
+// status is the session's status when the instance starts, or nil when the
+// session has given none; version 1 does not carry it.
+func initializeParams(version int, id InstanceID, initial PluginContext, status *SessionStatus) (json.RawMessage, error) {
 	if version == 1 {
 		return json.Marshal(struct {
 			Version int           `json:"protocolVersion"`
@@ -203,6 +205,7 @@ func initializeParams(version int, id InstanceID, initial PluginContext) (json.R
 		Kit:             pluginprotocol.KitInfo{Version: kitversion.Version},
 		Instance:        pluginprotocol.InstanceInfo{ID: id.Wire()},
 		Context:         initial,
+		Status:          status,
 	})
 }
 
@@ -356,6 +359,17 @@ func (i *Instance) tryNotify(method string, params json.RawMessage) error {
 		return rpcError(-32002, "Plugin is unavailable")
 	}
 	return i.rpc.tryNotify(method, params)
+}
+
+// tryNotifyLatest queues a notification of which only the newest value
+// matters; see RPCEndpoint.tryNotifyLatest.
+func (i *Instance) tryNotifyLatest(key, method string, params json.RawMessage) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.state != InstanceReady || i.work.Err() != nil {
+		return rpcError(-32002, "Plugin is unavailable")
+	}
+	return i.rpc.tryNotifyLatest(key, method, params)
 }
 
 // Notify publishes a session event only to this ready generation. A caller

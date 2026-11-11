@@ -715,6 +715,16 @@ type eventLog struct {
 	tailFrom        int64
 	retainedBytes   int
 	changed         chan struct{}
+	// observer sees every appended batch while mu is held; it must not
+	// wait or take locks other than leaf locks.
+	observer func([]NewEvent)
+}
+
+// observe installs fn as the log's observer of appended events.
+func (log *eventLog) observe(fn func([]NewEvent)) {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	log.observer = fn
 }
 
 func newEventLog() (*eventLog, error) {
@@ -809,6 +819,9 @@ func (log *eventLog) append(events []NewEvent) error {
 		log.events = append(log.events, retained)
 		log.retainedBytes += retained.encodedSize
 		log.next++
+	}
+	if log.observer != nil {
+		log.observer(events)
 	}
 	for len(log.events) > maxRetainedEventCount || log.retainedBytes > maxRetainedEventBytes {
 		evict := 0

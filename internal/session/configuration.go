@@ -288,6 +288,9 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	}
 	loaded.eventCursor = snapshot.LastEvent
 	loaded.events.replace(nextEvents)
+	if loaded.pluginStatus != nil {
+		loaded.pluginStatus.replaceRuntime(applied, snapshot)
+	}
 	publishSessionConfiguration(loaded.events, applied)
 	loaded.configurationWarnings = append([]string(nil), warnings...)
 	result := ConfigureSessionResult{
@@ -420,6 +423,9 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 	loaded.eventCursor = after.LastEvent
 	if nextEvents != nil {
 		loaded.events.replace(nextEvents)
+	}
+	if result.Compacted && loaded.pluginStatus != nil {
+		loaded.pluginStatus.resetContext(after)
 	}
 	return CompactSessionResult{
 		OperationID: result.OperationID, Compacted: result.Compacted,

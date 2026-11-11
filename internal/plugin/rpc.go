@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -100,6 +101,9 @@ type rpcIncoming struct {
 type rpcWrite struct {
 	data    []byte
 	written chan error
+	// latest names a notification only the newest value of which matters;
+	// a newer one with the same name replaces this one while it waits.
+	latest string
 }
 type rpcNotification struct {
 	message rpcMessage
@@ -312,6 +316,51 @@ func (e *RPCEndpoint) tryNotify(method string, params json.RawMessage) error {
 	return err
 }
 
+// tryNotifyLatest queues a notification whose newer value replaces an older
+// one with the same key that is still queued. The replacement goes to the end
+// of the queue, so it follows every notification queued before it. A frame
+// already being written is not replaced, so the peer receives at most one
+// stale value and then the latest.
+func (e *RPCEndpoint) tryNotifyLatest(key, method string, params json.RawMessage) error {
+	if err := validateRPCRequest(method, params); err != nil {
+		return err
+	}
+	data, err := json.Marshal(requestMessage(nil, method, params))
+	if err != nil || !utf8.Valid(data) {
+		return rpcError(-32603, "Invalid JSON-RPC output")
+	}
+	if len(data) > e.limits.frame {
+		return rpcError(-32005, "Notification exceeds protocol limits")
+	}
+	data = append(data, '\n')
+	e.mu.Lock()
+	if e.err != nil {
+		err := e.err
+		e.mu.Unlock()
+		return err
+	}
+	// Only this method queues frames with a key, and it keeps at most one
+	// per key, so the first match is the only one.
+	for index := range e.queue {
+		if e.queue[index].latest == key {
+			e.queuedBytes -= len(e.queue[index].data)
+			e.queue = slices.Delete(e.queue, index, index+1)
+			break
+		}
+	}
+	if len(data) > e.limits.queued-e.queuedBytes {
+		e.mu.Unlock()
+		err := rpcError(-32005, "JSON-RPC outbound queue exceeds limit")
+		e.Close(err)
+		return err
+	}
+	e.queue = append(e.queue, rpcWrite{data: data, written: make(chan error, 1), latest: key})
+	e.queuedBytes += len(data)
+	e.wake.Signal()
+	e.mu.Unlock()
+	return nil
+}
+
 // Notify sends a notification and waits for its frame to be written. Once queued,
 // cancellation may stop waiting but cannot retract the notification from the wire.
 func (e *RPCEndpoint) Notify(ctx context.Context, method string, params json.RawMessage) error {
@@ -370,7 +419,7 @@ func (e *RPCEndpoint) enqueue(value any) (<-chan error, error) {
 		e.Close(err)
 		return nil, err
 	}
-	e.queue = append(e.queue, rpcWrite{data, written})
+	e.queue = append(e.queue, rpcWrite{data: data, written: written})
 	e.queuedBytes += len(data)
 	e.wake.Signal()
 	e.mu.Unlock()

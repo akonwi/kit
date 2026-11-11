@@ -97,6 +97,8 @@ func Methods() []Method {
 
 		{Name: "kit/session/submit-message", Title: "SubmitMessage", Direction: PluginToKit, Params: typeOf[SubmitMessageParams](), Result: typeOf[SubmitMessageResult](),
 			Errors: pluginRequestErrorsWith(CodeConflict, CodeLimitExceeded), Summary: "Starts a turn in the plugin's idle session."},
+		{Name: "kit/session/status", Title: "GetSessionStatus", Direction: PluginToKit, Result: typeOf[SessionStatus](),
+			Errors: pluginRequestErrors, Summary: "Returns the session's latest status."},
 		{Name: "kit/system/open-url", Title: "OpenURL", Direction: PluginToKit, Params: typeOf[OpenURLParams](), Result: nullType,
 			Errors: pluginRequestErrorsWith(CodeLimitExceeded), Summary: "Asks the session's attached clients to open a web page."},
 
@@ -110,6 +112,12 @@ func Methods() []Method {
 			Summary: "Kit admitted a turn."},
 		{Name: "kit/events/agent.turn.completed", Title: "TurnCompleted", Direction: KitToPlugin, Notification: true, Params: typeOf[TurnCompletedParams](),
 			Summary: "A turn settled; carries its user and assistant text."},
+		{Name: "kit/events/session.status.changed", Title: "SessionStatusChanged", Direction: KitToPlugin, Notification: true, Params: typeOf[SessionStatus](),
+			Summary: "Reports the session's status after any member changed; a newer status replaces one still queued."},
+		{Name: "kit/events/compaction.started", Title: "CompactionStarted", Direction: KitToPlugin, Notification: true, Params: typeOf[CompactionParams](),
+			Summary: "Reports that the session started compacting its conversation."},
+		{Name: "kit/events/compaction.completed", Title: "CompactionCompleted", Direction: KitToPlugin, Notification: true, Params: typeOf[CompactionCompletedParams](),
+			Summary: "Reports that a compaction ended, with its failure reason if it failed."},
 	}
 }
 

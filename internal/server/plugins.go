@@ -305,6 +305,33 @@ func (h *sessionPluginHost) InterceptTool(ctx context.Context, identity, callID,
 
 func (h *sessionPluginHost) TurnStarted(turnID string) bool { return h.Host.TurnStarted(turnID) }
 
+var _ session.PluginStatusHost = (*sessionPluginHost)(nil)
+
+// SetStatus projects the session's status onto the plugin protocol record.
+func (h *sessionPluginHost) SetStatus(status session.PluginStatus) {
+	projected := plugin.SessionStatus{SessionID: status.SessionID, Model: status.Model, ThinkingLevel: status.ThinkingLevel, Usage: projectSessionUsage(status.Usage)}
+	if status.ParentID != "" {
+		parent := &plugin.ParentSession{ID: status.ParentID}
+		if name := status.ParentName; protocol.ValidSessionName(name) {
+			parent.Name = &name
+		}
+		projected.Parent = parent
+	}
+	if status.ContextWindow > 0 {
+		projected.Context = &plugin.ContextStatus{Tokens: status.ContextTokens, Window: status.ContextWindow}
+	}
+	h.Host.SetStatus(projected)
+}
+
+// CompactionChanged forwards a compaction event to the session's plugins.
+func (h *sessionPluginHost) CompactionChanged(compaction session.PluginCompaction) {
+	var reason protocol.CompactionFailureReason
+	if compaction.FailureReason != "" {
+		reason = projectCompactionFailure(compaction.FailureReason)
+	}
+	h.Host.CompactionChanged(plugin.Compaction{ID: compaction.ID, TurnID: compaction.TurnID, Completed: compaction.Completed, FailureReason: reason})
+}
+
 func (h *sessionPluginHost) TurnCompleted(turn session.PluginTurn) {
 	projected := plugin.PublicTurn{ID: turn.ID, Messages: make([]plugin.PublicMessage, 0, len(turn.Messages))}
 	for _, message := range turn.Messages {

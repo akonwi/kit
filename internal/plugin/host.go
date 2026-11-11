@@ -77,6 +77,8 @@ type hostEntry struct {
 	failure             *InstanceFailure
 	cleanupRecorded     bool
 	turns               map[string]struct{}
+	// status is the session status this generation last received.
+	status *SessionStatus
 }
 
 type hostView struct {
@@ -113,6 +115,13 @@ type Host struct {
 	runDone              chan struct{}
 	notifyDone           chan struct{}
 	gitDone              chan struct{}
+	statusDone           chan struct{}
+	statusWake           chan struct{}
+	// statusMu guards the status inbox. It is a leaf lock, never held with mu.
+	statusMu             sync.Mutex
+	status               *SessionStatus
+	compactions          []Compaction
+	droppedCompactions   int
 	id                   string
 	config               HostConfig
 	ctx                  context.Context
@@ -143,7 +152,7 @@ func NewHost(parent context.Context, config HostConfig) *Host {
 	config.ReservedSubagents = append([]string(nil), config.ReservedSubagents...)
 	config.Session = cloneSessionContext(config.Session)
 	hostID, err := identifier.New("pluginhost_")
-	host := &Host{tools: make(map[string]Tool), clients: make(map[string]*clientInstance), subagents: make(map[string]Subagent), reservedSubagents: make(map[string]struct{}), commands: make(map[string]Command), stateChanged: make(chan struct{}), changed: make(chan struct{}, 1), runDone: make(chan struct{}), notifyDone: make(chan struct{}), gitDone: make(chan struct{}), id: hostID, config: config, now: time.Now, ctx: ctx, cancel: cancel, view: hostView{epoch: 1, projectEpoch: 1, cwd: config.CWD, session: config.Session}, reportedFailures: make(map[InstanceID]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{})}
+	host := &Host{tools: make(map[string]Tool), clients: make(map[string]*clientInstance), subagents: make(map[string]Subagent), reservedSubagents: make(map[string]struct{}), commands: make(map[string]Command), stateChanged: make(chan struct{}), changed: make(chan struct{}, 1), runDone: make(chan struct{}), notifyDone: make(chan struct{}), gitDone: make(chan struct{}), statusDone: make(chan struct{}), statusWake: make(chan struct{}, 1), id: hostID, config: config, now: time.Now, ctx: ctx, cancel: cancel, view: hostView{epoch: 1, projectEpoch: 1, cwd: config.CWD, session: config.Session}, reportedFailures: make(map[InstanceID]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{})}
 	for _, name := range config.ReservedSubagents {
 		host.reservedSubagents[name] = struct{}{}
 	}
@@ -173,7 +182,15 @@ func (h *Host) Start() {
 	h.started = true
 	go h.notifyLoop()
 	go h.gitLoop()
-	go func() { h.run(); close(h.runDone); <-h.notifyDone; <-h.gitDone; close(h.done) }()
+	go h.statusLoop()
+	go func() {
+		h.run()
+		close(h.runDone)
+		<-h.notifyDone
+		<-h.gitDone
+		<-h.statusDone
+		close(h.done)
+	}()
 }
 
 func (h *Host) signal() {
@@ -593,7 +610,11 @@ func (h *Host) reconcile(view hostView) {
 				return h.handleNotification(ctx, entry.owner, method, params)
 			},
 		}
-		instance, err := StartInstance(h.ctx, entry.owner, installation, initial, handlers)
+		status := h.latestStatus()
+		h.mu.Lock()
+		entry.status = status
+		h.mu.Unlock()
+		instance, err := StartInstance(h.ctx, entry.owner, installation, initial, status, handlers)
 		if err != nil {
 			h.mu.Lock()
 			entry.failure = &InstanceFailure{Phase: "launch", Message: diagnosticMessage(err)}
@@ -612,6 +633,8 @@ func (h *Host) reconcile(view hostView) {
 		instance.setRevocationNotify(h.publishChange)
 		_ = instance.WaitReady(h.ctx)
 		h.reconcileContext(entry)
+		// Deliver any status that changed while the instance initialized.
+		h.signalStatus()
 	}
 }
 
