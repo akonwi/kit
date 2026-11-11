@@ -214,7 +214,7 @@ struct BrowserAnnotationCommentBox: View {
                 Spacer(minLength: 4)
                 if session.adding { KitSpinner() }
                 Button("Cancel", action: cancel).buttonStyle(SmallButtonStyle(bordered: true))
-                Button("Add to message", action: add)
+                Button("Save", action: add)
                     .buttonStyle(SmallButtonStyle(prominent: true))
                     .disabled(session.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session.adding)
             }
