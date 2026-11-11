@@ -10,9 +10,10 @@ extension OpenURLAction {
             || (NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags).contains(.command)
     }
 
-    /// Opens web links in a browser tab beside `anchor`; links `externally`
-    /// says to, ⌘-clicked ones by default, and other schemes use the
-    /// system's default handler. `handle` may take a link first, unless it
+    /// Opens web links in a browser tab beside `anchor` and file links in
+    /// their tabs; links `externally` says to, ⌘-clicked ones by default,
+    /// open in the default browser, or a file on this Mac in its default
+    /// app, and other schemes use the system's default handler. `handle` may take a link first, unless it
     /// opens externally.
     @MainActor static func workspace(_ workspace: WorkspaceState, beside anchor: WorkspacePane,
                                      externally opensExternally: @escaping @MainActor (URL) -> Bool = clickedExternally,

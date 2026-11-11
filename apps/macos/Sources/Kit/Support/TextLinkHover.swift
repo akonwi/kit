@@ -69,8 +69,9 @@ enum TranscriptClickable: CaseIterable {
 /// With `linkActions` set, right-clicking or Control-clicking a link shows
 /// a menu for it in place of AppKit's text menu, whose Open Link opens the
 /// system's default browser, or the transcript's Copy Message menu; see
-/// `linkMenu(for:)`. It also tells a ⌘-clicked web link, which opens in the
-/// default browser, from a clicked one; see `takeCommandClick(for:)`.
+/// `linkMenu(for:)`. It also tells a ⌘-clicked web or file link, which
+/// opens in the default browser or app, from a clicked one; see
+/// `takeCommandClick(for:)`.
 @MainActor final class TextLinkHover: NSResponder {
     /// The link under the pointer.
     struct Hovered: Equatable {
@@ -245,7 +246,7 @@ enum TranscriptClickable: CaseIterable {
     }
 
     /// What the region does with a mouse-down: shows a link's menu in place
-    /// of the text's, or notes a ⌘-click on a web link and lets the text have
+    /// of the text's, or notes a ⌘-click on a link and lets the text have
     /// it, so a ⌘-drag from the link still selects. Returns the event when
     /// others still get it.
     func intercept(_ event: NSEvent) -> NSEvent? {
@@ -256,19 +257,24 @@ enum TranscriptClickable: CaseIterable {
         return nil
     }
 
-    /// The web link last ⌘-clicked, until it opens or the next plain click.
+    /// The web or file link last ⌘-clicked, until it opens or the next
+    /// plain click.
     private static var commandClicked: URL?
 
-    /// Notes whether `event` ⌘-clicks a web link in this region, for
+    /// Notes whether `event` ⌘-clicks a web or file link in this region, for
     /// `takeCommandClick(for:)`. A plain click forgets one.
     func noteClick(_ event: NSEvent) {
         guard event.type == .leftMouseDown else { return }
         let flags = event.modifierFlags
         guard flags.contains(.command), !flags.contains(.control) else { Self.commandClicked = nil; return }
-        if linkActions != nil, let link = link(for: event), BrowserAddress.isWeb(link.url) { Self.commandClicked = link.url }
+        if linkActions != nil, let link = link(for: event),
+           BrowserAddress.isWeb(link.url) || FilePaths.path(fromLink: link.url) != nil {
+            Self.commandClicked = link.url
+        }
     }
 
-    /// Whether `url` opens because it was ⌘-clicked, which the text's own
+    /// Whether `url` opens externally, in the default browser or app,
+    /// because it was ⌘-clicked, which the text's own
     /// click can't say: it opens the link once the click ends, when ⌘ no
     /// longer shows as held. Answers once per click.
     static func takeCommandClick(for url: URL) -> Bool {

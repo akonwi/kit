@@ -595,15 +595,17 @@ final class WorkspaceState {
         return tab
     }
 
-    /// Opens a web link in a browser tab beside `anchor`. Returns false,
-    /// opening nothing, for a link that isn't a web address or that the user
-    /// asked to open externally; the caller hands those to the system.
+    /// Opens a web link in a browser tab beside `anchor`, and a file link in
+    /// its tab. Returns false, opening nothing, for a link that isn't a web
+    /// address or that the user asked to open externally; the caller hands
+    /// those to the system. A file the user asked to open externally opens
+    /// in its default app when it's on this Mac.
     @discardableResult
     func openLink(_ url: URL, beside anchor: WorkspacePane, externally: Bool = false) -> Bool {
         if let path = FilePaths.path(fromLink: url) {
-            // A transcript path names a file on the server, however it's clicked.
+            // A transcript path names a file on the server.
             guard let pane = FilePaths.serverPane(for: path, cwd: currentDirectory()) else { return true }
-            open(pane, beside: anchor)
+            openFile(pane, externally: externally) { self.open(pane, beside: anchor) }
             return true
         }
         guard BrowserAddress.isWeb(url), !externally else { return false }
@@ -623,6 +625,16 @@ final class WorkspaceState {
         }
         actions.opener = localFiles
         return actions
+    }
+
+    /// Opens the file `pane` shows in its default app when `externally` asks
+    /// and it's on this Mac; otherwise as `inKit` opens it.
+    func openFile(_ pane: WorkspacePane, externally: Bool, inKit: () -> Void) {
+        if externally, let actions = fileActions(for: pane), actions.localReason == nil {
+            actions.openInDefaultApp()
+        } else {
+            inKit()
+        }
     }
 
     /// The file a transcript link names, as `openLink` opens it, and what

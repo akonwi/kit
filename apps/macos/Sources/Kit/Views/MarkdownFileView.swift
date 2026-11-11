@@ -89,7 +89,7 @@ extension OpenURLAction {
         return OpenURLAction { [weak workspace] url in
             guard let path = FilePaths.path(fromLink: url) else { web(url); return .handled }
             guard let workspace, let target = MarkdownFiles.pane(forLink: path, in: file, cwd: cwd) else { return .handled }
-            workspace.openLinked(target, from: file)
+            workspace.openFile(target, externally: externally(url)) { workspace.openLinked(target, from: file) }
             return .handled
         }
     }

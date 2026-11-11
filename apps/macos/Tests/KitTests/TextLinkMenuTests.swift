@@ -1,4 +1,5 @@
 import AppKit
+import KitTranscript
 import SwiftUI
 import Testing
 @testable import Kit
@@ -185,9 +186,58 @@ import Testing
         _ = menus.rendered.hover.intercept(web)
         _ = menus.rendered.hover.intercept(try menus.click(.leftMouseDown, on: "before you start"))
         #expect(!TextLinkHover.takeCommandClick(for: guide))
-        // A file opens in Kit however it's clicked.
+        // A session opens in Kit however it's clicked.
+        let session = try #require(SessionMentions.link("ses_release"))
+        _ = menus.rendered.hover.intercept(try menus.click(.leftMouseDown, on: "#Release notes", modifiers: .command))
+        #expect(!TextLinkHover.takeCommandClick(for: session))
+    }
+
+    @Test func aCommandClickedFileLinkOpensInItsDefaultAppOnThisMac() throws {
+        let menus = Menus()
+        defer { menus.close() }
+        let opened = ThisMacGateTests.Opened()
+        menus.workspace.thisMac = { .available }
+        menus.workspace.localFiles = opened.opener(apps: [], default: "TextEdit")
+        let notes = try #require(FilePaths.link("/srv/notes.md"))
+        let click = OpenURLAction.transcript(menus.workspace, beside: .conversation, sessionLink: nil)
         _ = menus.rendered.hover.intercept(try menus.click(.leftMouseDown, on: "the notes", modifiers: .command))
-        #expect(!TextLinkHover.takeCommandClick(for: try #require(FilePaths.link("/srv/notes.md"))))
+        click(notes)
+        #expect(opened.opened == [URL(fileURLWithPath: "/srv/notes.md")])
+        #expect(menus.workspace.panes == [.conversation])
+        // A plain click opens its tab.
+        _ = menus.rendered.hover.intercept(try menus.click(.leftMouseDown, on: "the notes"))
+        click(notes)
+        #expect(menus.workspace.panes == [.conversation, .hostFile("/srv/notes.md")])
+        #expect(opened.opened.count == 1)
+    }
+
+    @Test func aCommandClickedFileOnAnotherMachineOpensInKit() throws {
+        let menus = Menus()
+        defer { menus.close() }
+        let opened = ThisMacGateTests.Opened()
+        menus.workspace.thisMac = { .needsThisMac }
+        menus.workspace.localFiles = opened.opener(apps: [], default: "TextEdit")
+        _ = menus.rendered.hover.intercept(try menus.click(.leftMouseDown, on: "the notes", modifiers: .command))
+        OpenURLAction.transcript(menus.workspace, beside: .conversation, sessionLink: nil)(try #require(FilePaths.link("/srv/notes.md")))
+        #expect(menus.workspace.panes == [.conversation, .hostFile("/srv/notes.md")])
+        #expect(opened.opened == [])
+    }
+
+    @Test func aMarkdownPreviewsCommandClickedFileLinkOpensInItsDefaultApp() throws {
+        _ = NSApplication.shared
+        let workspace = WorkspaceState()
+        let opened = ThisMacGateTests.Opened()
+        workspace.currentDirectory = { "/work" }
+        workspace.thisMac = { .available }
+        workspace.localFiles = opened.opener(apps: [], default: "TextEdit")
+        let readme = WorkspacePane.file("docs/README.md")
+        workspace.open(readme)
+        let link = try #require(FilePaths.link("guide.md"))
+        OpenURLAction.markdownFile(workspace, file: readme, cwd: "/work", externally: { _ in true })(link)
+        #expect(opened.opened == [URL(fileURLWithPath: "/work/docs/guide.md")])
+        #expect(workspace.panes == [.conversation, readme])
+        OpenURLAction.markdownFile(workspace, file: readme, cwd: "/work", externally: { _ in false })(link)
+        #expect(workspace.panes == [.conversation, readme, .file("docs/guide.md")])
     }
 
     @Test func menuItemsOpenAsAPlainClickDoesWhateverKeysAreHeld() throws {
