@@ -1,12 +1,12 @@
 #!/bin/sh
 # Opens the session menu in one session in the app on a simulator, against
 # the server of an isolated Kit home that the app is already paired with (see
-# test_pairing.sh). It renames the session and back, and forks it and deletes
-# the fork. From the list, it renames the session and back with a long press
-# on its row, and deletes a fork the same way. With KIT_MENU_MODEL naming a
-# model that offers thinking levels, as the menu writes it, it also switches
-# to that model, changes the thinking level, and switches both back. No turn
-# starts:
+# test_pairing.sh). From the composer's command search, it renames the session
+# and back, and forks it; the menu deletes the fork. From the list, it renames
+# the session and back with a long press on its row, and deletes a fork the
+# same way. With KIT_MENU_MODEL naming a model that offers thinking levels, as
+# the command search writes it, it also switches to that model, changes the
+# thinking level, and switches both back. No turn starts:
 #
 #   KIT_HOME=/tmp/kit-ios-dev [KIT_MENU_MODEL="GPT-5.5"] \
 #     apps/ios/script/test_session_menu.sh "Survey the demo project" [simulator-udid]

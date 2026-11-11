@@ -198,6 +198,8 @@ struct SessionScreen: View {
                 guard scenePhase == .active else { return }
                 await repository.watch()
             }
+            // Model names for the command search and the composer.
+            .task { await actions.loadModels() }
             // Count the changes for the menu once, and again when a turn ends.
             .task {
                 if diff.catalog == nil && diff.document == nil { await diff.refresh(client: client, session: feed.identity.session) }

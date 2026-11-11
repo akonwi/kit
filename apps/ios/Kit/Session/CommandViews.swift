@@ -352,6 +352,8 @@ private struct CommandRow: View {
         }
         .buttonStyle(.plain)
         .disabled(command.unavailableReason != nil)
+        .accessibilityLabel(command.title)
+        .accessibilityValue(command.unavailableReason ?? command.detail)
         .accessibilityIdentifier("command-" + command.id)
     }
 

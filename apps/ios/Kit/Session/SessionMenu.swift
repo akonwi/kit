@@ -2,8 +2,8 @@ import KitClient
 import SwiftUI
 
 /// The session menu, behind a ••• button so the title keeps the header:
-/// changes, files and the scratchpad, context, model, thinking, compact, rename, fork,
-/// details, and delete.
+/// changes, files and the scratchpad, details, and delete. Model, thinking,
+/// compaction, rename, and fork are in the composer's command search.
 struct SessionMenu: View {
     let session: SessionExcerpt
     let actions: SessionActions
@@ -32,31 +32,7 @@ struct SessionMenu: View {
                         .accessibilityIdentifier("scratchpad")
                 }
             }
-            Section(contextTitle) {
-                modelPicker
-                if !actions.thinkingLevels.isEmpty { thinkingPicker }
-            }
             Section {
-                Button {
-                    actions.compact()
-                } label: {
-                    Label {
-                        Text("Compact context")
-                        if let reason = actions.compactionUnavailableReason { Text(reason) }
-                    } icon: { Image(systemName: "arrow.down.right.and.arrow.up.left") }
-                }
-                .disabled(actions.compactionUnavailableReason != nil)
-                Button("Rename…", systemImage: "pencil") { present(.rename) }
-                    .disabled(!actions.live)
-                Button {
-                    present(.fork)
-                } label: {
-                    Label {
-                        Text("Fork…")
-                        if let reason = actions.forkUnavailableReason { Text(reason) }
-                    } icon: { Image(systemName: "arrow.triangle.branch") }
-                }
-                .disabled(actions.forkUnavailableReason != nil)
                 Button("Details", systemImage: "info.circle") { present(.details) }
             }
             Section {
@@ -70,61 +46,6 @@ struct SessionMenu: View {
                 .accessibilityLabel("Session menu")
         }
         .accessibilityIdentifier("session-menu")
-        .task { await actions.loadModels() }
-    }
-
-    private var contextTitle: String {
-        guard let context = SessionContext(session) else { return "Context unknown" }
-        return "Context  \(context.tokensLabel) · \(context.percent)%"
-    }
-
-    // MARK: Model
-
-    @ViewBuilder
-    private var modelPicker: some View {
-        let selection = Binding(get: { actions.model }, set: { actions.changeModel($0) })
-        if actions.configuration.models.isEmpty {
-            Menu {
-                if actions.configuration.loading {
-                    Text("Loading models…")
-                } else {
-                    Button("Load models", systemImage: "arrow.clockwise") { Task { await actions.loadModels() } }
-                }
-            } label: {
-                Text("Model")
-                Text(actions.configuration.error.map { "Couldn’t load models. \($0)" } ?? actions.modelName)
-            }
-        } else {
-            Picker(selection: selection) {
-                ForEach(actions.modelGroups, id: \.provider) { group in
-                    Section(group.provider) {
-                        ForEach(group.models, id: \.id) { model in
-                            Text(model.name).tag(model.id)
-                        }
-                    }
-                }
-            } label: {
-                Text("Model")
-                Text(actions.modelLockedReason ?? actions.modelName)
-            }
-            .pickerStyle(.menu)
-            .disabled(actions.modelLockedReason != nil)
-        }
-    }
-
-    // MARK: Thinking
-
-    private var thinkingPicker: some View {
-        Picker(selection: Binding(get: { actions.thinking }, set: { actions.changeThinking($0) })) {
-            ForEach(actions.thinkingLevels, id: \.self) { level in
-                Text(SessionContext.thinkingName(level)).tag(level)
-            }
-        } label: {
-            Text("Thinking")
-            Text(actions.thinkingLockedReason ?? SessionContext.thinkingName(actions.thinking))
-        }
-        .pickerStyle(.menu)
-        .disabled(actions.thinkingLockedReason != nil)
     }
 }
 

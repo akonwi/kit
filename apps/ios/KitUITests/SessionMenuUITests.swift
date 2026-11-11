@@ -1,11 +1,12 @@
 import XCTest
 
 /// Opens the session menu in a session on the paired server of an isolated
-/// Kit home, then shows Details, renames the session and back, changes its
-/// model and thinking level and back, and forks it and deletes the fork. It
-/// also renames the session from its row in the list, and deletes a fork
-/// there. Run by script/test_session_menu.sh, which names the session.
-/// Nothing here starts a turn.
+/// Kit home and shows Details. From the composer's command search, it renames
+/// the session and back, changes its model and thinking level and back, and
+/// forks it; the menu deletes the fork. It also renames the session from its
+/// row in the list, and deletes a fork there. Run by
+/// script/test_session_menu.sh, which names the session. Nothing here starts
+/// a turn.
 final class SessionMenuUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -25,7 +26,7 @@ final class SessionMenuUITests: XCTestCase {
 
         // The menu lists everything the session can do.
         openMenu(app)
-        for item in ["Model", "Compact context", "Rename…", "Fork…", "Details", "Delete…"] {
+        for item in ["Changes", "Open File…", "Scratchpad", "Details", "Delete…"] {
             XCTAssertTrue(menuItem(app, item).waitForExistence(timeout: 5), "Expected \(item) in the menu")
         }
         attach(app, "Menu")
@@ -45,27 +46,25 @@ final class SessionMenuUITests: XCTestCase {
 
         // Change the model, and its thinking level, then change both back.
         // KIT_MENU_MODEL names a model that offers several thinking levels.
-        openMenu(app)
-        let originalModel = menuItem(app, "Model").label.replacingOccurrences(of: "Model, ", with: "")
-        menuItem(app, "Model").tap()
+        let originalModel = commandValue(app, "model")
+        command(app, "model")
+        XCTAssertTrue(app.buttons["command-back"].waitForExistence(timeout: 5))
         attach(app, "Models")
         let target = ProcessInfo.processInfo.environment["KIT_MENU_MODEL"] ?? ""
         if target.isEmpty || target == originalModel {
-            dismissMenu(app)
+            app.buttons["command-close"].tap()
         } else {
             pick(app, target)
             expectModel(app, target)
             changeThinkingAndBack(app)
-            openMenu(app)
-            menuItem(app, "Model").tap()
+            command(app, "model")
             pick(app, originalModel)
             expectModel(app, originalModel)
         }
 
         // Fork into a new session, which opens; then delete the fork.
         let forkName = "Menu test fork \(Int(Date().timeIntervalSince1970) % 100_000)"
-        openMenu(app)
-        menuItem(app, "Fork…").tap()
+        command(app, "fork")
         let name = app.textFields["fork-name"]
         XCTAssertTrue(name.waitForExistence(timeout: 5))
         name.tap()
@@ -112,8 +111,7 @@ final class SessionMenuUITests: XCTestCase {
         // Fork the session to have one to delete, go back, and delete the fork from its row.
         let forkName = "Row test fork \(Int(Date().timeIntervalSince1970) % 100_000)"
         row(app, title).tap()
-        openMenu(app)
-        menuItem(app, "Fork…").tap()
+        command(app, "fork")
         let name = app.textFields["fork-name"]
         XCTAssertTrue(name.waitForExistence(timeout: 5))
         name.tap()
@@ -163,63 +161,84 @@ final class SessionMenuUITests: XCTestCase {
         XCTAssertTrue(waitForAbsence(field, timeout: 10), "Expected the sheet to close")
     }
 
-    /// Taps a model in the open Model submenu, scrolling down to it.
+    /// Opens the composer's command search and taps a built-in command.
+    @MainActor
+    private func command(_ app: XCUIApplication, _ name: String) {
+        let button = app.buttons["command-button"]
+        XCTAssertTrue(button.waitForExistence(timeout: 15))
+        button.tap()
+        let row = app.buttons["command-builtin:" + name]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Expected \(name) in the command search")
+        row.tap()
+    }
+
+    /// What a built-in command's row shows as its value, such as the model.
+    @MainActor
+    private func commandValue(_ app: XCUIApplication, _ name: String) -> String {
+        let button = app.buttons["command-button"]
+        XCTAssertTrue(button.waitForExistence(timeout: 15))
+        button.tap()
+        let row = app.buttons["command-builtin:" + name]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Expected \(name) in the command search")
+        let value = row.value as? String ?? ""
+        app.buttons["command-close"].tap()
+        XCTAssertTrue(waitForAbsence(row, timeout: 5))
+        return value
+    }
+
+    /// Finds a model on the command search's Model page by typing its name, and taps it.
     @MainActor
     private func pick(_ app: XCUIApplication, _ model: String) {
+        app.typeText(model)
         let item = app.buttons[model].firstMatch
-        for _ in 0..<15 where !(item.exists && item.isHittable) {
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.6))
-            start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.35)))
-        }
-        XCTAssertTrue(item.isHittable, "Expected \(model) in the Model menu")
+        XCTAssertTrue(item.waitForExistence(timeout: 5) && item.isHittable, "Expected \(model) on the Model page")
         item.tap()
     }
 
-    /// Expects the menu's Model item to read `model`, reopening the menu
-    /// until the server's change reaches it.
+    /// Expects the Model command to read `model`, looking again until the
+    /// server's change reaches it.
     @MainActor
     private func expectModel(_ app: XCUIApplication, _ model: String) {
-        var label = ""
+        var value = ""
         for _ in 0..<10 {
-            openMenu(app)
-            label = menuItem(app, "Model").label
-            dismissMenu(app)
-            if label.contains(model) { return }
+            value = commandValue(app, "model")
+            if value == model { return }
             sleep(1)
         }
-        XCTFail("Expected \(model), the menu reads \(label)")
+        XCTFail("Expected \(model), the command search reads \(value)")
     }
 
     @MainActor
     private func changeThinkingAndBack(_ app: XCUIApplication) {
-        openMenu(app)
-        let thinking = menuItem(app, "Thinking")
-        XCTAssertTrue(thinking.waitForExistence(timeout: 5), "Expected Thinking for a model with levels")
-        let original = thinking.label
-        thinking.tap()
+        let previous = commandValue(app, "thinking")
+        XCTAssertFalse(previous.isEmpty, "Expected Thinking for a model with levels")
+        command(app, "thinking")
         let levels = app.buttons.matching(NSPredicate(format: "label IN %@", ["Off", "Minimal", "Low", "Medium", "High", "Extra high", "Max"]))
         XCTAssertTrue(levels.firstMatch.waitForExistence(timeout: 5))
         attach(app, "Thinking")
-        let all = levels.allElementsBoundByIndex
-        guard let other = all.first(where: { !original.hasSuffix($0.label) }),
-              let previous = all.first(where: { original.hasSuffix($0.label) })?.label else {
-            return XCTFail("Expected another level than \(original)")
+        guard let other = levels.allElementsBoundByIndex.first(where: { $0.label != previous }) else {
+            return XCTFail("Expected another level than \(previous)")
         }
         let chosen = other.label
         other.tap()
-        openMenu(app)
-        XCTAssertTrue(waitFor(menuItem(app, "Thinking"), labelContaining: chosen, timeout: 10), "Expected \(chosen)")
-        menuItem(app, "Thinking").tap()
+        XCTAssertTrue(expectValue(app, "thinking", chosen), "Expected \(chosen)")
+        command(app, "thinking")
         app.buttons[previous].firstMatch.tap()
-        openMenu(app)
-        XCTAssertTrue(waitFor(menuItem(app, "Thinking"), labelContaining: previous, timeout: 10))
-        dismissMenu(app)
+        XCTAssertTrue(expectValue(app, "thinking", previous), "Expected \(previous)")
+    }
+
+    @MainActor
+    private func expectValue(_ app: XCUIApplication, _ name: String, _ value: String) -> Bool {
+        for _ in 0..<10 {
+            if commandValue(app, name) == value { return true }
+            sleep(1)
+        }
+        return false
     }
 
     @MainActor
     private func rename(_ app: XCUIApplication, from old: String, to new: String) {
-        openMenu(app)
-        menuItem(app, "Rename…").tap()
+        command(app, "rename")
         renameInSheet(app, to: new)
         XCTAssertTrue(header(app, new).waitForExistence(timeout: 10), "Expected the header to read \(new)")
     }
@@ -231,24 +250,12 @@ final class SessionMenuUITests: XCTestCase {
         menu.tap()
     }
 
-    @MainActor
-    private func dismissMenu(_ app: XCUIApplication) {
-        if menuItem(app, "Details").exists {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
-        }
-    }
-
     private func menuItem(_ app: XCUIApplication, _ label: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", label, label + ",")).firstMatch
     }
 
     private func header(_ app: XCUIApplication, _ title: String) -> XCUIElement {
         app.navigationBars.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
-    }
-
-    private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval) -> Bool {
-        let predicate = NSPredicate(format: "label CONTAINS %@", text)
-        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout) == .completed
     }
 
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
