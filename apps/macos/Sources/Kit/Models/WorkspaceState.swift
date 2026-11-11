@@ -150,6 +150,11 @@ final class WorkspaceState {
     /// The session's working directory, which decides whether a linked path
     /// opens as a workspace file or a host file.
     @ObservationIgnored var currentDirectory: @MainActor () -> String? = { nil }
+    /// Whether the session's server runs on this Mac, whose files and apps
+    /// some file actions use.
+    @ObservationIgnored var thisMac: @MainActor () -> ThisMacGate = { .unverified }
+    /// What reveals and opens this Mac's files in other programs.
+    @ObservationIgnored var localFiles = LocalFileOpener()
 
     struct TabDrag: Equatable {
         var pane: WorkspacePane
@@ -604,6 +609,28 @@ final class WorkspaceState {
         guard BrowserAddress.isWeb(url), !externally else { return false }
         openBrowser(url, beside: anchor)
         return true
+    }
+
+    /// A file pane's path and what reveals and opens it here, as its tab's
+    /// menu offers; nil for a pane that isn't a file.
+    func fileActions(for pane: WorkspacePane) -> FileTabActions? {
+        var actions: FileTabActions
+        switch pane {
+        case .file(let file): actions = FileTabActions(file: file, cwd: currentDirectory(), gate: thisMac())
+        case .hostFile(let file): actions = FileTabActions(file: file, cwd: nil, gate: thisMac())
+        case .localFile(let file): actions = FileTabActions(file: file, cwd: nil, gate: .available)
+        default: return nil
+        }
+        actions.opener = localFiles
+        return actions
+    }
+
+    /// The file a transcript link names, as `openLink` opens it, and what
+    /// reveals and opens it here.
+    func fileActions(forLink url: URL) -> FileTabActions? {
+        guard let path = FilePaths.path(fromLink: url),
+              let pane = FilePaths.serverPane(for: path, cwd: currentDirectory()) else { return nil }
+        return fileActions(for: pane)
     }
 
     /// Opens an authorization page in a browser tab beside `anchor` whose

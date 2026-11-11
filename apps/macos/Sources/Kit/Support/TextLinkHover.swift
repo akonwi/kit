@@ -85,8 +85,10 @@ enum TranscriptClickable: CaseIterable {
         var open: @MainActor (URL) -> Void
         /// Opens a link in the system's default browser.
         var openInDefaultBrowser: @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
-        /// Where Copy Link copies.
+        /// Where Copy Link and Copy Path copy.
         var pasteboard: NSPasteboard = .general
+        /// The file a file link names, and what reveals and opens it here.
+        var file: @MainActor (URL) -> FileTabActions? = { _ in nil }
     }
 
     private weak var region: NSView?
@@ -268,23 +270,45 @@ enum TranscriptClickable: CaseIterable {
         let secondary = event.type == .rightMouseDown
             || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
         guard secondary, let actions = linkActions, let (field, url) = link(for: event), let kind = LinkKind(url) else { return nil }
-        let menu = NSMenu()
+        let menu = OwningMenu()
         menu.autoenablesItems = false
-        let target = LinkMenuTarget(url: url, actions: actions)
-        let items: [(String, Selector)] = switch kind {
-        case .web: [("Open Link", #selector(LinkMenuTarget.open)),
-                    ("Open in Default Browser", #selector(LinkMenuTarget.openInDefaultBrowser)),
-                    ("Copy Link", #selector(LinkMenuTarget.copyLink))]
-        case .file: [("Open File", #selector(LinkMenuTarget.open)), ("Copy Path", #selector(LinkMenuTarget.copyPath))]
-        case .session: [("Open Session", #selector(LinkMenuTarget.open))]
-        }
-        for (title, action) in items {
+        let file = kind == .web || kind == .session ? nil : actions.file(url)
+        let target = LinkMenuTarget(url: url, actions: actions, file: file)
+        // A menu doesn't keep its items' targets.
+        menu.owner = target
+        func add(_ title: String, _ action: Selector, unavailable reason: String? = nil) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = target
-            // The menu keeps its items, and each its represented object, so
-            // the target lives as long as the menu.
-            item.representedObject = target
+            if let reason {
+                item.isEnabled = false
+                item.subtitle = "⊘ " + reason
+            }
             menu.addItem(item)
+        }
+        switch kind {
+        case .web:
+            add("Open Link", #selector(LinkMenuTarget.open))
+            add("Open in Default Browser", #selector(LinkMenuTarget.openInDefaultBrowser))
+            add("Copy Link", #selector(LinkMenuTarget.copyLink))
+        case .file:
+            add("Open File", #selector(LinkMenuTarget.open))
+            add("Copy Path", #selector(LinkMenuTarget.copyPath))
+            if let file {
+                // These work on this Mac's files, as a file tab's menu says.
+                menu.addItem(.separator())
+                add("Reveal in Finder", #selector(LinkMenuTarget.revealInFinder), unavailable: file.localReason)
+                add("Open in Default App", #selector(LinkMenuTarget.openInDefaultApp), unavailable: file.localReason)
+                let openWith = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
+                if let reason = file.localReason {
+                    openWith.isEnabled = false
+                    openWith.subtitle = "⊘ " + reason
+                } else {
+                    openWith.submenu = file.openWithMenu()
+                }
+                menu.addItem(openWith)
+            }
+        case .session:
+            add("Open Session", #selector(LinkMenuTarget.open))
         }
         let selectionItems = Self.selectionItems(in: field, for: event)
         if !selectionItems.isEmpty {
@@ -445,13 +469,15 @@ enum TranscriptClickable: CaseIterable {
 }
 
 /// Carries out a link menu's items.
-@MainActor private final class LinkMenuTarget: NSObject {
+@MainActor private final class LinkMenuTarget: NSObject, NSMenuItemValidation {
     let url: URL
     let actions: TextLinkHover.LinkActions
+    let file: FileTabActions?
 
-    init(url: URL, actions: TextLinkHover.LinkActions) {
+    init(url: URL, actions: TextLinkHover.LinkActions, file: FileTabActions?) {
         self.url = url
         self.actions = actions
+        self.file = file
     }
 
     @objc func open() { actions.open(url) }
@@ -461,11 +487,23 @@ enum TranscriptClickable: CaseIterable {
         actions.pasteboard.writeObjects([url as NSURL])
         actions.pasteboard.setString(url.absoluteString, forType: .string)
     }
+    /// Copies the file's path on the server, or the link's when it can't
+    /// be resolved.
     @objc func copyPath() {
-        guard let path = FilePaths.path(fromLink: url) else { return }
+        guard let path = file?.path ?? FilePaths.path(fromLink: url) else { return }
         actions.pasteboard.clearContents()
         actions.pasteboard.setString(path, forType: .string)
     }
+    /// Items for this Mac's files stay dimmed, with their reason, when the
+    /// menu validates its items, as it does beside a selection's.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(revealInFinder), #selector(openInDefaultApp): file?.localReason == nil
+        default: true
+        }
+    }
+    @objc func revealInFinder() { file?.revealInFinder() }
+    @objc func openInDefaultApp() { file?.openInDefaultApp() }
 }
 
 /// Paints a hovered link's underline over its text field.
@@ -492,7 +530,8 @@ struct TextLinkHoverRegion: NSViewRepresentable {
     func updateNSView(_ view: RegionView, context: Context) {
         context.coordinator.color = NSColor(color)
         let open = context.environment.openURL
-        context.coordinator.linkActions = .init(open: { open($0) })
+        let file = context.environment.linkedFile
+        context.coordinator.linkActions = .init(open: { open($0) }, file: { file?($0) })
     }
     func makeCoordinator() -> TextLinkHover { TextLinkHover(color: NSColor(color)) }
     static func dismantleNSView(_ view: RegionView, coordinator: TextLinkHover) { coordinator.detach() }

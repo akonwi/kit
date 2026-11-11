@@ -545,6 +545,7 @@ final class SessionStore {
         demo = client.isDemo ? DemoSessionState() : nil
         ui.workspace.feedback = feedback(for: replica.selectedID)
         ui.workspace.currentDirectory = { [weak self] in self?.selected?.cwd }
+        ui.workspace.thisMac = { [weak self] in self?.thisMacGate ?? .unverified }
         demo?.select(selectedSnapshot)
         operationsBySession[replica.selectedID] = SessionOperations()
         configurations[replica.selectedID] = ComposerConfiguration()
@@ -603,6 +604,7 @@ final class SessionStore {
                          to: SessionIdentity(server: replica.client.serverID, session: id), demo: isDemo)
         ui.workspace.feedback = feedback(for: id)
         ui.workspace.currentDirectory = { [weak self] in self?.selected?.cwd }
+        ui.workspace.thisMac = { [weak self] in self?.thisMacGate ?? .unverified }
         if operationsBySession[id] == nil { operationsBySession[id] = SessionOperations() }
         if configurations[id] == nil { configurations[id] = ComposerConfiguration() }
         replica.select(id)

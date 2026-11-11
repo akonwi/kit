@@ -9,7 +9,8 @@ import Testing
 /// its session. A transcript message's copy items follow. Plain text keeps
 /// the menu it had, and ⌘-clicking a web link opens the default browser.
 @MainActor struct TextLinkMenuTests {
-    static let source = "Read [the docs](https://example.com/guide) or [the notes](/srv/notes.md) before you start, then https://example.com/next. Ask #[session:ses_release]."
+    static let source = "Read [the docs](https://example.com/guide) or [the notes](/srv/notes.md) or [the guide](docs/guide.md) before you start, then https://example.com/next. Ask #[session:ses_release]."
+    static let fileItems = ["Open File", "Copy Path", "—", "Reveal in Finder", "Open in Default App", "Open With"]
     static let web = ["Open Link", "Open in Default Browser", "Copy Link"]
     static let message = ["—", "Copy Message as Markdown", "Copy Message as Plain Text"]
 
@@ -36,10 +37,12 @@ import Testing
             }
             rendered = TranscriptHoverTests.Rendered(TextLinkMenuTests.source, message: true, sessionLink: sessionLink)
             workspace.makeBrowserEngine = engines.make
+            workspace.currentDirectory = { "/work" }
             let open = OpenURLAction.transcript(workspace, beside: .conversation, sessionLink: sessionLink)
             rendered.hover.linkActions = .init(open: { open($0) },
                                                openInDefaultBrowser: { [defaultBrowser] in defaultBrowser.opened.append($0) },
-                                               pasteboard: pasteboard)
+                                               pasteboard: pasteboard,
+                                               file: { [workspace] in workspace.fileActions(forLink: $0) })
         }
 
         func close() {
@@ -82,13 +85,52 @@ import Testing
         let menus = Menus()
         defer { menus.close() }
         let menu = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "the notes")))
-        #expect(menus.titles(menu) == ["Open File", "Copy Path"] + Self.message)
+        #expect(menus.titles(menu) == Self.fileItems + Self.message)
         menu.performActionForItem(at: 1)
         #expect(menus.pasteboard.string(forType: .string) == "/srv/notes.md")
         #expect(menus.workspace.panes == [.conversation])
         menu.performActionForItem(at: 0)
         #expect(menus.workspace.panes == [.conversation, .hostFile("/srv/notes.md")])
         #expect(menus.defaultBrowser.opened == [])
+        // A relative link's path is the file's on the server.
+        let relative = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "the guide")))
+        relative.performActionForItem(at: 1)
+        #expect(menus.pasteboard.string(forType: .string) == "/work/docs/guide.md")
+    }
+
+    @Test(arguments: [(ThisMacGate.needsThisMac, "⊘ needs this Mac"), (.unverified, "⊘ waiting for the server")])
+    func aFileOnAnotherMachineKeepsThisMacsItemsDimmedWithTheReason(gate: ThisMacGate, reason: String) throws {
+        let menus = Menus()
+        defer { menus.close() }
+        menus.workspace.thisMac = { gate }
+        let menu = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "the notes")))
+        #expect(menus.titles(menu) == Self.fileItems + Self.message)
+        let local = menu.items.filter { ["Reveal in Finder", "Open in Default App", "Open With"].contains($0.title) }
+        #expect(local.map(\.isEnabled) == [false, false, false])
+        #expect(local.map(\.subtitle) == [reason, reason, reason])
+        #expect(local.last?.submenu == nil)
+        // The others work anywhere.
+        #expect(menu.items.prefix(2).map(\.isEnabled) == [true, true])
+    }
+
+    @Test func aFileOnThisMacRevealsAndOpensInOtherApps() throws {
+        let menus = Menus()
+        defer { menus.close() }
+        let opened = ThisMacGateTests.Opened()
+        menus.workspace.thisMac = { .available }
+        menus.workspace.localFiles = opened.opener(apps: ["Zed", "BBEdit"], default: "TextEdit")
+        let menu = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "the notes")))
+        let local = menu.items.filter { ["Reveal in Finder", "Open in Default App", "Open With"].contains($0.title) }
+        #expect(local.map(\.isEnabled) == [true, true, true])
+        #expect(local.map(\.subtitle) == [nil, nil, nil])
+        menu.performActionForItem(at: 3)
+        #expect(opened.revealed == [URL(fileURLWithPath: "/srv/notes.md")])
+        menu.performActionForItem(at: 4)
+        #expect(opened.opened == [URL(fileURLWithPath: "/srv/notes.md")])
+        let openWith = try #require(local.last?.submenu)
+        #expect(menus.titles(openWith) == ["TextEdit (default)", "—", "BBEdit", "Zed", "—", "Other…"])
+        openWith.performActionForItem(at: 2)
+        #expect(opened.openedWith == ["/srv/notes.md with BBEdit.app"])
     }
 
     @Test func aSessionMentionOpensItsSession() throws {

@@ -568,14 +568,8 @@ struct WorkspaceTabActions: View {
     let pane: WorkspacePane
 
     var body: some View {
-        if case .file(let file) = pane {
-            FileTabMenuItems(actions: FileTabActions(file: file, cwd: state.selected?.cwd, gate: state.thisMacGate))
-            Divider()
-        } else if case .hostFile(let file) = pane, file.hasPrefix("/") {
-            FileTabMenuItems(actions: FileTabActions(file: file, cwd: nil, gate: state.thisMacGate))
-            Divider()
-        } else if case .localFile(let file) = pane {
-            FileTabMenuItems(actions: FileTabActions(file: file, cwd: nil, gate: .available))
+        if let actions = workspace.fileActions(for: pane) {
+            FileTabMenuItems(actions: actions)
             Divider()
         } else if let tab = workspace.browser(pane) {
             Button("Copy Address") { tab.copyAddress() }.disabled(tab.copyableAddress == nil)
@@ -606,8 +600,8 @@ struct WorkspaceTabActions: View {
 }
 
 /// A file tab's own menu items. Copy Path works on any server; Reveal in
-/// Finder and Open in Default App work on this Mac's files, so on another
-/// machine's server they stay in the menu, dimmed with the reason.
+/// Finder, Open in Default App, and Open With work on this Mac's files, so
+/// on another machine's server they stay in the menu, dimmed with the reason.
 struct FileTabMenuItems: View {
     let actions: FileTabActions
 
@@ -616,6 +610,27 @@ struct FileTabMenuItems: View {
         Divider()
         item("Reveal in Finder") { actions.revealInFinder() }
         item("Open in Default App") { actions.openInDefaultApp() }
+        Menu {
+            let apps = actions.openWithApps()
+            ForEach(Array(apps.enumerated()), id: \.element.url) { index, app in
+                Button { actions.open(with: app.url) } label: {
+                    Label { Text(app.title) } icon: { Image(nsImage: Self.icon(app.url)) }
+                }
+                if index == 0, app.isDefault, apps.count > 1 { Divider() }
+            }
+            if !apps.isEmpty { Divider() }
+            Button("Other…") { actions.openWithChosenApp() }
+        } label: {
+            Text("Open With")
+            if let reason = actions.localReason { Text("⊘ " + reason) }
+        }
+        .disabled(actions.localReason != nil)
+    }
+
+    private static func icon(_ app: URL) -> NSImage {
+        let icon = NSWorkspace.shared.icon(forFile: app.path)
+        icon.size = NSSize(width: 16, height: 16)
+        return icon
     }
 
     /// A menu item, with the reason it is unavailable as its subtitle.

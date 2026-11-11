@@ -63,7 +63,18 @@ struct MarkdownFileText: View {
     var body: some View {
         MarkdownDocumentView(source: source, annotations: annotations) { [workspace, pane] in workspace.showMarkdownSource(pane) }
             .environment(\.openURL, .markdownFile(workspace, file: pane, cwd: cwd))
+            .environment(\.linkedFile, { [weak workspace, pane, cwd] url in
+                guard let workspace, let path = FilePaths.path(fromLink: url),
+                      let target = MarkdownFiles.pane(forLink: path, in: pane, cwd: cwd) else { return nil }
+                return workspace.fileActions(for: target)
+            })
     }
+}
+
+extension EnvironmentValues {
+    /// The file a link in rendered Markdown names, and what reveals and
+    /// opens it here, for the link's menu.
+    @Entry var linkedFile: (@MainActor (URL) -> FileTabActions?)? = nil
 }
 
 extension OpenURLAction {

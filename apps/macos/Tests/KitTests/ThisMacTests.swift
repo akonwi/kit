@@ -297,6 +297,91 @@ struct ThisMacGateTests {
         #expect(FileTabActions.runsWhenOpened(disguised))
     }
 
+    /// What a file's actions opened, instead of opening it.
+    @MainActor final class Opened {
+        var revealed: [URL] = []
+        var opened: [URL] = []
+        var openedWith: [String] = []
+        var chosen: URL?
+        var confirms = true
+
+        func opener(apps: [String], default preferred: String?) -> LocalFileOpener {
+            var opener = LocalFileOpener()
+            opener.reveal = { self.revealed.append($0) }
+            opener.open = { self.opened.append($0) }
+            opener.openWith = { file, app in self.openedWith.append(file.path + " with " + app.lastPathComponent) }
+            opener.apps = { _ in apps.map { URL(fileURLWithPath: "/Applications/\($0).app") } }
+            opener.defaultApp = { _ in preferred.map { URL(fileURLWithPath: "/Applications/\($0).app") } }
+            opener.chooseApp = { self.chosen }
+            opener.confirmRunning = { _ in self.confirms }
+            return opener
+        }
+    }
+
+    @MainActor @Test func openWithListsTheDefaultAppThenTheOthersByNameThenOther() {
+        // Menu items act through the app.
+        _ = NSApplication.shared
+        let opened = Opened()
+        var actions = FileTabActions(file: "notes.md", cwd: "/work", gate: .available)
+        actions.opener = opened.opener(apps: ["Zed", "TextEdit", "BBEdit", "TextEdit", "Xcode"], default: "TextEdit")
+        #expect(actions.openWithApps().map(\.title) == ["TextEdit (default)", "BBEdit", "Xcode", "Zed"])
+        let menu = actions.openWithMenu()
+        #expect(menu.items.map { $0.isSeparatorItem ? "—" : $0.title } == ["TextEdit (default)", "—", "BBEdit", "Xcode", "Zed", "—", "Other…"])
+        menu.performActionForItem(at: 3)
+        #expect(opened.openedWith == ["/work/notes.md with Xcode.app"])
+        // Other… opens with the app the person chooses, and with none when
+        // they cancel.
+        opened.chosen = nil
+        menu.performActionForItem(at: 6)
+        opened.chosen = URL(fileURLWithPath: "/Applications/Nova.app")
+        menu.performActionForItem(at: 6)
+        #expect(opened.openedWith == ["/work/notes.md with Xcode.app", "/work/notes.md with Nova.app"])
+
+        // Without a default app, the others lead.
+        actions.opener = opened.opener(apps: ["Zed", "BBEdit"], default: nil)
+        #expect(actions.openWithMenu().items.map { $0.isSeparatorItem ? "—" : $0.title } == ["BBEdit", "Zed", "—", "Other…"])
+    }
+
+    @MainActor @Test func revealAndOpenWorkOnThisMacsFilesOnly() {
+        let opened = Opened()
+        var here = FileTabActions(file: "~/notes.md", cwd: nil, gate: .available)
+        here.opener = opened.opener(apps: ["Zed"], default: "TextEdit")
+        #expect(here.path == "~/notes.md")
+        here.revealInFinder()
+        here.openInDefaultApp()
+        here.open(with: URL(fileURLWithPath: "/Applications/Zed.app"))
+        let home = NSHomeDirectory() + "/notes.md"
+        #expect(opened.revealed == [URL(fileURLWithPath: home)])
+        #expect(opened.opened == [URL(fileURLWithPath: home)])
+        #expect(opened.openedWith == [home + " with Zed.app"])
+
+        let elsewhere = Opened()
+        var remote = FileTabActions(file: "/srv/notes.md", cwd: nil, gate: .needsThisMac)
+        remote.opener = elsewhere.opener(apps: ["Zed"], default: "TextEdit")
+        remote.revealInFinder()
+        remote.openInDefaultApp()
+        remote.open(with: URL(fileURLWithPath: "/Applications/Zed.app"))
+        #expect(remote.openWithApps() == [])
+        #expect(elsewhere.revealed.isEmpty && elsewhere.opened.isEmpty && elsewhere.openedWith.isEmpty)
+    }
+
+    @MainActor @Test func openingAProgramWithAnAppAsksFirst() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("kit-open-with-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("Run.command")
+        try "echo hi\n".write(to: script, atomically: true, encoding: .utf8)
+        let opened = Opened()
+        var actions = FileTabActions(file: script.path, cwd: nil, gate: .available)
+        actions.opener = opened.opener(apps: ["Terminal"], default: "Terminal")
+        opened.confirms = false
+        actions.open(with: URL(fileURLWithPath: "/Applications/Terminal.app"))
+        #expect(opened.openedWith == [])
+        opened.confirms = true
+        actions.open(with: URL(fileURLWithPath: "/Applications/Terminal.app"))
+        #expect(opened.openedWith == [script.path + " with Terminal.app"])
+    }
+
     @MainActor @Test func copyPathCopiesThePathOnTheServer() {
         let pasteboard = NSPasteboard(name: .init("kit-tests-" + UUID().uuidString))
         defer { pasteboard.releaseGlobally() }
