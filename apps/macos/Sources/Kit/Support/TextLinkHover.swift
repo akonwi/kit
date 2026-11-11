@@ -1,4 +1,5 @@
 import AppKit
+import KitTranscript
 import SwiftUI
 
 /// What the pointer shows over each kind of clickable transcript element.
@@ -65,9 +66,10 @@ enum TranscriptClickable: CaseIterable {
 /// text nor any layout changes, and selecting by dragging across a link
 /// works as before.
 ///
-/// With `linkActions` set, right-clicking or Control-clicking a web link
-/// shows a menu for the link in place of AppKit's text menu, whose Open Link
-/// opens the system's default browser; see `linkMenu(for:)`.
+/// With `linkActions` set, right-clicking or Control-clicking a link shows
+/// a menu for it in place of AppKit's text menu, whose Open Link opens the
+/// system's default browser, or the transcript's Copy Message menu; see
+/// `linkMenu(for:)`. ⌘-clicking a web link opens the default browser.
 @MainActor final class TextLinkHover: NSResponder {
     /// The link under the pointer.
     struct Hovered: Equatable {
@@ -77,7 +79,7 @@ enum TranscriptClickable: CaseIterable {
         let underlines: [NSRect]
     }
 
-    /// What a web link's menu does.
+    /// What a link's menu, and a ⌘-click on a web link, do.
     struct LinkActions {
         /// Opens a link as clicking it does.
         var open: @MainActor (URL) -> Void
@@ -91,7 +93,7 @@ enum TranscriptClickable: CaseIterable {
     private var area: NSTrackingArea?
     private var scrollMonitor: Any?
     private var menuMonitor: Any?
-    /// What a web link's menu does; without them, links keep AppKit's menu.
+    /// What a link's menu does; without them, links keep the menu they had.
     var linkActions: LinkActions?
     /// The hovers tracking a region, which right-clicks on links go to.
     private static var attached: [Weak] = []
@@ -133,7 +135,9 @@ enum TranscriptClickable: CaseIterable {
             return event
         }
         menuMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
-            guard let self, let menu = self.linkMenu(for: event), let field = self.field(at: event.locationInWindow) else { return event }
+            guard let self else { return event }
+            if self.openCommandClicked(event) { return nil }
+            guard let menu = self.linkMenu(for: event), let field = self.field(at: event.locationInWindow) else { return event }
             NSMenu.popUpContextMenu(menu, with: event, for: field)
             self.refresh()
             return nil
@@ -215,26 +219,66 @@ enum TranscriptClickable: CaseIterable {
         return field
     }
 
-    /// The menu a right-click or Control-click `event` on a web link shows:
-    /// Open Link, which opens it as a click does; Open in Default Browser;
-    /// and Copy Link. When the link's text has a selection, AppKit's items
-    /// for the selection follow, without its own items for the link. Nil for
-    /// any other event, which keeps AppKit's menu, as for a file path or a
-    /// session mention.
+    /// The kinds of link with a menu of their own.
+    enum LinkKind: Equatable {
+        case web, file(path: String), session
+
+        init?(_ url: URL) {
+            if BrowserAddress.isWeb(url) {
+                self = .web
+            } else if let path = FilePaths.path(fromLink: url) {
+                self = .file(path: path)
+            } else if SessionMentions.session(in: url) != nil {
+                self = .session
+            } else {
+                return nil
+            }
+        }
+    }
+
+    /// The link `event` is on, in this region, and the field showing it.
+    private func link(for event: NSEvent) -> (field: NSTextField, url: URL)? {
+        guard let window = region?.window, event.window === window,
+              let field = field(at: event.locationInWindow),
+              let link = link(in: field, at: field.convert(event.locationInWindow, from: nil)),
+              let url = Self.url(field.attributedStringValue.attribute(.link, at: link.range.location, effectiveRange: nil))
+        else { return nil }
+        return (field, url)
+    }
+
+    /// Opens a ⌘-clicked web link in the default browser, and says whether
+    /// `event` was one. The text's own click can't tell it from a plain
+    /// one: the link opens after the click, when ⌘ no longer shows as held.
+    func openCommandClicked(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags
+        guard event.type == .leftMouseDown, flags.contains(.command), !flags.contains(.control),
+              let actions = linkActions, let link = link(for: event), BrowserAddress.isWeb(link.url) else { return false }
+        actions.openInDefaultBrowser(link.url)
+        return true
+    }
+
+    /// The menu a right-click or Control-click `event` on a link shows. A web
+    /// link offers Open Link, which opens it as a click does, Open in Default
+    /// Browser, and Copy Link; a file link Open File and Copy Path; a session
+    /// mention Open Session. When the link's text has a selection, AppKit's
+    /// items for the selection follow, without its own items for the link;
+    /// otherwise the message's Copy Message items follow, in a transcript.
+    /// Nil for any other event, which keeps the menu it had.
     func linkMenu(for event: NSEvent) -> NSMenu? {
         let secondary = event.type == .rightMouseDown
             || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
-        guard secondary, let actions = linkActions, let window = region?.window, event.window === window,
-              let field = field(at: event.locationInWindow),
-              let link = link(in: field, at: field.convert(event.locationInWindow, from: nil)),
-              let url = Self.url(field.attributedStringValue.attribute(.link, at: link.range.location, effectiveRange: nil)),
-              BrowserAddress.isWeb(url) else { return nil }
+        guard secondary, let actions = linkActions, let (field, url) = link(for: event), let kind = LinkKind(url) else { return nil }
         let menu = NSMenu()
         menu.autoenablesItems = false
         let target = LinkMenuTarget(url: url, actions: actions)
-        for (title, action) in [("Open Link", #selector(LinkMenuTarget.open)),
-                                ("Open in Default Browser", #selector(LinkMenuTarget.openInDefaultBrowser)),
-                                ("Copy Link", #selector(LinkMenuTarget.copyLink))] {
+        let items: [(String, Selector)] = switch kind {
+        case .web: [("Open Link", #selector(LinkMenuTarget.open)),
+                    ("Open in Default Browser", #selector(LinkMenuTarget.openInDefaultBrowser)),
+                    ("Copy Link", #selector(LinkMenuTarget.copyLink))]
+        case .file: [("Open File", #selector(LinkMenuTarget.open)), ("Copy Path", #selector(LinkMenuTarget.copyPath))]
+        case .session: [("Open Session", #selector(LinkMenuTarget.open))]
+        }
+        for (title, action) in items {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = target
             // The menu keeps its items, and each its represented object, so
@@ -247,18 +291,30 @@ enum TranscriptClickable: CaseIterable {
             menu.autoenablesItems = true
             menu.addItem(.separator())
             for item in selectionItems { menu.addItem(item) }
+        } else if let region, let message = MessageCopyView.containing(event, in: region) {
+            menu.addItem(.separator())
+            for item in MessageCopyTarget.items(copying: message.markdown) { menu.addItem(item) }
         }
         return menu
     }
 
-    /// The menu a tracked region shows for `event`, a click on a web link.
+    /// Whether some tracked region acts on `event` itself, a click on a link
+    /// that shows its menu or a ⌘-click on a web link, in place of what
+    /// others would do with it.
+    static func takes(_ event: NSEvent) -> Bool {
+        attached.contains { entry in
+            guard let hover = entry.hover else { return false }
+            if event.type == .leftMouseDown, event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control) {
+                return hover.linkActions != nil && hover.link(for: event).map { BrowserAddress.isWeb($0.url) } == true
+            }
+            return hover.linkMenu(for: event) != nil
+        }
+    }
+
+    /// The menu a tracked region shows for `event`.
     static func anyLinkMenu(for event: NSEvent) -> NSMenu? {
         attached.lazy.compactMap { $0.hover?.linkMenu(for: event) }.first
     }
-
-    /// Whether some tracked region shows its own menu for `event`, a click
-    /// on a web link, in place of the menus others would show.
-    static func showsLinkMenu(for event: NSEvent) -> Bool { anyLinkMenu(for: event) != nil }
 
     private static func url(_ value: Any?) -> URL? {
         switch value {
@@ -388,7 +444,7 @@ enum TranscriptClickable: CaseIterable {
     }
 }
 
-/// Carries out a web link menu's items.
+/// Carries out a link menu's items.
 @MainActor private final class LinkMenuTarget: NSObject {
     let url: URL
     let actions: TextLinkHover.LinkActions
@@ -404,6 +460,11 @@ enum TranscriptClickable: CaseIterable {
         actions.pasteboard.clearContents()
         actions.pasteboard.writeObjects([url as NSURL])
         actions.pasteboard.setString(url.absoluteString, forType: .string)
+    }
+    @objc func copyPath() {
+        guard let path = FilePaths.path(fromLink: url) else { return }
+        actions.pasteboard.clearContents()
+        actions.pasteboard.setString(path, forType: .string)
     }
 }
 

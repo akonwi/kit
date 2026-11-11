@@ -73,8 +73,9 @@ struct SelectionActions: NSViewRepresentable {
                 guard let self, self.enabled, let window = self.host?.window else { return event }
                 if event.window === self.panel { return event }
                 guard event.window === window else { self.dismiss(); return event }
-                // A web link's own menu wins over the message's and AppKit's.
-                if TextLinkHover.showsLinkMenu(for: event) {
+                // A link's own menu, or ⌘-click, wins over the message's
+                // menu and AppKit's.
+                if TextLinkHover.takes(event) {
                     self.dismiss()
                     return event
                 }
@@ -86,14 +87,8 @@ struct SelectionActions: NSViewRepresentable {
                    let message = self.messageRegion(in: root, event: event) {
                     self.dismiss()
                     let menu = NSMenu()
-                    let target = MessageCopyTarget(markdown: message.markdown)
-                    for (title, action) in [("Copy Message as Markdown", #selector(MessageCopyTarget.copyMarkdown)),
-                                            ("Copy Message as Plain Text", #selector(MessageCopyTarget.copyPlain))] {
-                        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-                        item.target = target
-                        menu.addItem(item)
-                    }
-                    withExtendedLifetime(target) { NSMenu.popUpContextMenu(menu, with: event, for: message) }
+                    for item in MessageCopyTarget.items(copying: message.markdown) { menu.addItem(item) }
+                    NSMenu.popUpContextMenu(menu, with: event, for: message)
                     return nil
                 }
                 switch event.type {
@@ -128,13 +123,7 @@ struct SelectionActions: NSViewRepresentable {
             return false
         }
         func messageRegion(in view: NSView, event: NSEvent) -> MessageCopyView? {
-            guard !view.isHidden else { return nil }
-            if let region = view as? MessageCopyView,
-               region.bounds.contains(region.convert(event.locationInWindow, from: nil)) { return region }
-            for child in view.subviews {
-                if let result = messageRegion(in: child, event: event) { return result }
-            }
-            return nil
+            MessageCopyView.containing(event, in: view)
         }
         func stop() {
             if let monitor { NSEvent.removeMonitor(monitor) }
@@ -306,10 +295,33 @@ struct MessageCopyRegion: NSViewRepresentable {
 final class MessageCopyView: NSView {
     var markdown = ""
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// The message region in `view` that `event` is over.
+    static func containing(_ event: NSEvent, in view: NSView) -> MessageCopyView? {
+        guard !view.isHidden else { return nil }
+        if let region = view as? MessageCopyView,
+           region.bounds.contains(region.convert(event.locationInWindow, from: nil)) { return region }
+        for child in view.subviews {
+            if let result = containing(event, in: child) { return result }
+        }
+        return nil
+    }
 }
 @MainActor final class MessageCopyTarget: NSObject {
     let markdown: String
     init(markdown: String) { self.markdown = markdown }
+
+    /// Copy Message as Markdown and as Plain Text, for `markdown`. Each item
+    /// keeps the target that carries it out.
+    static func items(copying markdown: String) -> [NSMenuItem] {
+        let target = MessageCopyTarget(markdown: markdown)
+        return [("Copy Message as Markdown", #selector(copyMarkdown)), ("Copy Message as Plain Text", #selector(copyPlain))].map { title, action in
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = target
+            item.representedObject = target
+            return item
+        }
+    }
     @objc func copyMarkdown() { copy(markdown) }
     @objc func copyPlain() { copy(MessageText.plain(markdown)) }
     private func copy(_ text: String) {

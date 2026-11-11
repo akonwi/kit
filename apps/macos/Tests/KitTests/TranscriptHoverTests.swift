@@ -18,12 +18,17 @@ import Testing
         let hover: TextLinkHover
         let theme: MicaTheme
 
-        init(_ source: String, theme: MicaTheme = MicaTheme(dark: false)) {
+        /// `message` marks the text as a transcript message, which copies;
+        /// `sessionLink` links its session mentions.
+        init(_ source: String, theme: MicaTheme = MicaTheme(dark: false), message: Bool = false,
+             sessionLink: TranscriptSessionLink? = nil) {
             // An accent swatch below the text, painted as the text is.
             let host = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
                 MarkdownView(source: source)
                 theme.accent.frame(width: 8, height: 8)
             }
+                .background { if message { MessageCopyRegion(markdown: source) } }
+                .environment(\.transcriptSessionLink, sessionLink)
                 .frame(width: TranscriptHoverTests.width, alignment: .topLeading)
                 .environment(\.mica, theme).foregroundStyle(theme.text).background(theme.surface))
             // The window fits the text, so its size stays put as it lays out.

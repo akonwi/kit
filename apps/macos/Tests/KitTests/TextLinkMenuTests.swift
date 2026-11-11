@@ -5,9 +5,13 @@ import Testing
 
 /// The menu a right-click on a link in rendered Markdown shows: a web link
 /// opens in Kit's browser as a click does, or in the default browser, or
-/// copies; other links and plain text keep AppKit's text menu.
+/// copies; a file link opens or copies its path; a session mention opens
+/// its session. A transcript message's copy items follow. Plain text keeps
+/// the menu it had, and ⌘-clicking a web link opens the default browser.
 @MainActor struct TextLinkMenuTests {
-    static let source = "Read [the docs](https://example.com/guide) or [the notes](/srv/notes.md) before you start, then https://example.com/next."
+    static let source = "Read [the docs](https://example.com/guide) or [the notes](/srv/notes.md) before you start, then https://example.com/next. Ask #[session:ses_release]."
+    static let web = ["Open Link", "Open in Default Browser", "Copy Link"]
+    static let message = ["—", "Copy Message as Markdown", "Copy Message as Plain Text"]
 
     /// Rendered Markdown whose web links open in `workspace` beside the
     /// conversation, as the transcript's do.
@@ -17,16 +21,22 @@ import Testing
         let engines = FakeBrowserEngines()
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("TextLinkMenuTests-" + UUID().uuidString))
         let defaultBrowser = DefaultBrowser()
+        let sessions = DefaultBrowser()
 
         @MainActor final class DefaultBrowser {
             var opened: [URL] = []
+            var sessions: [String] = []
         }
 
         init() {
             _ = NSApplication.shared
-            rendered = TranscriptHoverTests.Rendered(TextLinkMenuTests.source)
+            let sessions = sessions
+            let sessionLink = TranscriptSessionLink(serverID: "local", title: { $0 == "ses_release" ? "Release notes" : nil }) { id in
+                MainActor.assumeIsolated { sessions.sessions.append(id) }
+            }
+            rendered = TranscriptHoverTests.Rendered(TextLinkMenuTests.source, message: true, sessionLink: sessionLink)
             workspace.makeBrowserEngine = engines.make
-            let open = OpenURLAction.transcript(workspace, beside: .conversation, sessionLink: nil)
+            let open = OpenURLAction.transcript(workspace, beside: .conversation, sessionLink: sessionLink)
             rendered.hover.linkActions = .init(open: { open($0) },
                                                openInDefaultBrowser: { [defaultBrowser] in defaultBrowser.opened.append($0) },
                                                pasteboard: pasteboard)
@@ -55,30 +65,76 @@ import Testing
         let menus = Menus()
         defer { menus.close() }
         let right = try menus.click(.rightMouseDown, on: "the docs")
-        #expect(menus.titles(menus.rendered.hover.linkMenu(for: right)) == ["Open Link", "Open in Default Browser", "Copy Link"])
+        #expect(menus.titles(menus.rendered.hover.linkMenu(for: right)) == Self.web + Self.message)
         let control = try menus.click(.leftMouseDown, on: "the docs", modifiers: .control)
-        #expect(menus.titles(menus.rendered.hover.linkMenu(for: control)) == ["Open Link", "Open in Default Browser", "Copy Link"])
+        #expect(menus.titles(menus.rendered.hover.linkMenu(for: control)) == Self.web + Self.message)
         // The transcript's own menus give way to it.
-        #expect(TextLinkHover.showsLinkMenu(for: right))
+        #expect(TextLinkHover.takes(right))
         // A bare address is a link too.
         let bare = try menus.click(.rightMouseDown, on: "https://example.com/next")
         let menu = try #require(menus.rendered.hover.linkMenu(for: bare))
-        #expect(menus.titles(menu) == ["Open Link", "Open in Default Browser", "Copy Link"])
+        #expect(menus.titles(menu) == Self.web + Self.message)
         menu.performActionForItem(at: 0)
         #expect(menus.workspace.panes.last.flatMap(menus.workspace.browser)?.url == URL(string: "https://example.com/next"))
     }
 
-    @Test func aFileLinkPlainTextAndAPlainClickKeepAppKitsMenu() throws {
+    @Test func aFileLinkOpensItsFileOrCopiesItsPath() throws {
         let menus = Menus()
         defer { menus.close() }
-        let file = try menus.click(.rightMouseDown, on: "the notes")
-        #expect(menus.rendered.hover.linkMenu(for: file) == nil)
-        #expect(!TextLinkHover.showsLinkMenu(for: file))
+        let menu = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "the notes")))
+        #expect(menus.titles(menu) == ["Open File", "Copy Path"] + Self.message)
+        menu.performActionForItem(at: 1)
+        #expect(menus.pasteboard.string(forType: .string) == "/srv/notes.md")
+        #expect(menus.workspace.panes == [.conversation])
+        menu.performActionForItem(at: 0)
+        #expect(menus.workspace.panes == [.conversation, .hostFile("/srv/notes.md")])
+        #expect(menus.defaultBrowser.opened == [])
+    }
+
+    @Test func aSessionMentionOpensItsSession() throws {
+        let menus = Menus()
+        defer { menus.close() }
+        let menu = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "#Release notes")))
+        #expect(menus.titles(menu) == ["Open Session"] + Self.message)
+        menu.performActionForItem(at: 0)
+        #expect(menus.sessions.sessions == ["ses_release"])
+        #expect(menus.workspace.panes == [.conversation])
+    }
+
+    @Test func theMessagesCopyItemsCopyIt() throws {
+        let menus = Menus()
+        defer { menus.close() }
+        let menu = try #require(menus.rendered.hover.linkMenu(for: try menus.click(.rightMouseDown, on: "the docs")))
+        let copy = try #require(menu.items.first { $0.title == "Copy Message as Markdown" })
+        #expect(copy.target is MessageCopyTarget)
+        #expect((copy.target as? MessageCopyTarget)?.markdown == Self.source)
+    }
+
+    @Test func plainTextAndAPlainClickKeepTheMenuTheyHad() throws {
+        let menus = Menus()
+        defer { menus.close() }
         let plain = try menus.click(.rightMouseDown, on: "before you start")
         #expect(menus.rendered.hover.linkMenu(for: plain) == nil)
-        #expect(!TextLinkHover.showsLinkMenu(for: plain))
+        #expect(!TextLinkHover.takes(plain))
         let click = try menus.click(.leftMouseDown, on: "the docs")
         #expect(menus.rendered.hover.linkMenu(for: click) == nil)
+        #expect(!menus.rendered.hover.openCommandClicked(click))
+        #expect(!TextLinkHover.takes(click))
+    }
+
+    @Test func aCommandClickedWebLinkOpensInTheDefaultBrowser() throws {
+        let menus = Menus()
+        defer { menus.close() }
+        let web = try menus.click(.leftMouseDown, on: "the docs", modifiers: .command)
+        #expect(TextLinkHover.takes(web))
+        #expect(menus.rendered.hover.openCommandClicked(web))
+        #expect(menus.defaultBrowser.opened == [URL(string: "https://example.com/guide")!])
+        #expect(menus.workspace.panes == [.conversation])
+        // A file opens in Kit however it's clicked.
+        let file = try menus.click(.leftMouseDown, on: "the notes", modifiers: .command)
+        #expect(!TextLinkHover.takes(file))
+        #expect(!menus.rendered.hover.openCommandClicked(file))
+        #expect(menus.defaultBrowser.opened == [URL(string: "https://example.com/guide")!])
     }
 
     @Test func openLinkOpensABrowserTabAsAClickDoes() throws {
@@ -132,7 +188,9 @@ import Testing
         defer { field.cell?.endEditing(editor) }
         let menu = try #require(menus.rendered.hover.linkMenu(for: event))
         let titles = menus.titles(menu)
-        #expect(Array(titles.prefix(4)) == ["Open Link", "Open in Default Browser", "Copy Link", "—"])
+        #expect(Array(titles.prefix(4)) == Self.web + ["—"])
+        // The selection's items take the message's place.
+        #expect(!titles.contains("Copy Message as Markdown"))
         // The selection's Copy acts on the selection, through the field's editor.
         let copy = try #require(menu.items.first { $0.title == "Copy" })
         #expect(copy.action == #selector(NSText.copy(_:)))
@@ -145,7 +203,7 @@ import Testing
 
         // A caret alone selects nothing.
         editor.setSelectedRange(NSRange(location: selection.location, length: 0))
-        #expect(menus.titles(menus.rendered.hover.linkMenu(for: event)) == ["Open Link", "Open in Default Browser", "Copy Link"])
+        #expect(menus.titles(menus.rendered.hover.linkMenu(for: event)) == Self.web + Self.message)
     }
 
     @Test func aMarkdownPreviewsOpenLinkUsesItsLinkHandler() throws {
