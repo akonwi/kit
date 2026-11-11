@@ -102,7 +102,9 @@ function StatFigure(props: { items: FigureItem[] }) {
       <For each={props.items}>
         {(item) => (
           <div class="fig-stat-item" data-tone={item.accent ? "accent" : item.muted ? "quiet" : "plain"}>
-            <span class="fig-stat-value">{item.value}</span>
+            <span class="fig-stat-value" data-size={item.small ? "small" : undefined}>
+              {item.value}
+            </span>
             <span class="fig-sub">{item.label}</span>
             <Show when={item.spark.length > 1}>
               <Sparkline points={item.spark} />

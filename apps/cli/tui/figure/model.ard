@@ -24,6 +24,8 @@ struct Item {
   share: Str,
   // A stat's sparkline, each point in thousandths of the line's range.
   spark: [Int],
+  // A stat value too long to draw large, drawn at the label's size instead.
+  small: Bool,
   // A meter row's target as written, or empty.
   target: Str,
   // A meter past its target or past 100%, which turns warning.
@@ -94,6 +96,7 @@ fn item(label: Str, value: Str) Item {
     scale: 0,
     share: "",
     spark: [],
+    small: false,
     target: "",
     over: false,
     state: "",
@@ -164,6 +167,9 @@ fn record(figure: Figure) Str {
       points.push(strconv::Itoa(point))
     }
     let extra = &mut List::new<Str>()
+    if each.small {
+      extra.push(" small=true")
+    }
     if each.target != "" {
       extra.push(" target={quoted(each.target)}")
     }
@@ -209,13 +215,14 @@ fn record(figure: Figure) Str {
 
 test fn records_add_the_fields_a_kind_sets() Void!Str {
   let row = &mut item("Docs", "9")
+  row.small = true
   row.target = "12"
   row.over = true
   row.state = "now"
   row.body = "a b"
   let got = record(figure("meter", "", [row.*]))
   testing::assert(
-    got == "figure meter\ntitle \"\"\nitem label=\"Docs\" value=\"9\" note=\"\" accent=false muted=false scale=0 share=\"\" spark= target=\"12\" over=true state=now body=\"a b\"\n",
+    got == "figure meter\ntitle \"\"\nitem label=\"Docs\" value=\"9\" note=\"\" accent=false muted=false scale=0 share=\"\" spark= small=true target=\"12\" over=true state=now body=\"a b\"\n",
     "got {got}",
   )
 }

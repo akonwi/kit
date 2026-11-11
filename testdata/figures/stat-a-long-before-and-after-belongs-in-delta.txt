@@ -1,0 +1,1 @@
+not drawn: a stat value with an arrow is at most 16 characters, got `10,977ms → 2,540ms tot…`; a before and after belongs in a delta figure

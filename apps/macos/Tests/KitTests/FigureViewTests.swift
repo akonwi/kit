@@ -57,6 +57,13 @@ import Testing
         }
     }
 
+    /// A stat value too long to draw large is set at the label's size and
+    /// wraps, so it doesn't widen a narrow card.
+    @Test func aStatValueTooLongToDrawLargeWrapsInANarrowCard() throws {
+        let body = "- **p99 under 250ms on every route, every region, all month** latency\n- 860 shipped"
+        #expect(try width("stat", body, offered: 240) <= 240)
+    }
+
     /// A checklist drawn in a dark card 300 points wide, with a swatch of
     /// each of `swatches` (its layers drawn in order) in a row under it, so
     /// the figure's colours and the swatches go through the same colour

@@ -25,6 +25,8 @@ public struct Figure: Equatable, Sendable {
         public var share = ""
         /// A stat's sparkline, each point in thousandths of the line's range.
         public var spark: [Int] = []
+        /// A stat value too long to draw large, drawn at the label's size instead.
+        public var small = false
         /// A meter row's target as written, or empty.
         public var target = ""
         /// A meter past its target or past 100%, which turns warning.
@@ -134,6 +136,7 @@ public struct Figure: Equatable, Sendable {
         for item in items {
             let spark = item.spark.map(String.init).joined(separator: ",")
             var extra = ""
+            if item.small { extra += " small=true" }
             if !item.target.isEmpty { extra += " target=\(quoted(item.target))" }
             if item.over { extra += " over=true" }
             if item.state != .none { extra += " state=\(item.state.rawValue)" }
@@ -232,7 +235,9 @@ enum Bars {
 /// label, with an optional note and a sparkline from a line of numbers under it.
 enum Stat {
     static let maxItems = 4
-    static let maxValue = 12
+    /// The longest value drawn large, in characters. A longer value is
+    /// drawn at the label's size, unless it is a before and after.
+    static let maxValue = 16
     static let maxPoints = 60
 
     private static func spark(_ details: [String]) -> Result<[Int], NotDrawn> {
@@ -266,12 +271,18 @@ enum Stat {
             if value.isEmpty || label.isEmpty {
                 return .failure(NotDrawn("a stat item is a value then a label, got `\(Grammar.clip(text))`"))
             }
-            if value.unicodeScalars.count > maxValue {
-                return .failure(NotDrawn("a stat value is at most \(maxValue) characters, got `\(Grammar.clip(value))`"))
+            let small = value.unicodeScalars.count > maxValue
+            if small && beforeAndAfter(value) {
+                return .failure(NotDrawn("a stat value with an arrow is at most \(maxValue) characters, got `\(Grammar.clip(value))`; a before and after belongs in a delta figure"))
             }
             return .success(Figure.Item(label: label, value: value, note: each.note, accent: each.bold || leading,
-                                        muted: each.italic, spark: points))
+                                        muted: each.italic, spark: points, small: small))
         }
+    }
+
+    /// Whether a value reads as a before and after, such as `8s → 2s`.
+    private static func beforeAndAfter(_ value: String) -> Bool {
+        Grammar.index(value, "→") != nil || Grammar.index(value, "->") != nil
     }
 
     static func parse(_ info: Grammar.Info, _ body: String) -> Result<Figure, NotDrawn> {

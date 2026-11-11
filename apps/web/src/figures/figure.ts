@@ -55,6 +55,8 @@ export interface FigureItem {
   share: string;
   /** A stat's sparkline, each point in thousandths of the line's range. */
   spark: number[];
+  /** A stat value too long to draw large, drawn at the label's size instead. */
+  small: boolean;
   /** A meter row's target as written, or empty. */
   target: string;
   /** A meter past its target or past 100%, which turns warning. */
@@ -104,6 +106,7 @@ function item(fields: Partial<FigureItem> & { label: string; value: string }): F
     scale: 0,
     share: "",
     spark: [],
+    small: false,
     target: "",
     over: false,
     state: "",
@@ -177,6 +180,7 @@ export function record(figure: Figure): string {
   if (figure.pick >= 0) lines.push(`pick ${figure.pick}`);
   for (const each of figure.items) {
     let extra = "";
+    if (each.small) extra += " small=true";
     if (each.target) extra += ` target=${quoted(each.target)}`;
     if (each.over) extra += " over=true";
     if (each.state) extra += ` state=${each.state}`;
@@ -273,7 +277,9 @@ function bars(info: Info, body: string): Result<Figure> {
 // with an optional note and a sparkline from a line of numbers under it.
 
 const STAT_MAX_ITEMS = 4;
-const STAT_MAX_VALUE = 12;
+// The longest value drawn large, in characters. A longer value is drawn at
+// the label's size, unless it is a before and after.
+const STAT_MAX_VALUE = 16;
 const STAT_MAX_POINTS = 60;
 
 function spark(details: string[]): Result<number[]> {
@@ -306,8 +312,12 @@ function statItem(each: Line): Result<FigureItem> {
   if (!points.ok) return points;
   if (value === "" || label === "")
     return fail(`a stat item is a value then a label, got \`${G.clip(text)}\``);
-  if ([...value].length > STAT_MAX_VALUE)
-    return fail(`a stat value is at most ${STAT_MAX_VALUE} characters, got \`${G.clip(value)}\``);
+  const small = [...value].length > STAT_MAX_VALUE;
+  if (small && beforeAndAfter(value))
+    return fail(
+      `a stat value with an arrow is at most ${STAT_MAX_VALUE} characters, got \`${G.clip(value)}\`; ` +
+        "a before and after belongs in a delta figure",
+    );
   return ok(
     item({
       label,
@@ -316,8 +326,14 @@ function statItem(each: Line): Result<FigureItem> {
       accent: each.bold || leading,
       muted: each.italic,
       spark: points.value,
+      small,
     }),
   );
+}
+
+/** Whether a value reads as a before and after, such as `8s → 2s`. */
+function beforeAndAfter(value: string): boolean {
+  return value.includes("→") || value.includes("->");
 }
 
 function stat(info: Info, body: string): Result<Figure> {

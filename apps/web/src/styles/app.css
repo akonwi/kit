@@ -1346,6 +1346,19 @@ samp,
   &[data-tone="quiet"] .fig-stat-value {
     color: var(--color-text-muted);
   }
+  /* Too long to draw large: set at the label's size on the large values'
+     baseline, so the labels still line up. */
+  & .fig-stat-value[data-size="small"] {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-block-size: 2rem;
+    padding-block-end: 0.125rem;
+    font-size: 0.75rem;
+    letter-spacing: normal;
+    line-height: 1rem;
+    white-space: normal;
+  }
   & .fig-stat-note {
     margin-block-start: 0.125rem;
   }

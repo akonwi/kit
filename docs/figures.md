@@ -72,7 +72,13 @@ Any other kind is a plain quote. No Obsidian names, no fold markers.
 ````
 
 - 1–4 items: `VALUE LABEL [— note]`. VALUE is the first token (or the bold
-  span), shown verbatim, at most 12 characters. It is not parsed as a number.
+  span), shown verbatim. It is not parsed as a number. A value of at most 16
+  characters is drawn large. A longer one is drawn at the label's size
+  instead (in the terminal, not bold and cut at 32 cells with `…`), and the
+  rest of the figure is unchanged.
+- A before and after (`8s → 2s`, or from 8s to 2s) belongs in a `delta`
+  figure, not a stat. A value longer than 16 characters with `→` or `->` in
+  it means the figure isn't drawn, and the reason points to `delta`.
 - An optional indented line of numbers under an item is its sparkline
   (2–60 points). The last point gets the accent.
 

@@ -1,0 +1,18 @@
+figure stat
+title "This week"
+item label="requests" value="1,234,567,890,123" note="" accent=false muted=false scale=0 share="" spark= small=true
+item label="latency" value="p99 under 250ms on every route this month" note="" accent=true muted=false scale=0 share="" spark= small=true
+item label="shipped" value="860" note="" accent=false muted=false scale=0 share="" spark=
+drawn 70 6
+┌─ This week ────────────────────────────────────────────────────────┐
+│                                                                    │
+│  1,234,567,890,123    p99 under 250ms on every route …    860      │
+│  requests             latency                             shipped  │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+ff TTTT TTTT fffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+f                                                                    f
+f  xxxxxxxxxxxxxxxxx    aaa aaaaa aaaaa aa aaaaa aaaaa a    XXX      f
+f  mmmmmmmm             mmmmmmm                             mmmmmmm  f
+f                                                                    f
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff

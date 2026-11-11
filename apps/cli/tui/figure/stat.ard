@@ -14,8 +14,9 @@ use go:unicode/utf8
 
 let max_items = 4
 
-// The longest value, in characters.
-let max_value = 12
+// The longest value drawn large, in characters. A longer value is drawn at
+// the label's size, unless it is a before and after.
+let max_value = 16
 
 let max_points = 60
 
@@ -76,15 +77,23 @@ private fn stat(each: grammar::Item) model::Item!Str {
   made.accent = each.bold or leading
   made.muted = each.italic
   made.spark = try spark(each.details)
+  made.small = utf8::RuneCountInString(value) > max_value
   match {
     value == "" or label == "" => {
       Result::err("a stat item is a value then a label, got `{grammar::clip(text)}`")
     },
-    utf8::RuneCountInString(value) > max_value => {
-      Result::err("a stat value is at most {max_value} characters, got `{grammar::clip(value)}`")
+    made.small and before_and_after(value) => {
+      Result::err(
+        "a stat value with an arrow is at most {max_value} characters, got `{grammar::clip(value)}`; a before and after belongs in a delta figure",
+      )
     },
     _ => Result::ok(made.*),
   }
+}
+
+// Whether a value reads as a before and after, such as `8s → 2s`.
+private fn before_and_after(value: Str) Bool {
+  strings::Contains(value, "→") or strings::Contains(value, "->")
 }
 
 fn parse(info: grammar::Info, body: Str) model::Figure!Str {
@@ -148,8 +157,13 @@ fn draw(figure: model::Figure) drawing::Drawing {
   for each in figure.items {
     let line = sparkline(each.spark)
     let label = format::truncate_cells(each.label, max_label)
+    // A small value is drawn as a label is: cut, and not bold.
+    let value = match each.small {
+      true => format::truncate_cells(each.value, max_label),
+      false => each.value,
+    }
     let width = [
-      ui::text_width(each.value),
+      ui::text_width(value),
       ui::text_width(label),
       ui::text_width(each.note),
       ui::text_width(line),
@@ -166,7 +180,7 @@ fn draw(figure: model::Figure) drawing::Drawing {
       each.muted => drawing::Role::muted,
       _ => drawing::Role::text,
     }
-    values.push(cell(each.value, column, role, not each.muted, last))
+    values.push(cell(value, column, role, not each.muted or each.small, last))
     labels.push(cell(label, column, drawing::Role::muted, false, last))
     notes.push(cell(each.note, column, drawing::Role::muted, false, last))
     if each.note != "" {

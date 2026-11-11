@@ -50,7 +50,8 @@ struct FigureView: View {
 }
 
 /// Large numbers side by side, each over its label, falling to two columns
-/// and then one when the card is narrow. A value never shrinks or truncates.
+/// and then one when the card is narrow. A value drawn large never shrinks
+/// or truncates; one too long for that is set at the label's size and wraps.
 private struct StatFigure: View {
     let items: [Figure.Item]
 
@@ -76,12 +77,22 @@ private struct StatFigure: View {
 private struct StatColumn: View {
     let item: Figure.Item
 
+    private var large: Font { .system(size: 26, weight: .semibold) }
+
+    private var color: Color { item.accent ? Theme.accent : item.muted ? Theme.muted : Theme.text }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(item.value)
-                .font(.system(size: 26, weight: .semibold)).monospacedDigit().tracking(-0.5)
-                .foregroundStyle(item.accent ? Theme.accent : item.muted ? Theme.muted : Theme.text)
-                .fixedSize()
+            if item.small {
+                // Too long to draw large: set at the label's size on the
+                // large values' baseline, so the labels still line up.
+                ZStack(alignment: Alignment(horizontal: .leading, vertical: .lastTextBaseline)) {
+                    Text(verbatim: "0").font(large).hidden()
+                    Text(item.value).font(.system(size: 12, weight: .medium)).monospacedDigit().foregroundStyle(color)
+                }
+            } else {
+                Text(item.value).font(large).monospacedDigit().tracking(-0.5).foregroundStyle(color).fixedSize()
+            }
             Text(item.label).font(.system(size: 12)).foregroundStyle(Theme.muted)
             if !item.spark.isEmpty {
                 Sparkline(points: item.spark).padding(.top, 8)

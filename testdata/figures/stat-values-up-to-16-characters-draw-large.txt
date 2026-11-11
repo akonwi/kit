@@ -1,0 +1,17 @@
+figure stat
+title "Revenue"
+item label="booked" value="$123,456,789,012" note="" accent=false muted=false scale=0 share="" spark=
+item label="orders" value="860" note="" accent=false muted=false scale=0 share="" spark=
+drawn 32 6
+┌─ Revenue ────────────────────┐
+│                              │
+│  $123,456,789,012    860     │
+│  booked              orders  │
+│                              │
+└──────────────────────────────┘
+ff TTTTTTT fffffffffffffffffffff
+f                              f
+f  XXXXXXXXXXXXXXXX    XXX     f
+f  mmmmmm              mmmmmm  f
+f                              f
+ffffffffffffffffffffffffffffffff
