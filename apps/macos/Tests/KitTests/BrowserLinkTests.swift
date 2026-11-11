@@ -466,9 +466,10 @@ struct BrowserLinkDispositionTests {
         defer { page.close() }
         try page.clickLink(modifiers: .command)
         try await eventually { page.tabs.count == 2 && page.tabs[1].page.title == "Next" }
-        #expect(page.workspace.selected == .browser(page.tabs[1].id))
+        let opened = try #require(page.tabs.dropFirst().first)
+        #expect(page.workspace.selected == .browser(opened.id))
         #expect(page.tab.page.title == "Links")
-        #expect(page.tabs[1].url == page.root.appending(path: "/next"))
+        #expect(opened.url == page.root.appending(path: "/next"))
         // The site hears which page linked to it, as from a plain click.
         #expect(page.request("/next")?.contains("\r\nReferer: \(page.root.absoluteString)/\r\n") == true)
     }
@@ -499,7 +500,8 @@ struct BrowserLinkDispositionTests {
         defer { page.close() }
         try page.clickLink(window: true)
         try await eventually { page.tabs.count == 2 && page.tabs[1].page.title == "Window" }
-        #expect(page.workspace.selected == .browser(page.tabs[1].id))
+        let opened = try #require(page.tabs.dropFirst().first)
+        #expect(page.workspace.selected == .browser(opened.id))
     }
 
     @Test func aShiftMiddleClickedLinkOpensBehind() async throws {
