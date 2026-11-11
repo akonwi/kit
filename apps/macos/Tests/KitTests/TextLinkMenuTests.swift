@@ -7,7 +7,7 @@ import Testing
 /// opens in Kit's browser as a click does, or in the default browser, or
 /// copies; other links and plain text keep AppKit's text menu.
 @MainActor struct TextLinkMenuTests {
-    static let source = "Read [the docs](https://example.com/guide) or [the notes](/srv/notes.md) before you start."
+    static let source = "Read [the docs](https://example.com/guide) or [the notes](/srv/notes.md) before you start, then https://example.com/next."
 
     /// Rendered Markdown whose web links open in `workspace` beside the
     /// conversation, as the transcript's do.
@@ -60,6 +60,12 @@ import Testing
         #expect(menus.titles(menus.rendered.hover.linkMenu(for: control)) == ["Open Link", "Open in Default Browser", "Copy Link"])
         // The transcript's own menus give way to it.
         #expect(TextLinkHover.showsLinkMenu(for: right))
+        // A bare address is a link too.
+        let bare = try menus.click(.rightMouseDown, on: "https://example.com/next")
+        let menu = try #require(menus.rendered.hover.linkMenu(for: bare))
+        #expect(menus.titles(menu) == ["Open Link", "Open in Default Browser", "Copy Link"])
+        menu.performActionForItem(at: 0)
+        #expect(menus.workspace.panes.last.flatMap(menus.workspace.browser)?.url == URL(string: "https://example.com/next"))
     }
 
     @Test func aFileLinkPlainTextAndAPlainClickKeepAppKitsMenu() throws {

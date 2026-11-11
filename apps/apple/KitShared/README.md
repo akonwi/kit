@@ -38,7 +38,8 @@ iOS app. It holds no AppKit or UIKit code.
 - `KitFigures` reads and lays out Kit's data figures, a port of the terminal
   client's ([ADR 0054](../../../docs/adrs/0054-draw-data-figures-from-fenced-markdown.md)).
 - `KitTranscript` is what a transcript shows, apart from how each app draws
-  it: the Markdown projection (`MarkdownContent`), tool call presentation
+  it: the Markdown projection (`MarkdownContent`), which links bare web
+  addresses as GitHub does (`WebAutolinks`), tool call presentation
   (`ToolPresentation`), and session mention links (`SessionMentions`).
 - `KitHighlighting` highlights code with tree-sitter: fence language aliases,
   capture-to-role mapping, and a bounded span cache. Each app supplies the

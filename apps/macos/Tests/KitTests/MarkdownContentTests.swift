@@ -87,4 +87,81 @@ struct MarkdownContentTests {
             .paragraph(AttributedString("Readable"))
         ])
     }
+
+    /// Text whose runs link where a URL is given.
+    private static func text(_ runs: [(String, String?)]) -> AttributedString {
+        runs.reduce(into: AttributedString()) { result, run in
+            var part = AttributedString(run.0)
+            part.link = run.1.flatMap(URL.init(string:))
+            result += part
+        }
+    }
+
+    @Test(arguments: [
+        ("See https://example.com/guide.", [("See ", nil), ("https://example.com/guide", "https://example.com/guide"), (".", nil)]),
+        ("Is it at http://localhost:5173/settings?", [("Is it at ", nil), ("http://localhost:5173/settings", "http://localhost:5173/settings"), ("?", nil)]),
+        ("(See https://en.wikipedia.org/wiki/Swift_(programming_language))", [
+            ("(See ", nil),
+            ("https://en.wikipedia.org/wiki/Swift_(programming_language)", "https://en.wikipedia.org/wiki/Swift_(programming_language)"),
+            (")", nil)
+        ]),
+        ("Both HTTPS://Example.com/a, and https://example.com/b?q=1#top: done", [
+            ("Both ", nil), ("HTTPS://Example.com/a", "HTTPS://Example.com/a"), (", and ", nil),
+            ("https://example.com/b?q=1#top", "https://example.com/b?q=1#top"), (": done", nil)
+        ]),
+        ("Ends at https://example.com.", [("Ends at ", nil), ("https://example.com", "https://example.com"), (".", nil)]),
+        ("Not xhttps://example.com, ftp://example.com, https://, or https://exa_mple.com", [
+            ("Not xhttps://example.com, ftp://example.com, https://, or https://exa_mple.com", nil)
+        ]),
+        // What follows another link is a word, not an address.
+        ("[label](https://target.example.com)https://example.com", [
+            ("label", "https://target.example.com"), ("https://example.com", nil)
+        ])
+    ] as [(String, [(String, String?)])])
+    func bareWebAddressesInProseAreLinksAsGitHubLinksThem(source: String, runs: [(String, String?)]) {
+        #expect(MarkdownContent(source: source).blocks == [.paragraph(Self.text(runs))])
+    }
+
+    @Test func bareWebAddressesAreLinkedInEveryKindOfProseButNotInCode() throws {
+        let source = """
+        # Docs at https://example.com/docs
+
+        - Item *https://example.com/em* and `https://example.com/code`
+        - [https://shown.example.com](https://target.example.com)
+
+        ```sh
+        curl https://example.com/fenced
+        ```
+        """
+        let blocks = MarkdownContent(source: source).blocks
+        #expect(blocks.count == 3)
+        #expect(blocks.first == .heading(1, Self.text([("Docs at ", nil), ("https://example.com/docs", "https://example.com/docs")])))
+        guard case .list(let items) = blocks.dropFirst().first, items.count == 2,
+              case .paragraph(let item) = items[0].blocks.first, case .paragraph(let labeled) = items[1].blocks.first else {
+            Issue.record("Expected a list of two paragraphs"); return
+        }
+        let runs = item.runs.map { (String(item[$0.range].characters), $0.link, $0.inlinePresentationIntent) }
+        #expect(runs.map(\.0) == ["Item ", "https://example.com/em", " and ", "https://example.com/code"])
+        #expect(runs.map(\.1) == [nil, URL(string: "https://example.com/em"), nil, nil])
+        #expect(runs.map(\.2) == [nil, .emphasized, nil, .code])
+        // A link's text is its own: a URL in it doesn't link elsewhere.
+        #expect(labeled == Self.text([("https://shown.example.com", "https://target.example.com")]))
+        #expect(blocks.last == .code("sh", "curl https://example.com/fenced\n"))
+    }
+
+    @Test func anAddressRightAfterACodeSpanIsntOne() throws {
+        guard case .paragraph(let text) = try #require(MarkdownContent(source: "`code`https://example.com").blocks.first) else {
+            Issue.record("Expected a paragraph"); return
+        }
+        #expect(text.runs.map { (String(text[$0.range].characters), $0.link, $0.inlinePresentationIntent) }.map { "\($0.0)|\($0.1?.absoluteString ?? "-")|\($0.2 == .code)" }
+                == ["code|-|true", "https://example.com|-|false"])
+    }
+
+    @Test func textFullOfAddressesThatArentIsReadOnce() {
+        // Each candidate's host is checked before the rest of the word is read.
+        let word = String(repeating: "http://bad_host(", count: 5_000)
+        let clock = ContinuousClock()
+        let elapsed = clock.measure { _ = MarkdownContent(source: "See " + word + " and https://example.com") }
+        #expect(elapsed < .seconds(1))
+    }
 }

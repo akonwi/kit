@@ -213,7 +213,9 @@ public struct MarkdownContent: Sendable {
         let rest = inlines.dropFirst(lineEnd + 1)
         var body: [Block] = []
         if !rest.isEmpty {
-            body.append(.paragraph(SessionMentions.linked(rest.reduce(into: AttributedString()) { $0 += inline($1) })))
+            body.append(.paragraph(SessionMentions.linked(rest.reduce(into: AttributedString()) {
+                $0 += inline($1, after: $0.characters.last)
+            })))
         }
         for child in quote.children.dropFirst() { body += blocks(of: child) }
         return Callout(kind: marker.kind, title: marker.title, blocks: body)
@@ -225,9 +227,14 @@ public struct MarkdownContent: Sendable {
         SessionMentions.linked(inline(node))
     }
 
-    private static func inline(_ node: any Markup) -> AttributedString {
+    /// A node's inline text. Bare web addresses in it are links, as GitHub
+    /// links them, except in a link's own text (`autolinks` false there).
+    /// `previous` is the character shown before the node, which decides
+    /// whether an address at its start can be one.
+    private static func inline(_ node: any Markup, autolinks: Bool = true, after previous: Character? = nil) -> AttributedString {
         switch node {
-        case let value as Markdown.Text: return AttributedString(value.string)
+        case let value as Markdown.Text:
+            return (autolinks ? WebAutolinks.linked(value.string, after: previous) : nil) ?? AttributedString(value.string)
         case let value as InlineCode:
             var text = AttributedString(value.code)
             text.inlinePresentationIntent = .code
@@ -241,7 +248,13 @@ public struct MarkdownContent: Sendable {
             return AttributedString("[Image: \(value.plainText)]")
         default: break
         }
-        var text = node.children.reduce(into: AttributedString()) { $0 += inline($1) }
+        let autolinks = autolinks && !(node is Markdown.Link)
+        // Text just inside emphasis follows its `*`, `_`, or `~` delimiter.
+        let opening: Character? = node is Strong || node is Emphasis || node is Strikethrough ? "*" : previous
+        var text = AttributedString()
+        for child in node.children {
+            text += inline(child, autolinks: autolinks, after: text.characters.last ?? opening)
+        }
         let intent: InlinePresentationIntent?
         switch node {
         case is Strong: intent = .stronglyEmphasized
