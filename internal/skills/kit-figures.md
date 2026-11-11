@@ -84,7 +84,10 @@ table. A figure for one or two numbers is noise; put them in the sentence.
 ```
 
 - 1–4 items of `VALUE label [— note]`. VALUE is the first word (or the bold
-  span), at most 12 characters, shown verbatim.
+  span), shown verbatim. Keep it to 16 characters: a longer one is drawn
+  small, at the label's size.
+- A before and after (anything with `→`, or "from X to Y") is not a stat.
+  Use `delta`: `- time: 10,977ms → 254ms` with `change="percent"`.
 - An indented line of 2–60 numbers under an item draws its sparkline.
 
 ### bars
