@@ -30,9 +30,10 @@ struct SessionScreen: View {
         let serverID = state.serverID
         // An open session's tiles sit on the window frame; anything else
         // fills the window's single tile.
-        let tiled = state.selected != nil
+        let opening = state.opening
+        let tiled = opening == .open
         let content = VStack(spacing: tiled ? tileGap : 0) {
-            if state.unavailable {
+            if state.unavailable && tiled {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Session unavailable").fontWeight(.medium)
@@ -51,20 +52,19 @@ struct SessionScreen: View {
                 .overlay { if tiled { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) } }
                 if !tiled { Rule() }
             }
-            Group {
-                if state.selected == nil {
-                    VStack(spacing: 16) {
-                        if !state.selectedID.isEmpty && !state.unavailable {
-                            Text(state.connectionState == .loading ? "Opening session…" : "Couldn’t open session").font(.title2)
-                            Text("The session may have been deleted or its server may be unavailable.")
-                                .foregroundStyle(.secondary)
-                            Text(state.connectionStatus).font(.caption)
-                            Button("Retry") { state.attach() }
-                        }
-                        SessionChooserView(state: state)
-                    }.frame(minWidth: 490)
-                } else {
-                    WorkspaceLayout(state: state).frame(minWidth: 490)
+            switch opening {
+            case .open:
+                WorkspaceLayout(state: state).frame(minWidth: 490)
+            case .loading:
+                SessionSkeleton(label: "Opening session")
+            case .failed(let reason):
+                SessionNotOpened(title: "Couldn’t open session", detail: reason) {
+                    Button("Retry") { state.attach() }
+                }
+            case .missing:
+                // A window closes such a tab; a session shown elsewhere says why it's empty.
+                SessionNotOpened(title: "Session no longer exists", detail: nil) {
+                    Button("Open another session") { navigation.openLauncher() }
                 }
             }
         }
@@ -94,7 +94,7 @@ struct SessionScreen: View {
         .preferredColorScheme(theme.dark ? .dark : .light)
         .frame(minWidth: 800, minHeight: 640)
         .overlay(alignment: .topTrailing) {
-            if state.selected != nil {
+            if tiled {
                 SessionFeedbackView(feedback: state.feedback)
                     .environment(\.mica, theme)
                     .id(state.serverID + "|" + state.selectedID)
@@ -173,5 +173,33 @@ struct SessionPickerOverlayLayout: Layout {
     static func leadingOffset(availableWidth: CGFloat, pickerWidth: CGFloat, originX: CGFloat, windowWidth: CGFloat) -> CGFloat {
         let centred = windowWidth / 2 - originX - pickerWidth / 2
         return min(max(0, centred), max(0, availableWidth - pickerWidth))
+    }
+}
+
+/// A session tab whose session didn't open, laid out as a server's state is.
+private struct SessionNotOpened<Action: View>: View {
+    @Environment(\.mica) private var theme
+    let title: String
+    let detail: String?
+    @ViewBuilder let action: Action
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    IconView(.warning, size: 16).foregroundStyle(theme.warning)
+                    Text(title).font(.kit(size: 17, weight: .semibold))
+                }
+                if let detail {
+                    Text(detail).font(.kit(size: 13)).foregroundStyle(theme.muted)
+                        .lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack { Spacer(); action.buttonStyle(FormButtonStyle(fill: .primary)).keyboardShortcut(.defaultAction) }
+        }
+        .frame(width: ServerStateView.width, alignment: .leading)
+        .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .textSelection(.enabled)
     }
 }

@@ -669,6 +669,13 @@ final class SessionWindowModel: Identifiable {
         tab.savedArrangement = nil
         tab.store = store
         tab.recordedStatus = store.tabStatus
+        // A session that is gone before it was ever shown, as one a tab
+        // restored from last time names, closes its tab and leaves the
+        // saved windows. A shown session keeps its transcript instead.
+        store.onMissing = { [weak self, weak tab, weak store] in
+            guard let self, let tab, let store, tab.store === store else { return }
+            self.close(tab, from: nil)
+        }
         store.attach()
         observeStatus(of: tab, store: store)
         observeLayout(of: tab, store: store)

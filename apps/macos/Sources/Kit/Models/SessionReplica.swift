@@ -29,6 +29,11 @@ final class SessionReplica {
     private(set) var connectionState: SessionConnectionState = .disconnected
     var connectionStatus: String { connectionState.label }
     private(set) var unavailable = false
+    /// Whether the server has sent the selected session since it was selected.
+    private(set) var delivered = false
+    /// Called when the session's server says it has no such session before
+    /// sending it, as when a tab restored from last time names a deleted session.
+    @ObservationIgnored var onMissing: (@MainActor () -> Void)?
     private(set) var refreshingSessions = false
     private(set) var catalogError: String?
     private var titlesReceivedDuringRefresh: [String: String] = [:]
@@ -92,6 +97,7 @@ final class SessionReplica {
         detach()
         if id != selectedID { pluginHost?.leave() }
         unavailable = false
+        delivered = false
         if let lastReceived, let index = sessions.firstIndex(where: { $0.id == lastReceived.id }) {
             sessions[index] = lastReceived
         }
@@ -337,7 +343,7 @@ final class SessionReplica {
                 self.historyLoading = false
                 self.historyTask = nil
                 if Self.isMissing(error) {
-                    self.markUnavailable()
+                    self.markMissing()
                 } else if case ClientError.http(409) = error {
                     // The server no longer recognizes this history boundary.
                     // Reattach to an authoritative snapshot instead of mixing pages.
@@ -408,7 +414,7 @@ final class SessionReplica {
             return fresh
         } catch {
             if attachmentGeneration == generation {
-                if Self.isMissing(error) { markUnavailable() }
+                if Self.isMissing(error) { markMissing() }
                 else { connectionState = .failed(error.localizedDescription) }
             }
             throw error
@@ -439,7 +445,7 @@ final class SessionReplica {
                     return
                 } catch {
                     guard !Task.isCancelled, let self, self.attachmentGeneration == generation else { return }
-                    if Self.isMissing(error) { self.markUnavailable(); return }
+                    if Self.isMissing(error) { self.markMissing(); return }
                     if self.connectionState == .connected { delay = 1 }
                     self.connectionState = .failed(error.localizedDescription)
                     if case ClientError.http(401) = error { self.connectionState = .authenticationFailed; return }
@@ -479,6 +485,12 @@ final class SessionReplica {
         detach()
         unavailable = true
         connectionState = .unavailable
+    }
+
+    /// The server says it has no such session.
+    private func markMissing() {
+        markUnavailable()
+        if !delivered { onMissing?() }
     }
 
     private func publish() {
@@ -558,6 +570,7 @@ final class SessionReplica {
         merged.messages = ToolTiming.merge(merged.messages, log: &toolTimings)
         current = merged
         unavailable = false
+        delivered = true
         onReceive?(merged)
         connectionState = .connected
         if refreshVCS { startVCSStream() }

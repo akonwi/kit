@@ -21,3 +21,15 @@ enum SessionConnectionState: Equatable {
         }
     }
 }
+
+/// How far a tab's session has opened.
+enum SessionOpening: Equatable {
+    /// The server has sent the session.
+    case open
+    /// Waiting for the server to send the session.
+    case loading
+    /// Opening stopped or is waiting to retry, for this reason.
+    case failed(String)
+    /// The server has no such session.
+    case missing
+}

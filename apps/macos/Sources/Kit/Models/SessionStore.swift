@@ -330,6 +330,20 @@ final class SessionStore {
         }
     }
     var unavailable: Bool { replica.unavailable }
+    /// How far the selected session has opened.
+    var opening: SessionOpening {
+        if isDemo || replica.delivered { return .open }
+        if unavailable { return .missing }
+        switch connectionState {
+        case .failed, .authenticationFailed, .retrying: return .failed(connectionStatus)
+        case .disconnected, .loading, .connected, .unavailable: return .loading
+        }
+    }
+    /// Called when the server says it has no such session before sending it.
+    var onMissing: (@MainActor () -> Void)? {
+        get { replica.onMissing }
+        set { replica.onMissing = newValue }
+    }
     var running: Bool { !unavailable && selected?.activeRunID != nil }
 
     @ObservationIgnored private var subagentDismissals: [String: SubagentDismissalOperation] = [:]

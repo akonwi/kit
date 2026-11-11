@@ -545,7 +545,7 @@ Reuse a glyph for the meaning listed here rather than introducing a new symbol f
 - `CHEVRON_LEFT` `‹` / `CHEVRON_RIGHT` `›` — directional navigation or opening/closing adjacent detail
 - `TIMES` `×` — close or dismiss
 - `MIDDLE_DOT` `·` — inline metadata separator
-- `SPINNER_FRAMES` — standard 80ms loading spinner. Native loading surfaces mount the shared spinner widget; feature-specific state must not own or duplicate its frames, cadence, or lifecycle.
+- `SPINNER_FRAMES` — standard 80ms loading spinner. Native loading surfaces mount the shared spinner widget; feature-specific state must not own or duplicate its frames, cadence, or lifecycle. In the macOS app, a session tab whose server is connecting or whose session hasn't arrived shows `SessionSkeleton` instead: the conversation tile's tab strip, a few placeholder bars in the reading column, and an empty composer, in their places, so the session replaces it without moving. The tab keeps its saved title meanwhile. A tab whose server says the session doesn't exist, before the session was ever shown, closes and leaves the saved windows.
 
 ## Empty States
 

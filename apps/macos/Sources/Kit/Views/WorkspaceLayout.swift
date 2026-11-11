@@ -4,7 +4,8 @@ import SwiftUI
 
 /// Space between tiles.
 let tileGap: CGFloat = 6
-private let tabStripHeight: CGFloat = 34
+/// The height of a tile's tab strip.
+let tabStripHeight: CGFloat = 34
 
 /// A session's workspace: its split tree of tiles.
 struct WorkspaceLayout: View {

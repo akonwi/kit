@@ -140,7 +140,7 @@ struct SessionWindowRoot: View {
     /// session draws its own tiles; anything else sits in a single tile.
     private func tile(model: SessionWindowModel, tab: SessionTab, theme: MicaTheme) -> some View {
         // A session draws its own tiles only while its server can show it.
-        let tiled = tab.store?.selected != nil && tab.serverIssue == nil
+        let tiled = tab.store?.opening == .open && tab.serverIssue == nil
         return VStack(spacing: 0) {
             if let error = windows.restoration.error {
                 HStack {
@@ -168,26 +168,29 @@ private struct SessionTabContent: View {
 
     var body: some View {
         if let connection = tab.connection {
-            switch connection.status {
-            case .connected:
-                connected(connection)
-            // An open session stays readable while its server is checked.
-            case .connecting where tab.isLauncher || tab.store == nil:
-                KitSpinner(connection.isLocal ? "Connecting to Kit" : "Connecting to \(connection.name)")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .top) { launcherMenu(connection, width: SessionLauncherContent.width) }
-            case .reconnecting where tab.isLauncher || tab.store == nil:
-                KitSpinner(connection.isLocal ? "Reconnecting to Kit" : "Reconnecting to \(connection.name)")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .top) { launcherMenu(connection, width: SessionLauncherContent.width) }
-            case .connecting, .reconnecting:
-                connected(connection)
-            case .unreachable, .incompatible, .signInRequired, .hostKeyChanged, .serverStopped:
-                ServerStateView(connection: connection, sessionTab: !tab.isLauncher)
-                    .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
-            case .needsPairing(let need):
-                ServerPairingView(connection: connection, need: need, servers: model.servers, sessionTab: !tab.isLauncher)
-                    .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
+            if let label = SessionTabLoading.label(status: connection.status, server: connection.isLocal ? nil : connection.name,
+                                                   launcher: tab.isLauncher, opening: tab.store?.opening) {
+                if tab.isLauncher {
+                    KitSpinner(label)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay(alignment: .top) { launcherMenu(connection, width: SessionLauncherContent.width) }
+                } else {
+                    // One outline through connecting and opening, in the
+                    // session's place, until the session arrives.
+                    SessionSkeleton(label: label)
+                        .task(id: connection.status.isConnected) { if tab.store == nil { model.store(for: tab) } }
+                }
+            } else {
+                switch connection.status {
+                case .connected, .connecting, .reconnecting:
+                    connected(connection)
+                case .unreachable, .incompatible, .signInRequired, .hostKeyChanged, .serverStopped:
+                    ServerStateView(connection: connection, sessionTab: !tab.isLauncher)
+                        .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
+                case .needsPairing(let need):
+                    ServerPairingView(connection: connection, need: need, servers: model.servers, sessionTab: !tab.isLauncher)
+                        .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
+                }
             }
         } else {
             UnknownServerView(name: tab.identity.server) { model.requestClose(tab, from: placement) }
@@ -202,9 +205,6 @@ private struct SessionTabContent: View {
             }
         } else if let store = tab.store {
             SessionScreen(state: store) { model.storeSelected($0, in: tab) }
-        } else {
-            KitSpinner("Opening session").frame(maxWidth: .infinity, maxHeight: .infinity)
-                .task { model.store(for: tab) }
         }
     }
 
@@ -219,6 +219,27 @@ private struct SessionTabContent: View {
             LauncherServerButton(choice: choice(connection))
                 .frame(width: width, alignment: .leading)
                 .padding(.top, SessionLauncherContent.top - 48)
+        }
+    }
+}
+
+/// What a tab says while its server connects or its session opens.
+enum SessionTabLoading {
+    /// What the tab waits for: a launcher's spinner says it, and a session
+    /// tab's outline reads it to VoiceOver. Nil when the tab has something
+    /// else to show. `server` names a server other than this Mac's;
+    /// `opening` is the tab's session store's, once it has one.
+    static func label(status: ServerStatus, server: String?, launcher: Bool, opening: SessionOpening?) -> String? {
+        let name = server ?? "Kit"
+        // A session that has opened stays readable while its server is checked.
+        let waiting = launcher || opening == nil || opening == .loading
+        switch status {
+        case .connecting where waiting: return "Connecting to \(name)"
+        case .reconnecting where waiting: return "Reconnecting to \(name)"
+        case .connected where waiting && !launcher: return "Opening session"
+        case .connected, .connecting, .reconnecting: return nil
+        case .unreachable, .incompatible, .signInRequired, .hostKeyChanged, .serverStopped, .needsPairing:
+            return nil
         }
     }
 }
