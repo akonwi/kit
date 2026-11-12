@@ -423,6 +423,16 @@ func TestPublicClientReceivesDeclaredUnavailableAndDeletionErrors(t *testing.T) 
 // operations that fail with err, and returns its address.
 func sessionErrorTestServer(t *testing.T, err error) string {
 	t.Helper()
+	handler := sessionErrorTestHandler(t, snapshotSessionErrorTestService{sessionErrorTestService{err: err}}, err)
+	server := httptest.NewServer(contractConformanceMiddleware(t, handler, func(err error) { t.Errorf("contract violation: %v", err) }))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// sessionErrorTestHandler is the real handler backed by sessions, with
+// attachment operations that fail with err.
+func sessionErrorTestHandler(t *testing.T, sessions sessionService, err error) http.Handler {
+	t.Helper()
 	store, openErr := storage.Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
 	if openErr != nil {
 		t.Fatal(openErr)
@@ -433,11 +443,9 @@ func sessionErrorTestServer(t *testing.T, err error) string {
 		registry:  localdiscovery.Registry{InstanceID: "instance_test", ProtocolVersion: version.SessionProtocolVersion, KitVersion: version.Version},
 		identity:  serverIdentity{serverID: "server_0123456789abcdef0123456789abcdef", machineID: strings.Repeat("ab", 32), home: "/Users/test"},
 		providers: func(context.Context) []string { return []string{} },
-		sessions:  snapshotSessionErrorTestService{sessionErrorTestService{err: err}}, attachments: attachmentErrorTestService{err: err},
+		sessions:  sessions, attachments: attachmentErrorTestService{err: err},
 	})
-	server := httptest.NewServer(contractConformanceMiddleware(t, handler, func(err error) { t.Errorf("contract violation: %v", err) }))
-	t.Cleanup(server.Close)
-	return server.URL
+	return handler
 }
 
 // sessionErrorTestClient connects the public client to a server whose

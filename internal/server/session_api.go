@@ -121,6 +121,8 @@ type sessionService interface {
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
 	SubscribeVCS(context.Context, string) (vcsSource, error)
 	WatchPullRequest(context.Context, string) (pullRequestSource, error)
+	WatchViewReveals(context.Context, string, string) (viewRevealSource, error)
+	RevealView(context.Context, string, string, protocol.ViewRevealInput) (bool, error)
 	FileIndex(context.Context, string, bool) (protocol.SessionFileIndex, error)
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
@@ -2498,6 +2500,7 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 	})
 	registerVCSRoutes(mux, httpOptions, service)
 	registerPluginRoutes(mux, httpOptions, service)
+	registerViewRoutes(mux, httpOptions, service)
 	registerClientPluginRoutes(mux, httpOptions, service)
 	httpapi.Handle(mux, httpOptions, httpapi.GetScratchpad, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.Scratchpad, error) {
 		record, err := service.Scratchpad(ctx, params.SessionID)

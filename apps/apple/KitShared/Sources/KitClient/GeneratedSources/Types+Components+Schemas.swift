@@ -18502,6 +18502,129 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ViewReveal`.
+        public struct ViewReveal: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ViewReveal/annotation`.
+            public var annotation: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ViewReveal/line`.
+            public var line: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ViewReveal/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ViewReveal/viewId`.
+            public var viewId: Swift.String
+            /// Creates a new `ViewReveal`.
+            ///
+            /// - Parameters:
+            ///   - annotation:
+            ///   - line:
+            ///   - sessionId:
+            ///   - viewId:
+            public init(
+                annotation: Swift.Int? = nil,
+                line: Swift.Int? = nil,
+                sessionId: Swift.String,
+                viewId: Swift.String
+            ) {
+                self.annotation = annotation
+                self.line = line
+                self.sessionId = sessionId
+                self.viewId = viewId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case annotation
+                case line
+                case sessionId
+                case viewId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotation = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .annotation
+                )
+                self.line = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .line
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.viewId = try container.decode(
+                    Swift.String.self,
+                    forKey: .viewId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotation",
+                    "line",
+                    "sessionId",
+                    "viewId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ViewRevealInput`.
+        public struct ViewRevealInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ViewRevealInput/annotation`.
+            public var annotation: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ViewRevealInput/line`.
+            public var line: Swift.Int?
+            /// Creates a new `ViewRevealInput`.
+            ///
+            /// - Parameters:
+            ///   - annotation:
+            ///   - line:
+            public init(
+                annotation: Swift.Int? = nil,
+                line: Swift.Int? = nil
+            ) {
+                self.annotation = annotation
+                self.line = line
+            }
+            public enum CodingKeys: String, CodingKey {
+                case annotation
+                case line
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotation = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .annotation
+                )
+                self.line = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .line
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotation",
+                    "line"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ViewRevealResult`.
+        public struct ViewRevealResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ViewRevealResult/delivered`.
+            public var delivered: Swift.Bool
+            /// Creates a new `ViewRevealResult`.
+            ///
+            /// - Parameters:
+            ///   - delivered:
+            public init(delivered: Swift.Bool) {
+                self.delivered = delivered
+            }
+            public enum CodingKeys: String, CodingKey {
+                case delivered
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.delivered = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .delivered
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "delivered"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor`.
         public struct WorkingTreeDiffAnnotationAnchor: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/endLine`.

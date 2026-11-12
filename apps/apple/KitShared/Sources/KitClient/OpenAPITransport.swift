@@ -33,6 +33,7 @@ public final class OpenAPITransport: ClientTransport, @unchecked Sendable {
         "streamSessionVCS": StreamBounds(maxRecordBytes: 64 * 1024, idleTimeout: .seconds(45)),
         "streamSessionPullRequest": StreamBounds(maxRecordBytes: 64 * 1024, idleTimeout: .seconds(45)),
         "streamPluginToasts": StreamBounds(maxRecordBytes: 32 * 1024, idleTimeout: .seconds(45)),
+        "streamViewReveals": StreamBounds(maxRecordBytes: 1024, idleTimeout: .seconds(45)),
         "streamSessionEvents": StreamBounds(maxRecordBytes: 540_672, idleTimeout: .seconds(45)),
     ]
 

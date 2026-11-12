@@ -993,6 +993,38 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{sessionID}/views/{viewID}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["streamViewReveals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionID}/views/{viewID}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revealView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{sessionID}/workspace": {
         parameters: {
             query?: never;
@@ -3432,6 +3464,21 @@ export type components = {
             head: components["schemas"]["VCSHead"];
             pullRequest?: components["schemas"]["GitHubPullRequest"];
             root: string;
+        };
+        ViewReveal: {
+            /** Format: uint64 */
+            annotation?: number;
+            line?: number;
+            sessionId: string;
+            viewId: string;
+        };
+        ViewRevealInput: {
+            /** Format: uint64 */
+            annotation?: number;
+            line?: number;
+        };
+        ViewRevealResult: {
+            delivered: boolean;
         };
         WorkingTreeDiffAnnotationAnchor: {
             endLine: number;
@@ -13652,6 +13699,282 @@ export interface operations {
                 content: {
                     "application/json": {
                         error: components["schemas"]["CapacityExceededError"] | components["schemas"]["VcsRateLimitedError"];
+                    };
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InternalError"];
+                    };
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnavailableError"];
+                    };
+                };
+            };
+        };
+    };
+    streamViewReveals: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Kit-Instance-ID": string;
+                "X-Kit-Protocol-Version": 50;
+            };
+            path: {
+                sessionID: string;
+                viewID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-sent event stream; each record's data is one payload object */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ViewReveal"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InvalidRequestError"];
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnauthorizedError"] | components["schemas"]["WorkspaceCredentialExpiredError"];
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["ForbiddenError"];
+                    };
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["NotFoundError"];
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
+                    };
+                };
+            };
+            /** @description Misdirected Request */
+            421: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InvalidHostError"];
+                    };
+                };
+            };
+            /** @description Upgrade Required */
+            426: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["ProtocolMismatchError"];
+                    };
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["CapacityExceededError"] | components["schemas"]["WorkspaceRateLimitedError"];
+                    };
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InternalError"];
+                    };
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnavailableError"];
+                    };
+                };
+            };
+        };
+    };
+    revealView: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Kit-Instance-ID": string;
+                "X-Kit-Protocol-Version": 50;
+            };
+            path: {
+                sessionID: string;
+                viewID: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewRevealInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewRevealResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InvalidRequestError"];
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnauthorizedError"] | components["schemas"]["WorkspaceCredentialExpiredError"];
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["ForbiddenError"];
+                    };
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["NotFoundError"];
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
+                    };
+                };
+            };
+            /** @description Misdirected Request */
+            421: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InvalidHostError"];
+                    };
+                };
+            };
+            /** @description Upgrade Required */
+            426: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["ProtocolMismatchError"];
+                    };
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspaceRateLimitedError"];
                     };
                 };
             };

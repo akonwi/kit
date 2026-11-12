@@ -45,6 +45,8 @@ type sessionTransport interface {
 	GetSessionVCSStatus(context.Context, string) (protocol.SessionVCSStatus, error)
 	StreamSessionVCS(context.Context, string) (io.ReadCloser, error)
 	StreamSessionPullRequest(context.Context, string) (io.ReadCloser, error)
+	RevealView(context.Context, string, string, protocol.ViewRevealInput) (protocol.ViewRevealResult, error)
+	StreamViewReveals(context.Context, string, string) (io.ReadCloser, error)
 	GetSessionFileIndex(context.Context, string) (protocol.SessionFileIndex, error)
 	RefreshSessionFileIndex(context.Context, string) (protocol.SessionFileIndex, error)
 	GetWorkspace(context.Context, string) (protocol.WorkspaceRef, error)

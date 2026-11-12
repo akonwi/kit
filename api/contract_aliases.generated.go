@@ -264,6 +264,9 @@ type (
 	VCSHead                           = contract.VCSHead
 	VCSHeadKind                       = contract.VCSHeadKind
 	VCSStatus                         = contract.VCSStatus
+	ViewReveal                        = contract.ViewReveal
+	ViewRevealInput                   = contract.ViewRevealInput
+	ViewRevealResult                  = contract.ViewRevealResult
 	WorkingTreeDiffAnnotationAnchor   = contract.WorkingTreeDiffAnnotationAnchor
 	WorkingTreePage                   = contract.WorkingTreePage
 	WorkspaceDirectoryEntry           = contract.WorkspaceDirectoryEntry
@@ -432,6 +435,7 @@ const (
 	MaxPullRequestChecks                    = contract.MaxPullRequestChecks
 	MaxSubmittedAnnotationJSONBytes         = contract.MaxSubmittedAnnotationJSONBytes
 	MaxTextAttachmentBytes                  = contract.MaxTextAttachmentBytes
+	MaxViewRevealLine                       = contract.MaxViewRevealLine
 	MaxWorkspaceActiveRequests              = contract.MaxWorkspaceActiveRequests
 	MaxWorkspaceCursorBytes                 = contract.MaxWorkspaceCursorBytes
 	MaxWorkspacePathBytes                   = contract.MaxWorkspacePathBytes
@@ -566,6 +570,7 @@ const (
 	VCSHeadBranch                           = contract.VCSHeadBranch
 	VCSHeadDetached                         = contract.VCSHeadDetached
 	VCSHeadUnborn                           = contract.VCSHeadUnborn
+	ViewIDPrefix                            = contract.ViewIDPrefix
 	WorkspaceEntryDirectory                 = contract.WorkspaceEntryDirectory
 	WorkspaceEntryFile                      = contract.WorkspaceEntryFile
 	WorkspaceEntryOther                     = contract.WorkspaceEntryOther

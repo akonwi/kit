@@ -283,6 +283,8 @@ type runtime struct {
 	plugins                    PluginHost
 	closePluginSubagentCatalog func()
 	pluginNotifications        pluginNotificationHub
+	// viewReveals relays reveals to the session's view clients (ADR 0068).
+	viewReveals viewRevealHub
 	// pluginStatus feeds the session's status to its plugin host; nil
 	// without one.
 	pluginStatus              *pluginStatusFeed
@@ -3174,6 +3176,9 @@ func (r *runtime) finishClose(interactionReason string) {
 		}
 	}()
 	var cleanupErr error
+	// Views need nothing from the teardown below, so their streams end
+	// first rather than waiting on it.
+	r.viewReveals.close()
 	if r.pullRequestInformerCancel != nil {
 		r.pullRequestInformerCancel()
 	}

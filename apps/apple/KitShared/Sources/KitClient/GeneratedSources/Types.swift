@@ -227,6 +227,12 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/vcs/events`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/vcs/events/get(streamSessionVCS)`.
     func streamSessionVCS(_ input: Operations.StreamSessionVCS.Input) async throws -> Operations.StreamSessionVCS.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/views/{viewID}/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/views/{viewID}/events/get(streamViewReveals)`.
+    func streamViewReveals(_ input: Operations.StreamViewReveals.Input) async throws -> Operations.StreamViewReveals.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/views/{viewID}/reveal`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/views/{viewID}/reveal/post(revealView)`.
+    func revealView(_ input: Operations.RevealView.Input) async throws -> Operations.RevealView.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/workspace`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/get(getWorkspace)`.
     func getWorkspace(_ input: Operations.GetWorkspace.Input) async throws -> Operations.GetWorkspace.Output
@@ -1077,6 +1083,30 @@ extension APIProtocol {
         try await streamSessionVCS(Operations.StreamSessionVCS.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/views/{viewID}/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/views/{viewID}/events/get(streamViewReveals)`.
+    public func streamViewReveals(
+        path: Operations.StreamViewReveals.Input.Path,
+        headers: Operations.StreamViewReveals.Input.Headers
+    ) async throws -> Operations.StreamViewReveals.Output {
+        try await streamViewReveals(Operations.StreamViewReveals.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/views/{viewID}/reveal`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/views/{viewID}/reveal/post(revealView)`.
+    public func revealView(
+        path: Operations.RevealView.Input.Path,
+        headers: Operations.RevealView.Input.Headers,
+        body: Operations.RevealView.Input.Body
+    ) async throws -> Operations.RevealView.Output {
+        try await revealView(Operations.RevealView.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/workspace`.
