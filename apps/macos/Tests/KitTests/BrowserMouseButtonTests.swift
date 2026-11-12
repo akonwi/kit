@@ -150,7 +150,14 @@ import WebKit
 /// A mouse's back and forward buttons step through a browser tab's history
 /// anywhere in its pane, once per click and on release, as in other
 /// browsers; the page gets the click too. Its other buttons are the page's.
-@MainActor struct BrowserMouseButtonTests {
+///
+/// The clicks go through AppKit's event queue, which wakes the loop taking
+/// events by stopping the main run loop's current run. Xcode's test runner
+/// carries on after a stop; `swift test` runs the main run loop once and
+/// exits when it stops, ending the test process mid-run without a summary.
+@MainActor @Suite(.enabled(if: ProcessInfo.processInfo.processName == "xctest",
+                           "Takes events from AppKit's queue, which ends a `swift test` process; run it with xcodebuild"))
+struct BrowserMouseButtonTests {
     private let pages = ["A", "B", "C"].map { BrowserMouseHarness.page($0) }
 
     @Test func backAndForwardOverThePageStepOncePerClickToTheEndsOfHistory() async throws {

@@ -216,6 +216,11 @@ xcodebuild -scheme Kit -destination 'platform=macOS' \
   -derivedDataPath .build/xcode -skipPackagePluginValidation test
 ```
 
+The suite runs under `xcodebuild` only, not `swift test`. Window and WebKit
+tests rely on AppKit's event loop, and `swift test` runs the main run loop
+once and exits when AppKit stops it to deliver events: the process can end
+mid-run without a summary, and tests that pass under `xcodebuild` fail there.
+
 The read-only local-server compatibility check is opt-in:
 
 ```sh

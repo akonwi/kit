@@ -119,6 +119,9 @@ other concurrency-sensitive code when the platform supports it.
 interactive flow runs in `main.ard`. For changes there, run the checks listed
 in `apps/cli/README.md`.
 
+For macOS app changes, run the tests with `xcodebuild` as
+`apps/macos/README.md` shows; `swift test` doesn't run that suite reliably.
+
 For TypeScript plugin helper changes, run `bun install` and `bun run check`
 in `sdk/plugin`, and see `sdk/plugin/README.md`.
 
