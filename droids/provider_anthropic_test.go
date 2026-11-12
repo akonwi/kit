@@ -33,6 +33,28 @@ func TestAnthropicExtraUsageIsUsageLimit(t *testing.T) {
 	}
 }
 
+func TestAnthropicRejectedClaudeCodeVersion(t *testing.T) {
+	const rejection = "Claude Code 2.1.280 does not support this model; version 2.1.290 or newer is required. Run 'claude update', or update the Claude desktop app, then try again."
+	for _, test := range []struct {
+		status int
+		detail string
+		want   bool
+	}{
+		{http.StatusBadRequest, rejection, true},
+		{http.StatusForbidden, rejection, false},
+		{http.StatusBadRequest, "model: claude-fable-9 does not support this model", false},
+		{http.StatusBadRequest, "You're out of extra usage. Add more at claude.ai/settings/usage and keep going.", false},
+	} {
+		if got := anthropicRejectedClaudeCodeVersion(test.status, test.detail); got != test.want {
+			t.Errorf("anthropicRejectedClaudeCodeVersion(%d, %q) = %v, want %v", test.status, test.detail, got, test.want)
+		}
+	}
+	explanation := ProviderError{Message: safeProviderMessage(ProviderInvalidRequest, ""), Detail: anthropicOutdatedClientDetail, Status: http.StatusBadRequest}.Explanation()
+	if want := "Provider rejected the request: This model requires a newer version of Kit. Update Kit, then try again. (HTTP 400)"; explanation != want {
+		t.Fatalf("explanation = %q, want %q", explanation, want)
+	}
+}
+
 func TestAnthropicResolvesAPIKeyForEveryRequest(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "unintended-environment-token")
 
@@ -251,7 +273,7 @@ func TestAnthropicDoesNotRaiseMaxTokensForReasoning(t *testing.T) {
 }
 
 func TestAnthropicManagedEffortModelsUseManagedRequest(t *testing.T) {
-	for _, modelID := range []string{"claude-fable-5-1", "claude-opus-5-5"} {
+	for _, modelID := range []string{"claude-fable-5-1", "claude-opus-5", "claude-opus-5-5"} {
 		t.Run(modelID, func(t *testing.T) {
 			testAnthropicManagedEffortRequest(t, modelID)
 		})
@@ -332,7 +354,7 @@ func testAnthropicManagedEffortRequest(t *testing.T, modelID string) {
 }
 
 func TestAnthropicManagedEffortModelsOmitThinkingWhenOff(t *testing.T) {
-	for _, modelID := range []string{"claude-fable-5-1", "claude-opus-5-5"} {
+	for _, modelID := range []string{"claude-fable-5-1", "claude-opus-5", "claude-opus-5-5"} {
 		t.Run(modelID, func(t *testing.T) {
 			captured := make(chan map[string]any, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -397,7 +419,7 @@ func TestAnthropicAdaptiveEffortMapping(t *testing.T) {
 	if got := anthropicBetaFeatures(true, Model{SupportsMidConversationEffort: true}, true); got != "claude-code-20250219,oauth-2025-04-20,"+anthropicFineGrainedToolsBeta+","+anthropicMidConversationOutputConfigBeta+","+anthropicThinkingBindingControlsBeta {
 		t.Fatalf("OAuth beta features = %q", got)
 	}
-	if anthropicClaudeCodeVersion != "2.1.280" {
+	if anthropicClaudeCodeVersion != "2.1.322" {
 		t.Fatalf("Claude Code version = %q", anthropicClaudeCodeVersion)
 	}
 }

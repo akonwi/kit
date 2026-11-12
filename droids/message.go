@@ -299,8 +299,11 @@ type ProviderError struct {
 	// Detail is the provider's own explanation of the failure, as it appeared
 	// in the provider's error response. It is sanitized before it is stored
 	// or published to single-line, renderer-safe text of at most 300 bytes;
-	// its content is not otherwise changed. It is empty when the failure did
-	// not come from the provider or the provider gave no explanation.
+	// its content is not otherwise changed, except that an adapter may replace
+	// an explanation whose instructions apply only to another client, such as
+	// Anthropic's request to update Claude Code, with its own. It is empty
+	// when the failure did not come from the provider or the provider gave no
+	// explanation.
 	Detail     string `json:",omitempty"`
 	Retryable  bool
 	RetryAfter time.Duration

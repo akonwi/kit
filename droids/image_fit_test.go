@@ -46,6 +46,7 @@ func TestAnthropicHighResolutionTier(t *testing.T) {
 		"claude-opus-5-5":            true,
 		"claude-sonnet-5":            true,
 		"claude-fable-5-1":           true,
+		"claude-fable-5-2":           true,
 		"claude-opus-4-6":            false,
 		"claude-sonnet-4-6":          false,
 		"claude-haiku-4-5":           false,

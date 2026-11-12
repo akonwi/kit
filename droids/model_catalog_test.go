@@ -400,12 +400,43 @@ func TestCatalogReasoningCapabilities(t *testing.T) {
 		t.Fatalf("Fable reasoning capabilities = %#v", fable)
 	}
 
-	opus, ok := AnthropicModel("claude-opus-5-5")
-	if !ok {
-		t.Fatal("claude-opus-5-5 missing")
+	for _, id := range []string{"claude-opus-5", "claude-opus-5-5"} {
+		opus, ok := AnthropicModel(id)
+		if !ok {
+			t.Fatalf("%s missing", id)
+		}
+		if opus.ReasoningMode != ReasoningModeAdaptive || !opus.SupportsMidConversationEffort || !containsString(opus.ReasoningLevels, "xhigh") {
+			t.Fatalf("%s reasoning capabilities = %#v", id, opus)
+		}
 	}
-	if opus.ReasoningMode != ReasoningModeAdaptive || !opus.SupportsMidConversationEffort || !containsString(opus.ReasoningLevels, "xhigh") {
-		t.Fatalf("Opus 5.5 reasoning capabilities = %#v", opus)
+
+	// These models postdate the embedded snapshot and arrive through a
+	// refreshed models.dev catalog; these are their entries there.
+	refreshed, err := parseModelCatalog([]byte(`{"anthropic":{"npm":"@ai-sdk/anthropic","models":{
+		"claude-fable-5-2":{"id":"claude-fable-5-2","name":"Claude Fable 5.2","family":"claude-fable","attachment":true,"reasoning":true,
+			"reasoning_options":[{"type":"effort","values":["low","medium","high","xhigh","max"]}],
+			"tool_call":true,"temperature":false,"modalities":{"input":["text","image","pdf"],"output":["text"]},
+			"limit":{"context":1000000,"output":128000},"cost":{"input":8,"output":40,"cache_read":0.2,"cache_write":10}},
+		"claude-sonnet-5-5":{"id":"claude-sonnet-5-5","name":"Claude Sonnet 5.5","family":"claude-sonnet","attachment":true,"reasoning":true,
+			"reasoning_options":[{"type":"effort","values":["low","medium","high","xhigh","max"]}],
+			"tool_call":true,"temperature":false,"modalities":{"input":["text","image","pdf"],"output":["text"]},
+			"limit":{"context":1000000,"output":128000},"cost":{"input":2,"output":10,"cache_read":0.1,"cache_write":2.5}},
+		"claude-haiku-5-5":{"id":"claude-haiku-5-5","name":"Claude Haiku 5.5","family":"claude-haiku","attachment":true,"reasoning":true,
+			"reasoning_options":[{"type":"toggle"},{"type":"effort","values":["low","medium","high","xhigh","max"]}],
+			"tool_call":true,"temperature":false,"modalities":{"input":["text","image","pdf"],"output":["text"]},
+			"limit":{"context":1000000,"output":128000},"cost":{"input":0.1,"output":0.5,"cache_read":0.01,"cache_write":0.125}}
+	}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"claude-fable-5-2", "claude-sonnet-5-5", "claude-haiku-5-5"} {
+		model, ok := catalogModel(refreshed, "anthropic", "anthropic", id)
+		if !ok {
+			t.Fatalf("%s missing", id)
+		}
+		if model.ReasoningMode != ReasoningModeAdaptive || !model.SupportsMidConversationEffort || !containsString(model.ReasoningLevels, "xhigh") {
+			t.Fatalf("%s reasoning capabilities = %#v", id, model)
+		}
 	}
 
 	budgetTokens, ok := AnthropicModel("claude-haiku-4-5")

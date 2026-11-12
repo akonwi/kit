@@ -24,8 +24,12 @@ import (
 const (
 	defaultAnthropicBaseURL  = "https://api.anthropic.com"
 	anthropicOAuthExpirySkew = 30 * time.Second
-	// OAuth requests identify as Claude Code. Opus 5.5 rejects clients older than 2.1.280.
-	anthropicClaudeCodeVersion               = "2.1.280"
+	// OAuth requests identify as Claude Code. Anthropic rejects a model for
+	// Claude Code versions older than the release that introduced it (Fable 5.2
+	// needs 2.1.290 or newer). 2.1.322 was the latest Claude Code release when
+	// Fable 5.2 launched and matches pi-ai's anthropic provider; staying current
+	// keeps the next model launch from failing the same way.
+	anthropicClaudeCodeVersion               = "2.1.322"
 	anthropicFineGrainedToolsBeta            = "fine-grained-tool-streaming-2025-05-14"
 	anthropicLongContextBeta                 = "context-1m-2025-08-07"
 	anthropicMidConversationOutputConfigBeta = "mid-conversation-output-config-2026-07-01"
@@ -472,6 +476,9 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		var apiErr *anthropic.Error
 		if errors.As(err, &apiErr) && apiErr != nil {
 			status, code, detail := anthropicErrorResponse(apiErr)
+			if oauth && anthropicRejectedClaudeCodeVersion(status, detail) {
+				detail = anthropicOutdatedClientDetail
+			}
 			attachProviderResponse(&final, status, code, detail)
 		}
 		s.final = final
@@ -531,6 +538,22 @@ func applyAnthropicPromptCaching(params *anthropic.MessageNewParams, retention P
 	if last := len(params.System) - 1; last >= 0 {
 		params.System[last].CacheControl = control
 	}
+}
+
+// anthropicOutdatedClientDetail replaces Anthropic's explanation when it
+// rejects the Claude Code version subscription requests identify as. That
+// explanation tells the user to update Claude Code, which does not apply to
+// Kit; the version Kit sends changes only with a Kit release.
+const anthropicOutdatedClientDetail = "This model requires a newer version of Kit. Update Kit, then try again."
+
+// anthropicRejectedClaudeCodeVersion reports Anthropic's rejection of a model
+// for the Claude Code version a request identified as, such as "Claude Code
+// 2.1.280 does not support this model; version 2.1.290 or newer is required."
+func anthropicRejectedClaudeCodeVersion(status int, detail string) bool {
+	message := strings.ToLower(detail)
+	return status == http.StatusBadRequest &&
+		strings.HasPrefix(message, "claude code ") &&
+		strings.Contains(message, "does not support this model")
 }
 
 func anthropicUsageLimit(err *anthropic.Error) bool {

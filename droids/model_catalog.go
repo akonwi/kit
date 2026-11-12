@@ -273,7 +273,7 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 // providers/data/anthropic.json -> compat.supportsMidConvoEffort.
 func anthropicSupportsMidConversationEffort(modelID string) bool {
 	switch modelID {
-	case "claude-fable-5-1", "claude-opus-5-5":
+	case "claude-fable-5-1", "claude-fable-5-2", "claude-haiku-5-5", "claude-opus-5", "claude-opus-5-5", "claude-sonnet-5-5":
 		return true
 	default:
 		return false
