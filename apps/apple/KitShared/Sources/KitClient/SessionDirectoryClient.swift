@@ -64,7 +64,10 @@ public final class DirectoryChangeOperation {
             error = "Resolve the previous directory change before choosing another path."
             return false
         }
-        if request == nil {
+        // A kept request may have reached the server; only a new one that
+        // provably wasn't sent can be dropped.
+        let fresh = request == nil
+        if fresh {
             request = WireChangeCWDInput(mutationId: "cwd_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(), path: path)
         }
         pending = true; error = nil
@@ -79,7 +82,7 @@ public final class DirectoryChangeOperation {
             return true
         } catch {
             if !acknowledged {
-                if error is MutationNotSent { request = nil }
+                if error is MutationNotSent { if fresh { request = nil } }
                 else if case ClientError.http(let code) = error, code < 500 { request = nil }
             }
             if case ClientError.http(409) = error {
