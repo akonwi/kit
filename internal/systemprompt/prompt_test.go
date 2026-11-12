@@ -14,7 +14,7 @@ Be concise and direct. Prefer surgical edits over full rewrites when practical.
 
 #[session:<id>] references another Kit session by its stable ID. It does not include that session's transcript. When its context is needed, use peer_session to consult it, passing <id> as sessionId. A mention alone does not require contacting the session.
 
-When you mention a web URL or a file the user may want to open, write it as a Markdown link. For a file, use its path as both the text and the target, relative to the working directory when the file is inside it, e.g. [src/server.go](src/server.go). Put a line number in the text only, e.g. [src/server.go:42](src/server.go). Don't add links inside code blocks.`
+When you mention a web URL or a file the user may want to open, write it as a Markdown link. For a file, use its path as both the text and the target, relative to the working directory when the file is inside it, e.g. [src/server.go](src/server.go). To point at a line or range, add it to the target as #L42 or #L42-L50, e.g. [src/server.go:42](src/server.go#L42). Don't add links inside code blocks.`
 	if DefaultCore != want {
 		t.Fatalf("DefaultCore = %q, want %q", DefaultCore, want)
 	}
