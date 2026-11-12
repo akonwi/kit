@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 /// A file's lines under their numbers, colored by syntax. Long lines scroll
-/// sideways with the numbers held in place, unless they wrap. A marked line
-/// is washed in the accent. Only the lines on screen are drawn, so a long
+/// sideways with the numbers held in place, unless they wrap. Marked lines
+/// are washed in the accent. Only the lines on screen are drawn, so a long
 /// file opens quickly.
 ///
 /// A tap on a number selects its line for a comment, and the handle under
@@ -15,8 +15,8 @@ struct FileLines<Below: View>: View {
     /// Each line colored by syntax, once highlighting finishes.
     var colored: [AttributedString]?
     let wrap: Bool
-    /// The line to mark, counted from 1.
-    var marked: Int?
+    /// The lines to mark, counted from 1.
+    var marked: ClosedRange<Int>?
     /// The lines chosen for a comment, counted from 1.
     var selected: ClosedRange<Int>?
     /// The line the selection handle hangs under, when it can be dragged.
@@ -139,7 +139,7 @@ struct FileLines<Below: View>: View {
     private func chosen(_ index: Int) -> Bool { selected?.contains(index + 1) == true }
 
     private func number(_ index: Int, width: CGFloat) -> some View {
-        let isMarked = marked == index + 1
+        let isMarked = marked?.contains(index + 1) == true
         return Text("\(index + 1)")
             .font(.system(size: 11, weight: isMarked ? .semibold : .regular, design: .monospaced))
             .foregroundStyle(chosen(index) ? Color.white : isMarked ? Theme.accent : Theme.muted)
@@ -151,7 +151,7 @@ struct FileLines<Below: View>: View {
 
     @ViewBuilder
     private func wash(_ index: Int) -> some View {
-        if marked == index + 1 {
+        if marked?.contains(index + 1) == true {
             Theme.userWash.overlay(alignment: .leading) { Theme.accent.frame(width: 3) }
         }
     }
@@ -160,7 +160,7 @@ struct FileLines<Below: View>: View {
     /// code slides under.
     @ViewBuilder
     private func gutterFill(_ index: Int) -> some View {
-        if chosen(index) { Theme.accent } else if marked == index + 1 { wash(index) } else { Theme.surface }
+        if chosen(index) { Theme.accent } else if marked?.contains(index + 1) == true { wash(index) } else { Theme.surface }
     }
 
     /// A line's text, colored once highlighting finishes.

@@ -83,6 +83,13 @@ struct SessionScreen: View {
 
     var body: some View {
         content
+            // A file link opens its file at its lines; other links open as before.
+            .environment(\.openURL, OpenURLAction { url in
+                guard FilePaths.path(fromLink: url) != nil else { return .systemAction }
+                guard let file = OpenedFile.linked(url, cwd: feed.session?.cwd) else { return .discarded }
+                openedFile = file
+                return .handled
+            })
             // A tap outside the command search closes it, and the keyboard with it.
             .overlay {
                 if composer.commandSearch != nil {
@@ -189,8 +196,12 @@ struct SessionScreen: View {
                 ScratchpadScreen(pad: scratchpad, client: client, feed: feed)
             }
             .navigationDestination(item: $openedFile) { file in
-                FileScreen(path: file.path, line: file.line, client: client, feed: feed, composer: composer,
-                           actions: actions, interactions: interactions)
+                FileScreen(path: file.path, lines: file.lines, client: client, feed: feed, composer: composer,
+                           actions: actions, interactions: interactions) { path, lines in
+                    openedFile = OpenedFile(path: path, lines: lines)
+                }
+                // Another file, or other lines, is another screen.
+                .id(file.id)
             }
             .task(id: scenePhase == .active) {
                 guard scenePhase == .active else { return }
@@ -260,7 +271,7 @@ struct SessionScreen: View {
             diff.reveal(note)
             showingChanges = true
         } else {
-            openedFile = OpenedFile(path: note.path, line: note.startLine)
+            openedFile = OpenedFile(path: note.path, lines: FileLineRange(start: note.startLine))
         }
     }
 

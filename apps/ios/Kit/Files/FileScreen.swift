@@ -1,4 +1,5 @@
 import KitClient
+import KitTranscript
 import SwiftUI
 
 /// A file in the session's project, read-only, with the composer below so a
@@ -7,8 +8,8 @@ import SwiftUI
 /// with its source one tap away.
 struct FileScreen: View {
     let path: String
-    /// The line to bring into view and mark, counted from 1.
-    var line: Int?
+    /// The lines to bring into view and mark, counted from 1.
+    var lines: FileLineRange?
     let client: ServerClient
     let feed: SessionFeed
     let composer: SessionComposer
@@ -17,25 +18,28 @@ struct FileScreen: View {
     @State private var reader: FileReader
     @State private var colored: (revision: String, lines: [AttributedString])?
     @State private var source: Bool
-    /// The line brought into view and marked: the one opened at, or a
+    /// The lines brought into view and marked: those opened at, or a
     /// comment's whose chip was tapped.
-    @State private var focus: Int?
+    @State private var focus: ClosedRange<Int>?
+    /// Opens a file a link in a Markdown preview names, at its lines.
+    var openLink: (String, FileLineRange?) -> Void = { _, _ in }
     @AppStorage("fileWrapLines") private var wrapLines = false
     @Environment(\.scenePhase) private var scenePhase
 
-    init(path: String, line: Int? = nil, client: ServerClient, feed: SessionFeed, composer: SessionComposer,
-         actions: SessionActions, interactions: SessionInteractions) {
+    init(path: String, lines: FileLineRange? = nil, client: ServerClient, feed: SessionFeed, composer: SessionComposer,
+         actions: SessionActions, interactions: SessionInteractions, openLink: @escaping (String, FileLineRange?) -> Void = { _, _ in }) {
         self.path = path
-        self.line = line
+        self.lines = lines
+        self.openLink = openLink
         self.client = client
         self.feed = feed
         self.composer = composer
         self.actions = actions
         self.interactions = interactions
         _reader = State(initialValue: FileReader(path: path))
-        // Comments sit on lines, so a Markdown file opened at one shows its source.
-        _source = State(initialValue: line != nil)
-        _focus = State(initialValue: line)
+        // Comments sit on lines, so a Markdown file opened at some shows its source.
+        _source = State(initialValue: lines != nil)
+        _focus = State(initialValue: lines.map { $0.start...$0.end })
     }
 
     private var session: String { feed.identity.session }
@@ -95,7 +99,7 @@ struct FileScreen: View {
     /// Brings a comment on this file into view, in the source.
     private func reveal(_ note: FileAnnotation) {
         source = true
-        focus = note.startLine
+        focus = note.startLine...note.startLine
     }
 
     // MARK: Header
@@ -151,6 +155,14 @@ struct FileScreen: View {
                         VStack(alignment: .leading, spacing: 12) {
                             MarkdownBlocks(source: file.content)
                                 .environment(\.markdownDocument, true)
+                                .environment(\.openURL, OpenURLAction { url in
+                                    guard FilePaths.path(fromLink: url) != nil else { return .systemAction }
+                                    // A relative link starts from this file's folder.
+                                    let folder = (path as NSString).deletingLastPathComponent
+                                    guard let file = OpenedFile.linked(url, cwd: feed.session?.cwd, folder: folder) else { return .discarded }
+                                    openLink(file.path, file.lines)
+                                    return .handled
+                                })
                             if let notice = reader.truncationNotice { FileNote(text: notice).padding(.horizontal, -20) }
                         }
                         .padding(.horizontal, 20)
@@ -179,9 +191,9 @@ struct FileScreen: View {
                             return annotations.records.first { $0.id == note.id && $0.complete }
                         }
                         .refreshable { await load() }
-                        .task(id: "\(file.revision)|\(focus ?? 0)") {
-                            guard let focus, focus <= reader.lines.count else { return }
-                            proxy.scrollTo(focus, anchor: UnitPoint(x: 0, y: 0.35))
+                        .task(id: "\(file.revision)|\(focus?.description ?? "")") {
+                            guard let focus, focus.lowerBound <= reader.lines.count else { return }
+                            proxy.scrollTo(focus.lowerBound, anchor: UnitPoint(x: 0, y: 0.35))
                         }
                     }
                     if let notice = reader.truncationNotice { FileNote(text: notice) }
@@ -255,9 +267,23 @@ private struct FileNote: View {
     }
 }
 
-/// A file to show over the session, and the line to bring into view.
+/// A file to show over the session, and the lines to bring into view.
 struct OpenedFile: Hashable, Identifiable {
     let path: String
-    var line: Int?
-    var id: String { "\(path):\(line ?? 0)" }
+    var lines: FileLineRange?
+    var id: String { path + ":" + (lines?.description ?? "") }
+
+    /// The file in the session's folder `cwd` a transcript's file link
+    /// opens, at the lines it names; nil for another link or a file
+    /// elsewhere, which this app can't open. A relative link starts from
+    /// `folder`, a Markdown file's folder in the session's folder, or from
+    /// the session's folder without one.
+    static func linked(_ url: URL, cwd: String?, folder: String = "") -> OpenedFile? {
+        // Only the server knows its home, which this app doesn't read.
+        guard let link = FilePaths.path(fromLink: url), link != "~", !link.hasPrefix("~/") else { return nil }
+        let relative = !link.hasPrefix("/")
+        guard let path = ToolPresentation.workspacePath(relative && !folder.isEmpty ? folder + "/" + link : link, cwd: cwd)
+        else { return nil }
+        return OpenedFile(path: path, lines: FilePaths.lines(fromLink: url))
+    }
 }

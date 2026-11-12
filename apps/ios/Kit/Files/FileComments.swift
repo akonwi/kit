@@ -46,7 +46,7 @@ struct CommentableFile: View {
     let lines: [String]
     var colored: [AttributedString]?
     let wrap: Bool
-    var marked: Int?
+    var marked: ClosedRange<Int>?
     let annotations: AnnotationState
     let save: (WireAnnotationAnchor, AnnotationState.Editor) -> Void
     let remove: (FileAnnotation) -> Void
