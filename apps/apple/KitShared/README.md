@@ -18,7 +18,9 @@ iOS app. It holds no AppKit or UIKit code.
   session's typed folder and default thinking level, and tells a refused
   create from one whose answer was lost. `FilePathSearch` ranks a
   session's file paths for a search, and `MarkdownFilePaths` tells which
-  files are Markdown. Regenerate the transport after changing
+  files are Markdown. `FilePaths` reads the file and lines a link names
+  (`a.go#L42-L50`); `testdata/file-links` holds the cases
+  every client's parser agrees on. Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
   ```sh

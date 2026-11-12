@@ -1,0 +1,34 @@
+# A Markdown link destination, the file it names (- for none), and the lines
+# it names (- for the whole file). Every client's parser reads these; a line
+# starting with "# " is a comment.
+src/server.go	src/server.go	-
+src/server.go#L42	src/server.go	42
+src/server.go#L42-L50	src/server.go	42-50
+src/server.go#L42-50	src/server.go	42-50
+/etc/hosts#L2	/etc/hosts	2
+~/notes/todo.md#L3	~/notes/todo.md	3
+../a.md#L3-L9	../a.md	3-9
+file:///etc/hosts#L12-L14	/etc/hosts	12-14
+My%20Notes.md#L3	My Notes.md	3
+/srv/a:b.go#L12	/srv/a:b.go	12
+a.go#L999999999	a.go	999999999
+a.go#L0	a.go	-
+a.go#L50-L42	a.go	-
+a.go#L1000000000	a.go	-
+a.go#L99999999999999999999	a.go	-
+src/server.go:42	src/server.go:42	-
+src/server.go:42-50	src/server.go:42-50	-
+~/notes/todo.md:3	~/notes/todo.md:3	-
+file:///etc/hosts:12	/etc/hosts:12	-
+/srv/notes%3A12	/srv/notes:12	-
+README.md#usage	README.md	-
+a.go#L12x	a.go	-
+a.go#l12	a.go	-
+#L12	-	-
+#usage	-	-
+:12	-	-
+server.go:42	-	-
+https://example.com/a.go#L3	-	-
+localhost:8080	-	-
+mailto:me@example.com	-	-
+//example.com/a.go	-	-

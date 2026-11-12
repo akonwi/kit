@@ -271,7 +271,8 @@ public struct MarkdownContent: Sendable {
             if let url = URL(string: destination), let scheme = url.scheme?.lowercased(),
                ["https", "http", "mailto"].contains(scheme) {
                 text.link = url
-            } else if let path = FilePaths.linkedPath(destination: destination), let url = FilePaths.link(path) {
+            } else if let file = FilePaths.linkedLocation(destination: destination),
+                      let url = FilePaths.link(file.path, lines: file.lines) {
                 text.link = url
             }
         }
