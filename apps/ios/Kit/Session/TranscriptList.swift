@@ -78,9 +78,15 @@ struct TranscriptList<Header: View>: View {
                     scrollToEnd(proxy)
                 }
             }
-            .onChange(of: TranscriptTail.of(messages)) { old, _ in
+            .onChange(of: TranscriptTail.of(messages, active: active)) { old, new in
+                if let held = reading, !messages.contains(where: { $0.id == held }) {
+                    // The server's transcript no longer has it, as after a
+                    // reconnect: follow the end again.
+                    reading = nil
+                    following = true
+                }
                 guard following else { return }
-                if let reply = TranscriptTail.arrivedReply(after: old, in: messages) {
+                if let reply = TranscriptTail.arrivedReply(after: old, in: new) {
                     // Shown from its top; it follows on from its end only
                     // if it fits.
                     following = false
@@ -139,20 +145,24 @@ struct TranscriptTail: Equatable {
     /// The last reply with text: a reply is in the transcript without text
     /// until it's complete.
     var reply: String?
+    /// Whether a run is in progress.
+    var active = false
     var counts: [Int] = []
 
-    static func of(_ messages: [TranscriptMessage]) -> TranscriptTail {
-        guard let last = messages.last else { return TranscriptTail() }
-        return TranscriptTail(last: last.id, reply: messages.last(where: shows)?.id,
+    static func of(_ messages: [TranscriptMessage], active: Bool) -> TranscriptTail {
+        guard let last = messages.last else { return TranscriptTail(active: active) }
+        return TranscriptTail(last: last.id, reply: messages.last(where: shows)?.id, active: active,
                               counts: [messages.count, last.text.count, last.tools.count, last.tools.filter(\.running).count])
     }
 
-    /// The reply that output just completed at the end of the transcript, if
+    /// The reply that a run just completed at the end of the transcript, if
     /// it wasn't shown before, as the Mac decides. Earlier pages leave the
-    /// last reply as it was.
-    static func arrivedReply(after old: TranscriptTail, in messages: [TranscriptMessage]) -> String? {
-        guard let last = messages.last, shows(last), last.id != old.reply else { return nil }
-        return last.id
+    /// last reply as it was; loading a transcript, or one that changes
+    /// without a run, such as after a reconnect, doesn't count.
+    static func arrivedReply(after old: TranscriptTail, in new: TranscriptTail) -> String? {
+        guard old.last != nil, old.active || new.active,
+              let reply = new.reply, new.last == reply, reply != old.reply else { return nil }
+        return reply
     }
 
     private static func shows(_ message: TranscriptMessage) -> Bool {
