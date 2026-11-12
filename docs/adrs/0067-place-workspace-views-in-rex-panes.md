@@ -64,7 +64,8 @@ host path, the conversation, or `scratchpad`.
 
 By default, the client opens views in Rex panes when all of these hold. The
 client setting `workspacePanes` can be `rex` (the default) or `tabs`, which
-keeps views in the client's own tabs even in Rex:
+keeps views in the client's own tabs even in Rex. In Rex, the Settings dialog
+offers it as a toggle, and a change applies to the views opened after it:
 
 1. `TERM_PROGRAM` is `rex`, and `REX_SESSION`, `REX_BLOCK`, and `REX_BIN_DIR`
    are set.

@@ -28,6 +28,9 @@ struct Server {
   // The terminal preferences, as the shell keeps them.
   diff_split: Bool,
   diff_wrap: Bool,
+  // Whether the terminal runs in Rex, and opens views in its panes.
+  rex_panes_available: Bool,
+  rex_panes: Bool,
   dismissed: Int,
   themes_opened: Int,
 }
@@ -49,6 +52,8 @@ fn server() &mut Server {
     saves: [],
     diff_split: false,
     diff_wrap: false,
+    rex_panes_available: false,
+    rex_panes: true,
     dismissed: 0,
     themes_opened: 0,
   }
@@ -155,6 +160,9 @@ fn services(fake: &mut Server) settings::Services {
     save_diff_wrap: fn(wrap: Bool) Void!Error {
       fake.finish("diff wrap {wrap}")
     },
+    save_workspace_panes: fn(panes: Str) Void!Error {
+      fake.finish("workspace panes {panes}")
+    },
   }
 }
 
@@ -211,6 +219,8 @@ impl cui::Component for Host {
             selection: self.props.selection,
             diff_split: fake.diff_split,
             diff_wrap: fake.diff_wrap,
+            rex_panes_available: fake.rex_panes_available,
+            rex_panes: fake.rex_panes,
             theme_name: "solarized",
             dismiss: keymap::simple_command("test.settings.dismiss", "Close", fn() Bool {
               fake.dismissed =+ 1
@@ -224,6 +234,11 @@ impl cui::Component for Host {
             diff_wrap_saved: fn(wrap: Bool) {
               self.apply(fn() {
                 fake.diff_wrap = wrap
+              })
+            },
+            rex_panes_saved: fn(enabled: Bool) {
+              self.apply(fn() {
+                fake.rex_panes = enabled
               })
             },
             open_theme: fn() {
@@ -576,5 +591,51 @@ test fn settings_can_open_on_a_row() Void!Str {
   testing::assert(
     strings::Contains(terminal.frame().text(), "│▌  Theme                solarized"),
     "the Theme row is selected:\n{terminal.frame().text()}",
+  )
+}
+
+test fn in_rex_a_toggle_chooses_whether_views_open_in_panes() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  fake.rex_panes_available = true
+  let renderer = mount_at(terminal, fake, "", "rex_panes")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  try expect_rows(
+    dialog(terminal),
+    [
+      "        ┌──────────────────────────────────────────────────────────────┐",
+      "        │ Settings                                        local server │",
+      "        ├──────────────────────────────────────────────────────────────┤",
+      "        │ Server                                                       │",
+      "        │   Default model           Automatic · Claude Sonnet 4.6    › │",
+      "        │   Compaction model        Session's own model              › │",
+      "        │   Prompt cache            ‹ Short ›                          │",
+      "        │   Claude Code commands      ██ On                            │",
+      "        │                                                              │",
+      "        │ This terminal                                                │",
+      "        │   Diff layout             ‹ Unified ›                        │",
+      "        │   Wrap diff lines         ██   Off                           │",
+      "        │▌  Open views in Rex panes   ██ On                            │",
+      "        │   Theme                   solarized                        › │",
+      "        │                                                              │",
+      "        │                                                              │",
+      "        ├──────────────────────────────────────────────────────────────┤",
+      "        │ Opens Diff, File, and other views beside Kit instead of as   │",
+      "        │ tabs.                                                        │",
+      "        └──────────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "space")
+  try testing::assert(wait_for(terminal, "Open views in Rex panes ██   Off"), "the toggle turns off")
+  try testing::assert(not fake.rex_panes, "the shell applies the saved choice")
+  try testing::assert(saves(fake) == "workspace panes tabs", "saves: {saves(fake)}")
+  press(terminal, "space")
+  try testing::assert(wait_for(terminal, "Open views in Rex panes   ██ On"), "the toggle turns on")
+  try testing::assert(fake.rex_panes, "the shell applies the saved choice")
+  testing::assert(
+    saves(fake) == "workspace panes tabs, workspace panes rex",
+    "saves: {saves(fake)}",
   )
 }

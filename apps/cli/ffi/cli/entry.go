@@ -51,6 +51,8 @@ type TUIOptions struct {
 	// WorkspacePanes is where workspace views open: "rex" for Rex panes
 	// when the client runs in Rex, or "tabs" for the client's own tabs.
 	WorkspacePanes string
+	// WorkspacePaneService saves WorkspacePanes.
+	WorkspacePaneService WorkspacePaneService
 	// Views builds the command lines that show this client's session's
 	// views in panes, or is nil when views can't open in panes.
 	Views *ViewLauncher
@@ -114,6 +116,12 @@ type ThemeService interface {
 	Discover() ([]string, error)
 	Load(string) (kittheme.Definition, []kittheme.Diagnostic, error)
 	Save(string) error
+}
+
+// WorkspacePaneService persists where the client opens workspace views.
+type WorkspacePaneService interface {
+	// SetWorkspacePanes saves "rex" or "tabs".
+	SetWorkspacePanes(string) error
 }
 
 // DiffPreferenceService persists working-tree diff presentation preferences.

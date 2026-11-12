@@ -846,3 +846,40 @@ func TestUpdateServerAccessRefusesAMalformedHostList(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestUpdateWorkspacePanesPersistsPreferenceAndUnknownFields(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"future":{"enabled":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newTestStore(t, path)
+	for _, panes := range []string{WorkspacePanesTabs, WorkspacePanesRex} {
+		updated, err := store.UpdateWorkspacePanes(panes)
+		if err != nil || updated.WorkspacePanes != panes {
+			t.Fatalf("UpdateWorkspacePanes(%q) = %#v, %v", panes, updated, err)
+		}
+		loaded, warnings, err := store.Load()
+		if err != nil || len(warnings) != 0 || loaded.WorkspacePanes != panes {
+			t.Fatalf("Load() after %q = %#v, %v, %v", panes, loaded, warnings, err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), `"workspacePanes": "`+panes+`"`) || !strings.Contains(string(data), `"future"`) {
+			t.Fatalf("settings = %s", data)
+		}
+	}
+}
+
+func TestUpdateWorkspacePanesRejectsUnknownValuesWithoutWriting(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if _, err := newTestStore(t, path).UpdateWorkspacePanes("tmux"); err == nil {
+		t.Fatal("UpdateWorkspacePanes() unexpectedly succeeded")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("settings file exists after rejected update: %v", err)
+	}
+}

@@ -15,3 +15,12 @@ func (s interactiveDiffPreferenceService) SetLayout(layout string) error {
 	_, err := s.settings.UpdateDiffLayout(layout)
 	return err
 }
+
+type interactiveWorkspacePaneService struct {
+	settings *settings.Store
+}
+
+func (s interactiveWorkspacePaneService) SetWorkspacePanes(panes string) error {
+	_, err := s.settings.UpdateWorkspacePanes(panes)
+	return err
+}

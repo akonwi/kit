@@ -280,6 +280,29 @@ func (s *Store) UpdateDiffLayout(layout string) (Settings, error) {
 	return cloneSettings(current), nil
 }
 
+// UpdateWorkspacePanes persists where the terminal client shows workspace
+// views, WorkspacePanesRex or WorkspacePanesTabs.
+func (s *Store) UpdateWorkspacePanes(panes string) (Settings, error) {
+	if s == nil {
+		return Settings{}, errors.New("update workspace panes: store is nil")
+	}
+	if panes != WorkspacePanesRex && panes != WorkspacePanesTabs {
+		return Settings{}, fmt.Errorf("update workspace panes: value must be %q or %q", WorkspacePanesRex, WorkspacePanesTabs)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, _, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	current.WorkspacePanes = panes
+	current.fields["workspacePanes"], _ = json.Marshal(panes)
+	if err := s.write(current.fields); err != nil {
+		return Settings{}, err
+	}
+	return cloneSettings(current), nil
+}
+
 // ServerAccessChange is a change to server.listen and server.allowedHosts.
 type ServerAccessChange struct {
 	// SetListen replaces server.listen with Listen, or removes it when Listen

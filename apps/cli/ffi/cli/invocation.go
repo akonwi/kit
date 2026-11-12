@@ -366,6 +366,7 @@ func (e Environment) prepared(
 	}
 	prepared.Options.View = options.View
 	prepared.Options.WorkspacePanes = e.workspacePanes
+	prepared.Options.WorkspacePaneService = interactiveWorkspacePaneService{settings: e.settings}
 	if executable, err := os.Executable(); err == nil {
 		prepared.Options.Views = &ViewLauncher{executable: executable, home: e.paths.Home, target: e.target}
 	}

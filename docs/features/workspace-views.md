@@ -52,8 +52,11 @@ never starts a Rex server and needs Rex API revision 12 or later. If a pane
 can't be opened, Kit shows one warning and keeps that view, and later ones, as
 tabs. Inside tmux running in Rex, and in other terminals, views stay tabs.
 
-To keep views in Kit's tab strip in Rex too, set `workspacePanes` in
-`$KIT_HOME/settings.json`:
+To keep views in Kit's tab strip in Rex too, turn off **Open views in Rex
+panes** under `/settings` › This terminal. The row appears only when Kit runs
+in Rex, and the change applies to the next view opened: panes already open
+stay open. It saves `workspacePanes` in `$KIT_HOME/settings.json`, which you
+can also set by hand:
 
 ```json
 { "workspacePanes": "tabs" }

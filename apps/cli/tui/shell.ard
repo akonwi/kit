@@ -229,6 +229,9 @@ struct Shell {
   view_opening: Bool,
   // Whether opening a pane failed, after which views open as tabs here.
   panes_failed: Bool,
+  // Whether views open in panes where they can: the saved workspacePanes
+  // setting, which Settings changes for the views opened after.
+  panes_enabled: Bool,
   // The view identifier given to the view in each pane this client opened,
   // by pane ID, so a later opening can reveal its target there (ADR 0068).
   pane_views: [Str: Str],
@@ -277,6 +280,7 @@ fn new(props: &mut Props) &mut Shell {
     view_id: "",
     view_opening: false,
     panes_failed: false,
+    panes_enabled: props.options.WorkspacePanes != "tabs",
     pane_views: Map::new<Str>(),
   }
 }
@@ -2211,6 +2215,8 @@ impl Shell {
         selection: selection,
         diff_split: self.diff_split,
         diff_wrap: self.diff_wrap,
+        rex_panes_available: self.props.panes.is_some(),
+        rex_panes: self.panes_enabled,
         theme_name: self.theme.committed_name,
         dismiss: keymap::simple_command("settings.dismiss", "Close", fn() Bool {
           self.dismiss_modal()
@@ -2223,6 +2229,11 @@ impl Shell {
         diff_wrap_saved: fn(wrap: Bool) {
           self.dispatch(fn() {
             self.diff_wrap = wrap
+          })
+        },
+        rex_panes_saved: fn(enabled: Bool) {
+          self.dispatch(fn() {
+            self.panes_enabled = enabled
           })
         },
         open_theme: fn() {
@@ -2631,7 +2642,7 @@ impl Shell {
   // Whether `tab` opens in a pane: this client opens views in panes, none
   // has failed to open, and the tab is neither this view's own nor open here.
   private fn places(tab: workspace::Tab) Bool {
-    self.props.panes.is_some() and (not unsafe::is_nil(self.props.options.Views)) and (not self.panes_failed) and tab.id != self.view_id and (not self.workspace.has(tab.id)) and self.attached.info.is_some()
+    self.props.panes.is_some() and self.panes_enabled and (not unsafe::is_nil(self.props.options.Views)) and (not self.panes_failed) and tab.id != self.view_id and (not self.workspace.has(tab.id)) and self.attached.info.is_some()
   }
 
   // Opens `tab` in a pane, in the background. If that fails, it opens here,
@@ -3708,4 +3719,20 @@ test fn each_pane_keeps_one_view_identifier() Void!Str {
   )
   try testing::assert(subject.pane_view_id("session-1:diff") == diff, "the pane keeps its identifier")
   testing::assert(subject.pane_view_id("session-1:scratchpad") != diff, "another pane gets its own")
+}
+
+test fn views_open_in_rex_panes_only_while_the_setting_allows() Void!Str {
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject(quits)
+  subject.props.options.Views = &mut cli::ViewLauncher{}
+  subject.props.panes = Maybe::new(
+    rex_panes::new("session:s", "block:kit", fn(ctx: context::Context, args: [Str]) Str!Str {
+      Result::err("rex {args.at(0).or("")}: not running")
+    }),
+  )
+  let notes = workspace::host_file("/srv/notes.md", 0)
+  subject.panes_enabled = false
+  try testing::assert(not subject.places(notes), "with panes off, a view opens as a tab here")
+  subject.panes_enabled = true
+  testing::assert(subject.places(notes), "with panes on, a view opens in a pane")
 }

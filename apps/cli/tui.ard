@@ -33,10 +33,9 @@ fn run(options: cli::TUIOptions) Void!Error {
   let system = application.theme()
   defer application.destroy()
   let themes = theme::context(theme::store(theme::resolve(options.ThemeDefinition, system)))
-  let panes = match options.WorkspacePanes == "tabs" {
-    true => Maybe::new<&mut rex_panes::Placer>(),
-    false => rex_panes::detect(os::Getenv),
-  }
+  // Panes are available whenever Kit runs in Rex, so Settings can turn them
+  // on; the shell opens views in them only while workspacePanes allows.
+  let panes = rex_panes::detect(os::Getenv)
   let props = shell::Props{
     // A single view leaves the session's status to the client showing the
     // whole session, so the multiplexer shows one status per session.

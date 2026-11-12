@@ -71,8 +71,9 @@ Go clients use `Client.ServerSettings`, `UpdateServerSettings`, and
 - **Server** (labeled with the attached server's name when it isn't this
   home's own): default model, compaction model, prompt cache retention, and
   Claude Code commands, read and changed through the API.
-- **This terminal**: diff layout, diff line wrapping, and theme, saved in
-  this client's own `settings.json`.
+- **This terminal**: diff layout, diff line wrapping, opening views in Rex
+  panes (shown only in Rex), and theme, saved in this client's own
+  `settings.json`.
 
 Each change saves at once. A row shows a spinner while it saves; if saving
 fails, it keeps the last confirmed value and shows the reason beneath it. The

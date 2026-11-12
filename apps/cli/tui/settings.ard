@@ -42,12 +42,14 @@ struct Services {
   set_claude_commands: fn(context::Context, Bool) protocol::ServerSettings!Error,
   save_diff_layout: fn(Str) Void!Error,
   save_diff_wrap: fn(Bool) Void!Error,
+  save_workspace_panes: fn(Str) Void!Error,
 }
 
 // services adapts the attached server's client and this terminal's settings.
 fn services(options: cli::TUIOptions) Services {
   let client = options.Client
   let preferences = options.DiffPreferenceService
+  let panes = options.WorkspacePaneService
   let unsaved = fn() Void!Error {
     errors::New("this terminal's preferences can't be saved")
   }
@@ -85,6 +87,12 @@ fn services(options: cli::TUIOptions) Services {
         false => preferences.SetWrapLines(wrap),
       }
     },
+    save_workspace_panes: fn(value: Str) Void!Error {
+      match unsafe::is_nil(panes) {
+        true => unsaved(),
+        false => panes.SetWorkspacePanes(value),
+      }
+    },
   }
 }
 
@@ -109,16 +117,20 @@ struct Props {
   selection: Str,
   diff_split: Bool,
   diff_wrap: Bool,
+  // Whether this terminal can open views in Rex panes, and whether it does.
+  rex_panes_available: Bool,
+  rex_panes: Bool,
   theme_name: Str,
   dismiss: keymap::SimpleCommand,
   diff_split_saved: fn(Bool),
   diff_wrap_saved: fn(Bool),
+  rex_panes_saved: fn(Bool),
   open_theme: fn(),
 }
 
 // The rows, in order.
 let server_rows = ["default_model", "compaction_model", "prompt_cache", "claude_commands"]
-let terminal_rows = ["diff_layout", "diff_wrap", "theme"]
+let terminal_rows = ["diff_layout", "diff_wrap", "rex_panes", "theme"]
 
 // The model picker's row for no model: the server's choice or the session's.
 let no_model = "__settings_no_model__"
@@ -131,6 +143,7 @@ private fn label(key: Str) Str {
     "claude_commands" => "Claude Code commands",
     "diff_layout" => "Diff layout",
     "diff_wrap" => "Wrap diff lines",
+    "rex_panes" => "Open views in Rex panes",
     _ => "Theme",
   }
 }
@@ -144,6 +157,7 @@ private fn description(key: Str) Str {
     "claude_commands" => "Offers a project's .claude/commands. Sessions read it after /reload.",
     "diff_layout" => "Split shows old and new lines side by side where there's room.",
     "diff_wrap" => "Wraps long diff lines instead of scrolling them sideways.",
+    "rex_panes" => "Opens Diff, File, and other views beside Kit instead of as tabs.",
     _ => "The colors Kit uses in this terminal.",
   }
 }
@@ -153,7 +167,7 @@ private fn is_choice(key: Str) Bool {
 }
 
 private fn is_toggle(key: Str) Bool {
-  key == "claude_commands" or key == "diff_wrap"
+  key == "claude_commands" or key == "diff_wrap" or key == "rex_panes"
 }
 
 private fn is_link(key: Str) Bool {
@@ -333,10 +347,38 @@ impl Dialog {
         result.push(key)
       }
     }
-    for key in terminal_rows {
+    for key in self.terminal_rows() {
       result.push(key)
     }
     result.*
+  }
+
+  // This terminal's rows: Open views in Rex panes only where Kit can.
+  private fn terminal_rows() [Str] {
+    let result = &mut List::new<Str>()
+    for key in terminal_rows {
+      if key != "rex_panes" or self.props.rex_panes_available {
+        result.push(key)
+      }
+    }
+    result.*
+  }
+
+  // The width of the label column: the longest label this dialog can show,
+  // whether or not the server's rows have loaded, and a space.
+  private fn label_width() Int {
+    mut widest = 0
+    for key in server_rows {
+      if label(key).size() > widest {
+        widest = label(key).size()
+      }
+    }
+    for key in self.terminal_rows() {
+      if label(key).size() > widest {
+        widest = label(key).size()
+      }
+    }
+    widest + 1
   }
 
   private fn mut keep_selection_available() {
@@ -390,10 +432,7 @@ impl Dialog {
 
   // Sets a toggle to on, or flips it when on is none.
   private fn mut flip(key: Str, on: Bool?) {
-    let current = match key {
-      "claude_commands" => self.settings.ReadClaudeConfigs,
-      _ => self.props.diff_wrap,
-    }
+    let current = self.toggle_state(key)
     let next = on.or(not current)
     if next != current {
       match key {
@@ -401,6 +440,20 @@ impl Dialog {
           let services = self.props.services
           self.save_server(key, fn(ctx: context::Context) protocol::ServerSettings!Error {
             services.set_claude_commands(ctx, next)
+          })
+        },
+        "rex_panes" => {
+          let services = self.props.services
+          let saved = self.props.rex_panes_saved
+          self.save_terminal(key, fn() Void!Error {
+            try services.save_workspace_panes(
+              match next {
+                true => "rex",
+                false => "tabs",
+              },
+            )
+            saved(next)
+            Result::ok(())
           })
         },
         _ => {
@@ -581,6 +634,12 @@ impl Dialog {
           false => "Off",
         }
       },
+      "rex_panes" => {
+        match self.props.rex_panes {
+          true => "On",
+          false => "Off",
+        }
+      },
       _ => self.props.theme_name,
     }
   }
@@ -588,6 +647,7 @@ impl Dialog {
   private fn toggle_state(key: Str) Bool {
     match key {
       "claude_commands" => self.settings.ReadClaudeConfigs,
+      "rex_panes" => self.props.rex_panes,
       _ => self.props.diff_wrap,
     }
   }
@@ -653,7 +713,7 @@ impl Dialog {
     cells.push(
       cui::text(
         label(key),
-        styles: ui::style(width: ui::cells(21), flex_shrink: 0.0),
+        styles: ui::style(width: ui::cells(self.label_width()), flex_shrink: 0.0),
         wrap: ui::TextWrap::none,
         overflow: ui::TextOverflow::ellipsis,
       ),
@@ -819,7 +879,7 @@ impl Dialog {
     }
     children.push(cui::text(" ", styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
     children.push(self.heading("This terminal"))
-    for key in terminal_rows {
+    for key in self.terminal_rows() {
       children.push(self.row(key))
     }
     cui::box(
