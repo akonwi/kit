@@ -80,6 +80,10 @@ type View struct {
 	Conversation string
 	// Annotation is the annotation a Diff or File view reveals, or 0.
 	Annotation uint64
+	// ID is the view identifier the view watches for reveals, so the client
+	// that opened it can show it another line or annotation without
+	// restarting it, or empty (ADR 0068).
+	ID string
 }
 
 // DeviceLogin performs OpenAI Codex device-code login on the attached server.

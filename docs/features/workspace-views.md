@@ -40,7 +40,10 @@ terminal, opening a view opens it in a Rex pane:
 
 - The first view opens to the right of Kit, and later views stack below it.
 - Opening a view that is already open focuses its pane. Opening it at a line,
-  or at an annotation, restarts the view in the same place.
+  or at an annotation, shows that target in the running view, which keeps
+  the rest of its state
+  ([ADR 0068](../adrs/0068-reveal-targets-in-open-workspace-views.md)). On
+  an older Kit server, the view restarts in the same place instead.
 - Closing a pane closes that view. Quitting Kit closes the panes it opened.
 - Rex moves focus between panes, and Kit's keys work inside each one.
 

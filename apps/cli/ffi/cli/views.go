@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strconv"
 
+	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/identifier"
 	"github.com/spf13/cobra"
 )
 
@@ -22,13 +24,16 @@ func bindViewFlags(command *cobra.Command, view *View) {
 	flags.IntVar(&view.Line, "line", 0, "with --view file or host-file, the line to show")
 	flags.StringVar(&view.Conversation, "conversation", "", "with --view subagent, the conversation to show")
 	flags.Uint64Var(&view.Annotation, "annotation", 0, "with --view diff or file, the annotation to reveal")
+	// The client that opens a view passes its identifier; people don't.
+	flags.StringVar(&view.ID, "view-id", "", "with --view, the identifier to watch for reveals from the client that opened it")
+	_ = flags.MarkHidden("view-id")
 }
 
 // validateView checks the flags of a single-view client.
 func validateView(view View, options interactiveOptions) error {
 	if view.Kind == "" {
 		for flag, set := range map[string]bool{
-			"path": view.Path != "", "line": view.Line != 0, "conversation": view.Conversation != "", "annotation": view.Annotation != 0,
+			"path": view.Path != "", "line": view.Line != 0, "conversation": view.Conversation != "", "annotation": view.Annotation != 0, "view-id": view.ID != "",
 		} {
 			if set {
 				return usagef("--%s requires --view", flag)
@@ -58,6 +63,8 @@ func validateView(view View, options interactiveOptions) error {
 		return usagef("--conversation is only valid with --view subagent")
 	case view.Annotation != 0 && view.Kind != ViewDiff && view.Kind != ViewFile:
 		return usagef("--annotation is only valid with --view diff or file")
+	case view.ID != "" && !protocol.ValidViewID(view.ID):
+		return usagef("--view-id must be view_ and 32 lowercase hex digits")
 	}
 	return nil
 }
@@ -84,7 +91,21 @@ func viewCommand(executable, home string, target attachTarget, sessionID string,
 	if view.Annotation != 0 {
 		command = append(command, "--annotation", strconv.FormatUint(view.Annotation, 10))
 	}
+	if view.ID != "" {
+		command = append(command, "--view-id", view.ID)
+	}
 	return command
+}
+
+// NewViewID returns a new view identifier for a view the client opens, or
+// empty if the system has no randomness to give, in which case the view
+// can't be revealed in place (ADR 0068).
+func NewViewID() string {
+	id, err := identifier.New(protocol.ViewIDPrefix)
+	if err != nil {
+		return ""
+	}
+	return id
 }
 
 // attachArgument names another server for `kit attach`: its home, URL,

@@ -229,6 +229,9 @@ struct Shell {
   view_opening: Bool,
   // Whether opening a pane failed, after which views open as tabs here.
   panes_failed: Bool,
+  // The view identifier given to the view in each pane this client opened,
+  // by pane ID, so a later opening can reveal its target there (ADR 0068).
+  pane_views: [Str: Str],
 }
 
 fn new(props: &mut Props) &mut Shell {
@@ -274,6 +277,7 @@ fn new(props: &mut Props) &mut Shell {
     view_id: "",
     view_opening: false,
     panes_failed: false,
+    pane_views: Map::new<Str>(),
   }
 }
 
@@ -2505,6 +2509,7 @@ impl Shell {
     self.attached.start(attached.snapshot.ActiveTurnID, attached.snapshot.ActiveBashExecutionID)
     if self.viewing() {
       self.open_view()
+      self.watch_view_reveals()
     }
   }
 
@@ -2635,19 +2640,23 @@ impl Shell {
   private fn mut place(tab: workspace::Tab, annotation: Uint64?) {
     let info = self.attached.info.or(protocol::SessionInfo{})
     let scope = self.session_scope_id
+    let pane = "{info.ID}:{tab.id}"
+    let view_id = self.pane_view_id(pane)
     let view = cli::View{
       Kind: workspace::view_kind(tab.kind),
       Path: tab.path,
       Line: tab.line,
       Conversation: tab.conversation_id.or(""),
       Annotation: annotation.or(Uint64::from(0)),
+      ID: view_id,
     }
     let request = rex_panes::View{
-      id: "{info.ID}:{tab.id}",
+      id: pane,
       label: tab.label,
       cwd: info.CWD,
       command: self.props.options.Views.Command(info.ID, view),
       retarget: tab.line > 0 or annotation.is_some(),
+      reveal: self.view_revealer(view_id, tab.line, annotation),
     }
     let panes = self.props.panes.expect("panes to place in")
     match self.attached.lifetime {
@@ -2676,6 +2685,106 @@ impl Shell {
         })
       },
       _ => self.open_tab_here(tab),
+    }
+  }
+
+  // The view identifier of the view in `pane`, made on first use. It is
+  // empty when no identifier could be made, and the view then can't reveal
+  // a new target in place.
+  private fn mut pane_view_id(pane: Str) Str {
+    match self.pane_views.get(pane) {
+      id => id,
+      _ => {
+        let id = cli::NewViewID()
+        if id != "" {
+          self.pane_views.set(pane, id)
+        }
+        id
+      },
+    }
+  }
+
+  // Asks the view watching `view_id` to show `annotation`, or else `line`,
+  // and reports whether it was told. The request is bounded, and any
+  // failure, including a server without view reveals, reports false so the
+  // pane restarts at the target instead.
+  private fn view_revealer(view_id: Str, line: Int, annotation: Uint64?) fn(context::Context) Bool {
+    let input = match annotation {
+      id => protocol::ViewRevealInput{Annotation: id},
+      _ => protocol::ViewRevealInput{Line: line},
+    }
+    let session = self.attached.session
+    fn(ctx: context::Context) Bool {
+      match session {
+        handle => {
+          match view_id == "" {
+            true => false,
+            false => {
+              let bounded = contextbridge::WithTimeout(ctx, 5000)
+              defer bounded.Cancel()
+              match handle.RevealView(bounded.Context, view_id, input) {
+                ok(result) => result.Delivered,
+                err(_) => false,
+              }
+            },
+          }
+        },
+        _ => false,
+      }
+    }
+  }
+
+  // Watches, in a single view started with a view identifier, for the
+  // targets the client that opened it asks it to show (ADR 0068). The
+  // attachment's lifetime bounds the watch. A server without view reveals,
+  // or a failed watch, leaves the view as it is: the opening client then
+  // restarts it at each new target.
+  private fn mut watch_view_reveals() {
+    let view_id = self.props.options.View.ID
+    let scope = self.session_scope_id
+    match self.attached.session {
+      session => {
+        match self.attached.lifetime {
+          lifetime => {
+            if view_id != "" {
+              async::start(fn() {
+                let _ = session.WatchViewReveals(
+                  lifetime.Context,
+                  view_id,
+                  fn(reveal: protocol::ViewReveal) {
+                    self.dispatch(fn() {
+                      if scope == self.session_scope_id {
+                        self.reveal_here(reveal)
+                      }
+                    })
+                  },
+                )
+              })
+            }
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Shows a target the opening client asked this view to show: an
+  // annotation the session has, as its chip does, or a line of the File
+  // view's file. The view's tab takes the new opening in place and keeps its
+  // other state.
+  fn mut reveal_here(reveal: protocol::ViewReveal) {
+    let view = self.props.options.View
+    if reveal.Annotation != Uint64::from(0) {
+      for annotation in self.attached.annotations {
+        if annotation.ID == reveal.Annotation {
+          self.open_annotation(annotation)
+        }
+      }
+    } else if reveal.Line > 0 and view.Kind == "host-file" {
+      self.open_tab(workspace::host_file(view.Path, reveal.Line))
+    } else if reveal.Line > 0 and view.Kind == "file" {
+      self.open_server_path(view.Path, reveal.Line)
     }
   }
 
@@ -3397,9 +3506,13 @@ test fn logout_outcomes_raise_toasts_from_their_worker() Void!Str {
 // A single view of a session, attached without a server handle; mounting
 // skips bootstrap.
 private fn viewing_subject(quits: &mut [Int]) &mut Shell {
+  viewing_subject_of(quits, cli::View{Kind: "diff"})
+}
+
+private fn viewing_subject_of(quits: &mut [Int], view: cli::View) &mut Shell {
   let subject = new(
     &mut Props{
-      options: cli::TUIOptions{Context: context::Background(), View: cli::View{Kind: "diff"}},
+      options: cli::TUIOptions{Context: context::Background(), View: view},
       themes: theme::context(theme::store(theme::system())),
       quit: fn() {
         quits.push(1)
@@ -3541,4 +3654,58 @@ test fn ctrl_c_closes_a_single_view_at_once() Void!Str {
   )
   terminal.flush()
   testing::assert(quits.size() == 1, "a view has no draft to clear first")
+}
+
+test fn a_reveal_shows_its_line_in_the_views_own_tab() Void!Str {
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject_of(quits, cli::View{Kind: "host-file", Path: "/srv/notes.md"})
+  subject.view_opening = true
+  subject.open_tab(workspace::host_file("/srv/notes.md", 0))
+  let before = subject.workspace.current().expect("the view's tab").opening
+  subject.reveal_here(protocol::ViewReveal{Line: 40})
+  let shown = subject.workspace.current().expect("the view's tab")
+  try testing::assert(subject.workspace.labels().size() == 1, "the view keeps one tab")
+  try testing::assert(shown.id == "host-file:/srv/notes.md", "the view's own tab is shown")
+  testing::assert(
+    shown.line == 40 and shown.opening > before,
+    "the tab takes a new opening at the line",
+  )
+}
+
+test fn a_reveal_of_an_annotation_shows_it_as_its_chip_does() Void!Str {
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject(quits)
+  subject.view_opening = true
+  subject.open_tab(workspace::diff())
+  subject.attached.annotations = [
+    sessionbridge::Annotation{
+      ID: Uint64::from(7),
+      Kind: "diff",
+      TargetID: "target-1",
+      TargetKind: "working_tree",
+      Side: "new",
+      Path: "main.go",
+      StartLine: 12,
+      EndLine: 14,
+    },
+  ]
+  subject.reveal_here(protocol::ViewReveal{Annotation: Uint64::from(7)})
+  let reveal = subject.diff_reveal
+  try testing::assert(subject.workspace.labels().size() == 1, "the view keeps one tab")
+  testing::assert(
+    reveal.opening == 1 and reveal.path == "main.go" and reveal.side == "new" and reveal.line == 12 and reveal.working_tree,
+    "the Diff tab is asked to show the annotation's lines",
+  )
+}
+
+test fn each_pane_keeps_one_view_identifier() Void!Str {
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject(quits)
+  let diff = subject.pane_view_id("session-1:diff")
+  try testing::assert(
+    strings::HasPrefix(diff, "view_") and diff.size() == 37,
+    "a view identifier is made",
+  )
+  try testing::assert(subject.pane_view_id("session-1:diff") == diff, "the pane keeps its identifier")
+  testing::assert(subject.pane_view_id("session-1:scratchpad") != diff, "another pane gets its own")
 }

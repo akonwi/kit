@@ -31,9 +31,12 @@ struct View {
   cwd: Str,
   // Runs the view.
   command: [Str],
-  // Replaces an open pane for `id` with a new one in the same place, so the
-  // view shows this opening's line or annotation.
+  // Shows this opening's line or annotation in an open pane for `id`:
+  // `reveal` asks the running view to show it and reports whether the view
+  // was told (ADR 0068). When it wasn't, the pane is replaced with a new one
+  // in the same place.
   retarget: Bool,
+  reveal: fn(context::Context) Bool,
 }
 
 // Opens views in panes beside the client's own pane, and remembers the panes
@@ -145,8 +148,10 @@ fn command_runner(path: Str) fn(context::Context, [Str]) Str!Str {
 }
 
 impl Placer {
-  // Shows `view` in a pane. A pane already showing its ID is focused, or
-  // replaced in place when `view.retarget` is set. Otherwise the first view
+  // Shows `view` in a pane. A pane already showing its ID is focused; when
+  // `view.retarget` is set, the view in it is first told to show the new
+  // target, and if it can't be, the pane is replaced in place. Otherwise the
+  // first view
   // opens to the right of the client's pane and each later one below the
   // last one opened, as long as it is still open.
   //
@@ -237,7 +242,7 @@ impl Placer {
     let open = try self.open_blocks(ctx)
     let existing = self.panes.get(view.id).or("")
     match {
-      existing != "" and open.get(existing).or(false) and (not view.retarget) => {
+      existing != "" and open.get(existing).or(false) and ((not view.retarget) or (view.reveal)(ctx)) => {
         let _ = try (self.run)(ctx, ["focus", "-s", self.session, existing])
         Result::ok(())
       },
@@ -503,6 +508,9 @@ private fn view(id: Str) View {
     cwd: "",
     command: ["kit", "--view", id],
     retarget: false,
+    reveal: fn(ctx: context::Context) Bool {
+      false
+    },
   }
 }
 
@@ -590,6 +598,29 @@ test fn opening_an_open_view_focuses_or_replaces_its_pane() Void!Str {
       "block close -s session:s block:view1",
       // The replacement is the last view opened.
       "split -s session:s -b block:view2 --split below --shell none --json --label file -- kit --view file",
+    ],
+  )
+}
+
+test fn retargeting_a_view_that_is_told_the_new_target_focuses_its_pane() Void!Str {
+  let fake = fake_rex()
+  let placer = new("session:s", "block:agent", fake.runner())
+  let ctx = context::Background()
+  try placer.open(ctx, view("diff"))
+  let told = &mut List::new<Str>()
+  let retarget = &mut view("diff")
+  retarget.retarget = true
+  retarget.reveal = fn(ctx: context::Context) Bool {
+    told.push("diff")
+    true
+  }
+  try placer.open(ctx, retarget.*)
+  try testing::assert(told.size() == 1, "the view is told the new target once")
+  assert_commands(
+    fake,
+    [
+      "split -s session:s -b block:agent --split right --shell none --json --label diff -- kit --view diff",
+      "focus -s session:s block:view1",
     ],
   )
 }

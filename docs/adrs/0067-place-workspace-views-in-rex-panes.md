@@ -89,8 +89,10 @@ Credentials never appear on the command line.
 - The first view opens to the right of the client's pane, and each later one
   below the last one opened that is still open. Rex focuses the new pane.
 - Opening a view that has an open pane focuses that pane. An opening with a
-  line or an annotation instead replaces the pane in place: the new pane
-  splits the old one, and the old one closes.
+  line or an annotation first tells the running view to show it
+  ([ADR 0068](0068-reveal-targets-in-open-workspace-views.md)). If the view
+  can't be told, the opening replaces the pane in place: the new pane splits
+  the old one, and the old one closes.
 - Opening views from inside a single view follows the same rules, using the
   panes that single view opened.
 - The client showing the whole session closes the panes it opened when it
@@ -114,9 +116,9 @@ Rex owns moving between panes. Kit owns keys within a pane. Tab cycling
   the client.
 - Views opened in panes keep their own scroll position and selection. Two
   Diff views of different targets can stay side by side.
-- Retargeting a pane restarts its view, which loses the view's scroll
-  position. Sending a new target to a running view would need a message
-  addressed to attachments, which is a session API change. It is deferred.
+- A view that can't be told a new target, for example on a server without
+  [ADR 0068](0068-reveal-targets-in-open-workspace-views.md)'s operations,
+  restarts and loses its own state.
 - A preview Rex can change. Kit depends only on documented `rex` commands,
   checks the API revision, and falls back to tabs on any failure.
 - Remote Kit servers work unchanged: a view attaches to the same server as

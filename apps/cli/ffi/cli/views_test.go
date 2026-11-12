@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func TestKitAndAttachParseAView(t *testing.T) {
@@ -24,6 +26,7 @@ func TestKitAndAttachParseAView(t *testing.T) {
 		{args: []string{"--view", "host-file", "--path", "~/notes.md"}, want: View{Kind: ViewHostFile, Path: "~/notes.md"}},
 		{args: []string{"--view", "subagent", "--conversation", "conversation_1"}, want: View{Kind: ViewSubagent, Conversation: "conversation_1"}},
 		{args: []string{"--view", "scratchpad"}, want: View{Kind: ViewScratchpad}},
+		{args: []string{"--view", "diff", "--view-id", testViewID}, want: View{Kind: ViewDiff, ID: testViewID}},
 	} {
 		for _, prefix := range [][]string{{"--session", "session_1"}, {"attach", serverHome, "--session", "session_1"}} {
 			args := append(append([]string{}, prefix...), test.args...)
@@ -52,6 +55,8 @@ func TestAttachRejectsInvalidViews(t *testing.T) {
 		{args: []string{"--session", "s", "--view", "subagent"}, stderr: "--view subagent requires --conversation"},
 		{args: []string{"--session", "s", "--view", "diff", "--conversation", "c"}, stderr: "--conversation is only valid with --view subagent"},
 		{args: []string{"--session", "s", "--view", "host-file", "--path", "/x", "--annotation", "1"}, stderr: "--annotation is only valid with --view diff or file"},
+		{args: []string{"--session", "s", "--view-id", testViewID}, stderr: "--view-id requires --view"},
+		{args: []string{"--session", "s", "--view", "diff", "--view-id", "view_1"}, stderr: "--view-id must be view_ and 32 lowercase hex digits"},
 	} {
 		for _, prefix := range [][]string{nil, {"attach", serverHome}} {
 			var stdout, stderr bytes.Buffer
@@ -64,13 +69,15 @@ func TestAttachRejectsInvalidViews(t *testing.T) {
 	}
 }
 
+var testViewID = "view_" + strings.Repeat("0a", 16)
+
 func TestViewCommandAttachesWithoutStartingAServer(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
-	file := View{Kind: ViewFile, Path: "internal/x.go", Line: 40, Annotation: 3}
+	file := View{Kind: ViewFile, Path: "internal/x.go", Line: 40, Annotation: 3, ID: testViewID}
 	own := viewCommand("/opt/kit/bin/kit", home, attachTarget{}, "session_1", file)
 	if want := []string{
 		"/usr/bin/env", "KIT_HOME=" + home, "/opt/kit/bin/kit", "--session", "session_1",
-		"--view", "file", "--path", "internal/x.go", "--line", "40", "--annotation", "3",
+		"--view", "file", "--path", "internal/x.go", "--line", "40", "--annotation", "3", "--view-id", testViewID,
 	}; !slices.Equal(own, want) {
 		t.Errorf("viewCommand(this home's server) = %q, want %q", own, want)
 	}
@@ -87,7 +94,7 @@ func TestViewCommandAttachesWithoutStartingAServer(t *testing.T) {
 		got := viewCommand("/opt/kit/bin/kit", home, test.target, "session_1", file)
 		want := []string{
 			"/usr/bin/env", "KIT_HOME=" + home, "/opt/kit/bin/kit", "attach", test.server, "--session", "session_1",
-			"--view", "file", "--path", "internal/x.go", "--line", "40", "--annotation", "3",
+			"--view", "file", "--path", "internal/x.go", "--line", "40", "--annotation", "3", "--view-id", testViewID,
 		}
 		if !slices.Equal(got, want) {
 			t.Errorf("%s: viewCommand() = %q, want %q", test.name, got, want)
@@ -129,5 +136,12 @@ func TestViewLauncherBuildsTheViewCommandLine(t *testing.T) {
 	var none *ViewLauncher
 	if command := none.Command("session_1", View{Kind: ViewDiff}); command != nil {
 		t.Errorf("nil ViewLauncher Command() = %q, want nil", command)
+	}
+}
+
+func TestNewViewIDReturnsDistinctValidIdentifiers(t *testing.T) {
+	first, second := NewViewID(), NewViewID()
+	if !protocol.ValidViewID(first) || !protocol.ValidViewID(second) || first == second {
+		t.Fatalf("NewViewID() = %q, %q; want two distinct valid identifiers", first, second)
 	}
 }
