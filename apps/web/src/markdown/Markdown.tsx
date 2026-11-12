@@ -1,9 +1,13 @@
 // Renders a Markdown tree as elements. Raw HTML shows as text, links open
-// only web and mail addresses, and images are never fetched from elsewhere.
+// only web and mail addresses, or files in the session's folder at the lines
+// they name, and images are never fetched from elsewhere.
 import type { Code, Nodes, PhrasingContent, RootContent, TableRow } from "mdast";
 import { createContext, createMemo, For, type JSX, Match, Show, Switch, useContext } from "solid-js";
 import { FigureFence } from "../figures/FigureFence";
 import { isFigure } from "../figures/figure";
+import { useFiles } from "../files/context";
+import { fileHash } from "../files/file";
+import { type LinkedFile, linkedLocation, linkTarget, withLines } from "../files/link";
 import { Icon, type IconName } from "../ui/icons";
 import { CodeBlock } from "./Fence";
 import { MermaidFence } from "./MermaidFence";
@@ -20,14 +24,54 @@ import {
 /** The text a tree was parsed from, for the parts drawn from their source. */
 const Source = createContext("");
 
-export function Markdown(props: { text: string; class?: string }) {
+/** The folder a file's relative links start from, in the session's folder; "" for its root. */
+const LinkBase = createContext<string | undefined>();
+
+/**
+ * Markdown as elements. `base` is the folder a Markdown file's relative
+ * links start from; without it, as in the transcript, they start from the
+ * session's folder.
+ */
+export function Markdown(props: { text: string; class?: string; base?: string }) {
   const tree = createMemo(() => parseMarkdown(props.text));
   return (
     <Source.Provider value={props.text}>
-      <div class={`markdown${props.class ? ` ${props.class}` : ""}`}>
-        <Blocks nodes={tree().children} />
-      </div>
+      <LinkBase.Provider value={props.base}>
+        <div class={`markdown${props.class ? ` ${props.class}` : ""}`}>
+          <Blocks nodes={tree().children} />
+        </div>
+      </LinkBase.Provider>
     </Source.Provider>
+  );
+}
+
+/**
+ * A link to a file in the session's folder, which opens it at the lines it
+ * names; its title is the file and lines. A file elsewhere, which this
+ * client can't open, is plain text.
+ */
+function FileLink(props: { file: LinkedFile; children: JSX.Element }) {
+  const files = useFiles();
+  const base = useContext(LinkBase);
+  const target = createMemo(() => (files ? linkTarget(props.file, base, files.resolve) : undefined));
+  return (
+    <Show when={target()} fallback={<span>{props.children}</span>}>
+      {(file) => (
+        <a
+          href={fileHash(file())}
+          title={withLines(file())}
+          onClick={(event) => {
+            // A modified click opens the page's link as the browser does.
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)
+              return;
+            event.preventDefault();
+            files?.open(file().path, file().line, file().end);
+          }}
+        >
+          {props.children}
+        </a>
+      )}
+    </Show>
   );
 }
 
@@ -229,6 +273,8 @@ function Inline(props: { node: Nodes }): JSX.Element {
     case "link": {
       const href = safeHref(node.url);
       const children = <Inlines nodes={node.children as PhrasingContent[]} />;
+      const file = href ? undefined : linkedLocation(node.url);
+      if (file) return <FileLink file={file}>{children}</FileLink>;
       return href ? (
         <a href={href} target="_blank" rel="noopener noreferrer">
           {children}

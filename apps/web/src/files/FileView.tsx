@@ -311,7 +311,7 @@ export function FileView(props: FileViewProps) {
           <Match when={mode() === "preview" && read()}>
             {(value) => (
               <div class="file-preview">
-                <Markdown text={value().content} />
+                <Markdown text={value().content} base={dir()} />
                 <Show when={truncationNote(value())}>
                   {(note) => <p class="file-note muted small">{note()}</p>}
                 </Show>

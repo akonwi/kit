@@ -89,7 +89,9 @@ last use.
 The client's pages run under a strict Content Security Policy: scripts, styles,
 and fonts come only from the server, and the page connects only to it. Model
 output is rendered as text and elements, never as HTML. Links open only for
-`http`, `https`, and `mailto`, in a new tab, and images in replies are not
+`http`, `https`, and `mailto`, in a new tab, or a file in the session's
+folder, in the file viewer at the lines the link names (see
+[file links](file-links.md)), and images in replies are not
 fetched; their description, or else their address, is shown instead. A
 Mermaid diagram is drawn as SVG kept to drawing elements, with its labels as
 text and without links or images.
