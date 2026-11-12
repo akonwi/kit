@@ -15,11 +15,16 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
     let annotations: AnnotationState
     let client: any AnnotationClient
     let session: String
+    /// Lines to select and centre once, as a followed link asks.
+    var lineReveal: FileLineReveal?
+    /// Called once `lineReveal` shows.
+    var lineRevealed: ((FileLineReveal) -> Void)?
 
     init(file: WireWorkspaceFileRead, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String,
-         canAnnotate: Bool = true) {
+         canAnnotate: Bool = true, lineReveal: FileLineReveal? = nil, lineRevealed: ((FileLineReveal) -> Void)? = nil) {
         document = AnnotationDocument(file: file); _position = position
         self.annotations = annotations; self.client = client; self.session = session; self.canAnnotate = canAnnotate
+        self.lineReveal = lineReveal; self.lineRevealed = lineRevealed
     }
     init(diff: DiffDocument, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String, canAnnotate: Bool, contentHeightChanged: ((CGFloat) -> Void)? = nil, wrapLines: Bool = false, splitAlignment: DiffSplitAlignment? = nil) {
         document = AnnotationDocument(diff: diff); _position = position
@@ -85,6 +90,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
         var scheduled = false
         var layingOut = false
         var lastReveal: UUID?
+        var lastLineReveal: UUID?
         var lastEditor: UUID?
         var flashing: UInt64?
         var lastHeight: CGFloat = 0
@@ -241,6 +247,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                     self.scrollToVisible(host.frame.insetBy(dx: 0, dy: -8))
                 }
             } else if state.editor == nil { lastEditor = nil }
+            revealLines()
             if lastReveal != state.revealToken, let id = state.revealed,
                let note = current.first(where: { $0.id == id }), let line = manager.lineStorage.getLine(atIndex: parent.document.range(note.anchor)!.upperBound) {
                 lastReveal = state.revealToken; flashing = id
@@ -252,6 +259,16 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                     guard let self, self.flashing == id else { return }; self.flashing = nil; self.schedule()
                 }
             }
+        }
+        /// Selects and centres the lines a followed link names, once the
+        /// editor is on screen with a size to centre them in.
+        func revealLines() {
+            guard let controller, let reveal = parent.lineReveal, lastLineReveal != reveal.id,
+                  controller.view.window != nil, controller.scrollView.contentView.bounds.height > 0 else { return }
+            lastLineReveal = reveal.id
+            FileLineRevealer.reveal(reveal.lines, in: controller)
+            let done = parent.lineRevealed
+            DispatchQueue.main.async { done?(reveal) }
         }
         func scrollToVisible(_ rect: NSRect) {
             guard let controller else { return }

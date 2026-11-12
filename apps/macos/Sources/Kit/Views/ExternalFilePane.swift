@@ -138,7 +138,8 @@ struct ExternalFilePane: View {
                     if pane.isMarkdown && !workspace.showsMarkdownSource(pane) {
                         MarkdownFileText(workspace: workspace, pane: pane, source: source, cwd: state.selected?.cwd)
                     } else {
-                        ReadOnlyFileEditor(path: file.path, source: source)
+                        ReadOnlyFileEditor(path: file.path, source: source, lineReveal: workspace.lineReveal(for: pane),
+                                           lineRevealed: { [workspace, pane] in workspace.finishLineReveal($0, in: pane) })
                     }
                 }
                 .workspaceFocusTarget(pane)

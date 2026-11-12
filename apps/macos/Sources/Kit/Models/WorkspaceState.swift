@@ -140,6 +140,8 @@ final class WorkspaceState {
     private(set) var diagrams: [UUID: String] = [:]
     /// Open Markdown file tabs showing their source; the rest show rendered.
     private(set) var markdownSources: Set<WorkspacePane> = []
+    /// Lines file tabs are to show, until their views show them.
+    private(set) var lineReveals: [WorkspacePane: FileLineReveal] = [:]
     /// Makes the engine behind each browser tab.
     @ObservationIgnored var makeBrowserEngine: @MainActor () -> any BrowserEngine = WebKitBrowserEngine.make
     /// Where browser downloads and terminal notifications are reported.
@@ -257,6 +259,7 @@ final class WorkspaceState {
         if case .terminal(let id) = pane { terminals.removeValue(forKey: id)?.close() }
         if case .diagram(let id) = pane { diagrams.removeValue(forKey: id) }
         markdownSources.remove(pane)
+        lineReveals.removeValue(forKey: pane)
         panes.removeAll { $0 == pane }
         tile.panes.remove(at: index)
         if tile.panes.isEmpty {
@@ -439,6 +442,7 @@ final class WorkspaceState {
         }
         let sources = Set(arrangement.markdownSources ?? [])
         markdownSources = Set(panes.filter { $0.isMarkdown && sources.contains($0.id) })
+        lineReveals = [:]
         let order = tree.tiles
         focusedTile = order[min(max(arrangement.focused, 0), order.count - 1)]
         zoomedTile = arrangement.zoomed && order.count > 1 ? focusedTile : nil
@@ -530,6 +534,23 @@ final class WorkspaceState {
         return true
     }
 
+    // MARK: Line links
+
+    /// Has an open file tab show `lines`: scrolled to and highlighted. A
+    /// later request replaces one its view hasn't shown yet.
+    func reveal(_ lines: FileLineRange, in pane: WorkspacePane) {
+        guard panes.contains(pane) else { return }
+        lineReveals[pane] = FileLineReveal(lines: lines)
+    }
+
+    /// The lines a file tab is to show, until its view shows them.
+    func lineReveal(for pane: WorkspacePane) -> FileLineReveal? { lineReveals[pane] }
+
+    /// Notes that a file tab's view has shown `reveal`.
+    func finishLineReveal(_ reveal: FileLineReveal, in pane: WorkspacePane) {
+        if lineReveals[pane] == reveal { lineReveals.removeValue(forKey: pane) }
+    }
+
     // MARK: Markdown files
 
     /// Whether a Markdown file tab shows its source rather than rendered.
@@ -605,7 +626,10 @@ final class WorkspaceState {
         if let path = FilePaths.path(fromLink: url) {
             // A transcript path names a file on the server.
             guard let pane = FilePaths.serverPane(for: path, cwd: currentDirectory()) else { return true }
-            openFile(pane, externally: externally) { self.open(pane, beside: anchor) }
+            openFile(pane, externally: externally) {
+                self.open(pane, beside: anchor)
+                if let lines = FilePaths.lines(fromLink: url) { self.reveal(lines, in: pane) }
+            }
             return true
         }
         guard BrowserAddress.isWeb(url), !externally else { return false }

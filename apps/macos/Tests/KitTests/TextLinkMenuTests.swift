@@ -30,13 +30,13 @@ import Testing
             var sessions: [String] = []
         }
 
-        init() {
+        init(source: String = TextLinkMenuTests.source) {
             _ = NSApplication.shared
             let sessions = sessions
             let sessionLink = TranscriptSessionLink(serverID: "local", title: { $0 == "ses_release" ? "Release notes" : nil }) { id in
                 MainActor.assumeIsolated { sessions.sessions.append(id) }
             }
-            rendered = TranscriptHoverTests.Rendered(TextLinkMenuTests.source, message: true, sessionLink: sessionLink)
+            rendered = TranscriptHoverTests.Rendered(source, message: true, sessionLink: sessionLink)
             workspace.makeBrowserEngine = engines.make
             workspace.currentDirectory = { "/work" }
             // The transcript's link menus, opening nothing outside the test.

@@ -110,6 +110,9 @@ enum TranscriptClickable: CaseIterable {
         didSet { underline.color = color }
     }
     private(set) var hovered: Hovered?
+    /// The field showing a hovered file link's tooltip, and the tooltip it
+    /// had before.
+    private var toolTipField: (field: NSView, previous: String?)?
 
     init(color: NSColor) {
         self.color = color
@@ -190,6 +193,7 @@ enum TranscriptClickable: CaseIterable {
         TranscriptClickable.markdownLink.pointer.cursor.set()
         guard next != hovered else { return }
         hovered = next
+        showToolTip(for: next, in: field)
         underline.removeFromSuperview()
         underline.frame = field.bounds
         underline.autoresizingMask = [.width, .height]
@@ -285,8 +289,9 @@ enum TranscriptClickable: CaseIterable {
 
     /// The menu a right-click or Control-click `event` on a link shows. A web
     /// link offers Open Link, which opens it as a click does, Open in Default
-    /// Browser, and Copy Link; a file link Open File and Copy Path; a session
-    /// mention Open Session and Copy ID. When the link's text has a selection, AppKit's
+    /// Browser, and Copy Link; a file link Open File and Copy Path, under
+    /// the file and lines a link to lines names, with Copy Path and Line
+    /// for one; a session mention Open Session and Copy ID. When the link's text has a selection, AppKit's
     /// items for the selection follow, without its own items for the link;
     /// otherwise the message's Copy Message items follow, in a transcript.
     /// Nil for any other event, which keeps the menu it had.
@@ -314,9 +319,16 @@ enum TranscriptClickable: CaseIterable {
             add("Open Link", #selector(LinkMenuTarget.open))
             add("Open in Default Browser", #selector(LinkMenuTarget.openInDefaultBrowser))
             add("Copy Link", #selector(LinkMenuTarget.copyLink))
-        case .file:
+        case .file(let path):
+            if let lines = FilePaths.lines(fromLink: url) {
+                // The file and lines it opens at, which the link's text may not say.
+                let header = NSMenuItem(title: (path as NSString).lastPathComponent + "#" + lines.fragment, action: nil, keyEquivalent: "")
+                header.isEnabled = false
+                menu.addItem(header)
+            }
             add("Open File", #selector(LinkMenuTarget.open))
             add("Copy Path", #selector(LinkMenuTarget.copyPath))
+            if FilePaths.lines(fromLink: url) != nil { add("Copy Path and Line", #selector(LinkMenuTarget.copyPathAndLine)) }
             if let file {
                 // These work on this Mac's files, as a file tab's menu says.
                 menu.addItem(.separator())
@@ -392,7 +404,30 @@ enum TranscriptClickable: CaseIterable {
     private func clear(resetCursor: Bool) {
         if resetCursor { NSCursor.arrow.set() }
         hovered = nil
+        restoreToolTip()
         underline.removeFromSuperview()
+    }
+
+    /// The tooltip a link shows: a file link's path as linked, with its
+    /// lines, as `src/server.go#L42-L50`; nil for other links.
+    static func toolTip(for url: URL) -> String? {
+        guard let path = FilePaths.path(fromLink: url) else { return nil }
+        return FileLocation(path: path, lines: FilePaths.lines(fromLink: url)).withLines
+    }
+
+    /// Shows the hovered link's tooltip over its field, if it has one.
+    private func showToolTip(for hovered: Hovered, in field: NSTextField) {
+        restoreToolTip()
+        let url = Self.url(field.attributedStringValue.attribute(.link, at: hovered.range.location, effectiveRange: nil))
+        guard let tip = url.flatMap(Self.toolTip(for:)) else { return }
+        toolTipField = (field, field.toolTip)
+        field.toolTip = tip
+    }
+
+    private func restoreToolTip() {
+        guard let (field, previous) = toolTipField else { return }
+        toolTipField = nil
+        field.toolTip = previous
     }
 
     /// The link at `point`, in `field`'s coordinates, and its underline.
@@ -511,6 +546,12 @@ enum TranscriptClickable: CaseIterable {
         guard let path = file?.path ?? FilePaths.path(fromLink: url) else { return }
         actions.pasteboard.clearContents()
         actions.pasteboard.setString(path, forType: .string)
+    }
+    /// Copies the file's path with the link's lines, as `path#L42-L50`.
+    @objc func copyPathAndLine() {
+        guard let path = file?.path ?? FilePaths.path(fromLink: url) else { return }
+        actions.pasteboard.clearContents()
+        actions.pasteboard.setString(FileLocation(path: path, lines: FilePaths.lines(fromLink: url)).withLines, forType: .string)
     }
     /// Items for this Mac's files stay dimmed, with their reason, when the
     /// menu validates its items, as it does beside a selection's.

@@ -764,6 +764,7 @@ struct FilePane: View {
         guard let preview, let ranges = position.cursorPositions, ranges.count == 1 else { return nil }
         return AnnotationSelection.lines(in: preview.content, selection: ranges[0].range)
     }
+    private func finishLineReveal(_ reveal: FileLineReveal) { workspace.finishLineReveal(reveal, in: pane) }
     private func beginAnnotation() {
         guard let preview, let lines = selectedLines else { return }
         state.annotationState.begin(anchor: .init(kind: .value0, workspaceFile: .init(
@@ -833,13 +834,16 @@ struct FilePane: View {
                 } else if let preview {
                     if let client = state.catalogClient as? any AnnotationClient {
                         AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
-                            client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
+                            client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false,
+                            lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal)
                             .id(preview.workspace.workspaceId + preview.revision).clipped()
                     } else {
-                        ReadOnlyFileEditor(path: path, source: preview.content, position: $position)
+                        ReadOnlyFileEditor(path: path, source: preview.content, position: $position,
+                                           lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal)
                     }
                 } else if let file = workspace.fixture.files.first(where: { $0.path == path }) {
-                    ReadOnlyFileEditor(path: path, source: file.content)
+                    ReadOnlyFileEditor(path: path, source: file.content,
+                                       lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal)
                 } else {
                     Text(loading ? "Loading file…" : error == nil ? "File preview unavailable" : "Refresh to try again")
                         .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)

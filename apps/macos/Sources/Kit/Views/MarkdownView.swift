@@ -190,6 +190,16 @@ struct MarkdownDocumentRow: Identifiable, Equatable {
     static func row(of line: Int, in rows: [Self]) -> Int? {
         rows.last { ($0.lines?.lowerBound ?? .max) <= line }?.id ?? rows.first?.id
     }
+
+    /// The rows that show any of `lines`, or, for lines between rows, the
+    /// row before them, as `row(of:in:)` finds it.
+    static func rows(showing lines: FileLineRange, in rows: [Self]) -> [Int] {
+        let showing = rows.filter { row in
+            row.lines.map { $0.lowerBound <= lines.end && $0.upperBound >= lines.start } ?? false
+        }.map(\.id)
+        if !showing.isEmpty { return showing }
+        return row(of: lines.start, in: rows).map { [$0] } ?? []
+    }
 }
 
 /// The comments on a Markdown file that its preview shows and takes:
@@ -246,6 +256,10 @@ struct MarkdownDocumentView: View {
     let source: String
     var annotations: MarkdownPreviewAnnotations? = nil
     var showSource: (() -> Void)? = nil
+    /// Lines to scroll to and highlight once, as a followed link asks.
+    var lineReveal: FileLineReveal? = nil
+    /// Called once `lineReveal` shows.
+    var lineRevealed: ((FileLineReveal) -> Void)? = nil
     /// The reading column's widest.
     static let columnWidth: CGFloat = 844
     /// The margin a row's + sits in.
@@ -253,6 +267,9 @@ struct MarkdownDocumentView: View {
     /// The rows of the source last parsed, or nil for one past what renders.
     @State private var parsed: (source: String, rows: [MarkdownDocumentRow]?)?
     @State private var flashing: UInt64?
+    /// The rows a followed link's lines are in, highlighted until the next
+    /// click in the document.
+    @State private var highlighted: Set<Int> = []
 
     enum Entry: Identifiable {
         case row(MarkdownDocumentRow)
@@ -299,6 +316,10 @@ struct MarkdownDocumentView: View {
                           annotations.notes.contains(where: { $0.id == id }) else { return }
                     showSource?()
                 }
+                .onChange(of: lineReveal, initial: true) {
+                    // So do lines a link names; the source shows them.
+                    if lineReveal != nil { showSource?() }
+                }
             } else {
                 let rows = parsed?.rows ?? []
                 ScrollViewReader { proxy in
@@ -313,8 +334,10 @@ struct MarkdownDocumentView: View {
                     }
                     .font(.kit(size: 14)).textSelection(.enabled)
                     .background(TextLinkHoverRegion(color: theme.accent))
+                    .background(MouseDownMonitor { if !highlighted.isEmpty { highlighted = [] } })
                     .onChange(of: annotations?.state.revealToken, initial: true) { reveal(rows, proxy: proxy) }
-                    .onChange(of: parsed?.source) { reveal(rows, proxy: proxy) }
+                    .onChange(of: lineReveal, initial: true) { revealLines(rows, proxy: proxy) }
+                    .onChange(of: parsed?.source) { reveal(rows, proxy: proxy); revealLines(rows, proxy: proxy) }
                 }
             }
         }
@@ -332,7 +355,8 @@ struct MarkdownDocumentView: View {
     @ViewBuilder private func entryView(_ entry: Entry) -> some View {
         switch entry {
         case .row(let row):
-            MarkdownPreviewRow(row: row, annotations: annotations).padding(.top, row.gap)
+            MarkdownPreviewRow(row: row, annotations: annotations, highlighted: highlighted.contains(row.id))
+                .padding(.top, row.gap)
         case .note(let note):
             if let annotations {
                 AnnotationNote(annotation: note, edit: { annotations.edit(note) }, delete: { annotations.delete(note) })
@@ -348,6 +372,21 @@ struct MarkdownDocumentView: View {
                     .padding(.leading, Self.gutterWidth + 6).padding(.top, 8)
             }
         }
+    }
+
+    /// Scrolls to the lines a followed link names, once this source is
+    /// parsed, and highlights the rows showing them.
+    private func revealLines(_ rows: [MarkdownDocumentRow], proxy: ScrollViewProxy) {
+        guard let reveal = lineReveal, parsed?.source == source, !rows.isEmpty else { return }
+        let ids = MarkdownDocumentRow.rows(showing: reveal.lines, in: rows)
+        highlighted = Set(ids)
+        // A few rows centre on the middle one; more start at the top, so the
+        // first of them shows.
+        if let first = ids.first {
+            let few = ids.count <= 3
+            withAnimation { proxy.scrollTo("row-\(few ? ids[ids.count / 2] : first)", anchor: few ? .center : .top) }
+        }
+        lineRevealed?(reveal)
     }
 
     /// Scrolls to a comment revealed on this file, briefly outlining it.
@@ -371,6 +410,8 @@ private struct MarkdownPreviewRow: View {
     @Environment(\.mica) private var theme
     let row: MarkdownDocumentRow
     let annotations: MarkdownPreviewAnnotations?
+    /// Whether a followed link's lines are in the row.
+    var highlighted = false
     @State private var hovering = false
 
     private var lines: ClosedRange<Int>? {
@@ -395,7 +436,7 @@ private struct MarkdownPreviewRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             ZStack(alignment: .top) {
-                if annotated {
+                if annotated || highlighted {
                     RoundedRectangle(cornerRadius: 1.5).fill(theme.accent).frame(width: 3).frame(maxHeight: .infinity)
                 }
             }
@@ -426,6 +467,13 @@ private struct MarkdownPreviewRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                // A followed link's lines tint their rows, as a selection does.
+                if highlighted {
+                    RoundedRectangle(cornerRadius: 4).fill(theme.accent.opacity(0.12)).padding(-4)
+                        .accessibilityIdentifier("linked-lines")
+                }
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())

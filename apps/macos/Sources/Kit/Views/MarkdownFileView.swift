@@ -61,7 +61,10 @@ struct MarkdownFileText: View {
     var annotations: MarkdownPreviewAnnotations? = nil
 
     var body: some View {
-        MarkdownDocumentView(source: source, annotations: annotations) { [workspace, pane] in workspace.showMarkdownSource(pane) }
+        MarkdownDocumentView(source: source, annotations: annotations,
+                             showSource: { [workspace, pane] in workspace.showMarkdownSource(pane) },
+                             lineReveal: workspace.lineReveal(for: pane),
+                             lineRevealed: { [workspace, pane] in workspace.finishLineReveal($0, in: pane) })
             .environment(\.openURL, .markdownFile(workspace, file: pane, cwd: cwd))
             .environment(\.linkMenu, .markdownFile(workspace, file: pane, cwd: cwd))
     }
@@ -89,16 +92,20 @@ extension OpenURLAction {
         return OpenURLAction { [weak workspace] url in
             guard let path = FilePaths.path(fromLink: url) else { web(url); return .handled }
             guard let workspace, let target = MarkdownFiles.pane(forLink: path, in: file, cwd: cwd) else { return .handled }
-            workspace.openFile(target, externally: externally(url)) { workspace.openLinked(target, from: file) }
+            workspace.openFile(target, externally: externally(url)) {
+                workspace.openLinked(target, from: file, at: FilePaths.lines(fromLink: url))
+            }
             return .handled
         }
     }
 }
 
 extension WorkspaceState {
-    /// Opens a pane a link in `source` names, as a tab in `source`'s tile.
-    func openLinked(_ pane: WorkspacePane, from source: WorkspacePane) {
+    /// Opens a pane a link in `source` names, as a tab in `source`'s tile,
+    /// showing `lines` when the link names them.
+    func openLinked(_ pane: WorkspacePane, from source: WorkspacePane, at lines: FileLineRange? = nil) {
         if let tile = tile(containing: source), !panes.contains(pane) { focus(tile: tile) }
         open(pane)
+        if let lines { reveal(lines, in: pane) }
     }
 }

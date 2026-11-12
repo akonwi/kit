@@ -5,7 +5,7 @@ import SwiftUI
 import Testing
 @testable import Kit
 
-private struct InlineAnnotationClient: AnnotationClient {
+struct InlineAnnotationClient: AnnotationClient {
     let serverID = "preview"
     let isDemo = true
     func sessions() async throws -> [SessionExcerpt] { [] }
