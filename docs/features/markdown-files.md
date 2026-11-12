@@ -66,9 +66,14 @@ A link names a file on the same machine as the Markdown file it is in.
 - In the macOS app, a relative link opens the file it names, resolved against
   the Markdown file’s directory, as a tab in its tile. On the server, a path in
   the working directory opens as its workspace file and any other as a server
-  file; in a file on this Mac, links open files on this Mac. A `#fragment` is
-  ignored. Web links open in a browser tab, as transcript links do, and
-  ⌘-click opens them in the default browser.
+  file; in a file on this Mac, links open files on this Mac. A link naming
+  lines, as `guide.md#L12-L20`, opens the file at them (see
+  [file links](file-links.md)); any other `#fragment` is ignored. Web links
+  open in a browser tab, as transcript links do, and ⌘-click opens them in the
+  default browser.
+- In the browser client and the iOS app, a relative link opens the file it
+  names in the session's folder, resolved against the Markdown file's folder,
+  at the lines it names.
 - In the terminal client, links show their labels, and web links open as
   transcript links do. File links are not yet followed.
 
