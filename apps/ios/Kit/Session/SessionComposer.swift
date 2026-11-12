@@ -70,6 +70,14 @@ final class SessionComposer {
     }
     /// The command search, while it's open over the composer.
     var commandSearch: CommandSearchState?
+    /// Counts closes from outside the composer, which drop the keyboard too.
+    private(set) var keyboardDismissals = 0
+
+    /// Closes the command search from outside the composer, and the keyboard with it.
+    func dismissCommandSearch() {
+        commandSearch = nil
+        keyboardDismissals += 1
+    }
     /// Runs a plugin command with its argument. Set by the session screen.
     @ObservationIgnored var runPlugin: (@MainActor (PluginCommand, String) -> Void)?
     /// Why a plugin command can't run now.

@@ -191,6 +191,7 @@ struct ComposerBar: View {
         .onChange(of: dictation.isActive) { _, active in
             if active { focused = false }
         }
+        .onChange(of: composer.keyboardDismissals) { focused = false }
         // Sent or refused: a refused message's words are in the field to fix.
         // Commands wait while a send is unanswered.
         .onChange(of: composer.editable) { _, editable in

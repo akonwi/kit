@@ -88,10 +88,7 @@ struct SessionScreen: View {
                 if composer.commandSearch != nil {
                     Color.clear
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            composer.commandSearch = nil
-                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                        }
+                        .onTapGesture { composer.dismissCommandSearch() }
                         .accessibilityHidden(true)
                 }
             }
