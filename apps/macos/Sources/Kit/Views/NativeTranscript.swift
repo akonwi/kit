@@ -54,6 +54,7 @@ struct NativeTranscript: NSViewRepresentable {
     private var widthGeneration = 0
     private var follow = TranscriptScrollFollow()
     private var width: CGFloat = 0
+    private var paneWidth: CGFloat = 0
     private var viewport: CGFloat = 0
     private var updating = false
     private var lastOutOfView = false
@@ -101,6 +102,7 @@ struct NativeTranscript: NSViewRepresentable {
         scroll.startWheelRouting()
         linkHover.attach(to: scroll)
         scroll.changed = { [weak self] in self?.viewportChanged() }
+        scroll.retiled = { [weak self] in self?.reachUnderScroller() }
         scroll.userScrolled = { [weak self] in self?.userScrolled() }
         scroll.willScroll = { [weak self] event in
             guard let self else { return }
@@ -139,8 +141,25 @@ struct NativeTranscript: NSViewRepresentable {
         .transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink)
     }
 
-    private func configure(_ cell: NativeTranscriptCell, row: Int) {
+    /// The width under a legacy vertical scroller, which narrows the table
+    /// but not the pane. Rows reach under it, so the reading column centres
+    /// in the pane, in line with the composer, whichever scroller the
+    /// system shows; the scroller sits in the right gutter.
+    private var scrollerWidth: CGFloat {
+        min(TranscriptLayout.gutter, max(0, scroll.frame.width - scroll.contentSize.width))
+    }
 
+    /// Rows reach under the scroller as soon as it changes, in the same
+    /// layout pass, so the column never draws off centre.
+    private func reachUnderScroller() {
+        let width = scrollerWidth
+        table.enumerateAvailableRowViews { rowView, _ in
+            (rowView.view(atColumn: 0) as? NativeTranscriptCell)?.overhang = width
+        }
+    }
+
+    private func configure(_ cell: NativeTranscriptCell, row: Int) {
+        cell.overhang = scrollerWidth
         let message = messages[row]
         let generation = widthGeneration
         let token = UUID()
@@ -182,7 +201,7 @@ struct NativeTranscript: NSViewRepresentable {
             .environment(\.openURL, .transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink))
             .foregroundStyle(input.theme.text)
             .environment(\.colorScheme, input.theme.dark ? .dark : .light)
-            .frame(width: TranscriptLayout.rowWidth(pane: scroll.contentSize.width, fullWidth: input.fullWidth),
+            .frame(width: TranscriptLayout.rowWidth(pane: scroll.frame.width, fullWidth: input.fullWidth),
                    alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -503,16 +522,19 @@ struct NativeTranscript: NSViewRepresentable {
     private func viewportChanged() {
         guard !stopped, !updating else { return }
         let newWidth = scroll.contentSize.width
+        let newPane = scroll.frame.width
         let newHeight = scroll.contentSize.height
-        if abs(newWidth - width) > 0.5 {
-            let rows = TranscriptLayout.rowWidth(pane: newWidth, fullWidth: input.fullWidth)
-            let measured = TranscriptLayout.rowWidth(pane: width, fullWidth: input.fullWidth)
+        if abs(newWidth - width) > 0.5 || abs(newPane - paneWidth) > 0.5 {
+            let rows = TranscriptLayout.rowWidth(pane: newPane, fullWidth: input.fullWidth)
+            let measured = TranscriptLayout.rowWidth(pane: paneWidth, fullWidth: input.fullWidth)
             width = newWidth
+            paneWidth = newPane
             if rows != measured {
                 invalidateHeights()
             } else {
                 // The reading column keeps its width, so rows keep their
-                // heights and only recentre, as when a sidebar is dragged.
+                // heights and only recentre, as when a sidebar is dragged
+                // or a legacy scroller comes or goes.
                 table.frame.size.width = newWidth
                 table.tableColumns[0].width = newWidth
             }
@@ -612,6 +634,12 @@ struct NativeTranscript: NSViewRepresentable {
 @MainActor final class NativeTranscriptCell: NSTableCellView {
     var configuration = UUID()
     let host = NSHostingView(rootView: AnyView(EmptyView()))
+    private var trailing: NSLayoutConstraint?
+    /// How far the row's content reaches past the cell's trailing edge,
+    /// under a legacy scroller. The part there is gutter and stays masked.
+    var overhang: CGFloat = 0 {
+        didSet { if overhang != oldValue { trailing?.constant = overhang } }
+    }
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -619,9 +647,11 @@ struct NativeTranscript: NSViewRepresentable {
         host.translatesAutoresizingMaskIntoConstraints = false
         host.sizingOptions = [.intrinsicContentSize]
         addSubview(host)
+        let trailing = host.trailingAnchor.constraint(equalTo: trailingAnchor)
+        self.trailing = trailing
         NSLayoutConstraint.activate([
             host.leadingAnchor.constraint(equalTo: leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: trailingAnchor),
+            trailing,
             host.topAnchor.constraint(equalTo: topAnchor)
         ])
     }
@@ -632,6 +662,9 @@ struct NativeTranscript: NSViewRepresentable {
 /// Only input-driven scrolling changes the follow policy; layout scrolls do not.
 @MainActor final class NativeTranscriptScrollView: NSScrollView {
     var changed: (() -> Void)?
+    /// Called as the scroller and content view are placed, before their
+    /// contents lay out.
+    var retiled: (() -> Void)?
     var userScrolled: (() -> Void)?
     var willScroll: ((NSEvent) -> Void)?
     private var queued = false
@@ -679,6 +712,16 @@ struct NativeTranscript: NSViewRepresentable {
 
     override func layout() {
         super.layout()
+        queueChanged()
+    }
+    /// A scroller style change, as when a mouse is connected, re-tiles the
+    /// view without laying it out.
+    override func tile() {
+        super.tile()
+        retiled?()
+        queueChanged()
+    }
+    private func queueChanged() {
         guard !queued else { return }
         queued = true
         DispatchQueue.main.async { [weak self] in

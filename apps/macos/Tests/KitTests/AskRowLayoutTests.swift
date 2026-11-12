@@ -87,9 +87,13 @@ import Testing
 
     /// The transcript column keeps its width below a long answer: the row,
     /// the assistant text inside the group, and the reply after it stay in
-    /// 60...840 (780 pt centred in 900) or, full width, 32...868.
-    @Test(arguments: [(fullWidth: false, column: 60.0...840.0), (fullWidth: true, column: 32.0...868.0)])
-    func theColumnKeepsItsWidth(fullWidth: Bool, column: ClosedRange<CGFloat>) async throws {
+    /// 60...840 (780 pt centred in 900) or, full width, 32...868, with or
+    /// without a legacy scroller in the right gutter.
+    @Test(arguments: [(fullWidth: false, column: 60.0...840.0), (fullWidth: true, column: 32.0...868.0)],
+          [NSScroller.Style.overlay, .legacy])
+    func theColumnKeepsItsWidth(_ layout: (fullWidth: Bool, column: ClosedRange<CGFloat>),
+                                scrollers: NSScroller.Style) async throws {
+        let (fullWidth, column) = layout
         let theme = MicaTheme(dark: false)
         let run = ToolActivity(id: "run", name: "bash", summary: "", output: "ok", arguments: #"{"command":"ls"}"#,
                                failed: false, status: "Completed", thinking: Self.prose)
@@ -100,6 +104,7 @@ import Testing
            presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
            resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: theme, fullWidth: fullWidth)
         let adapter = NativeTranscriptCoordinator(input)
+        adapter.scroll.scrollerStyle = scrollers
         let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 500))
         window.contentView = adapter.scroll
         window.orderFront(nil)

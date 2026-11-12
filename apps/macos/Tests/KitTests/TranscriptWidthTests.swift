@@ -17,14 +17,21 @@ import Testing
         #expect(TranscriptLayout.rowWidth(pane: 1440, fullWidth: true) == 1376)
     }
 
-    /// The user message card spans its row, so its painted extent is the row's.
+    /// The user message card spans its row, so its painted extent is the
+    /// row's. A legacy scroller, as with a mouse attached, sits in the right
+    /// gutter and leaves the column centred in the pane, in line with the
+    /// composer. (The system may still switch a scroll view set to overlay
+    /// to the process's preferred style during a run; the column is the
+    /// same either way.)
     @Test(arguments: [
         (pane: 700.0, fullWidth: false, card: 32.0...668.0),
         (pane: 700.0, fullWidth: true, card: 32.0...668.0),
         (pane: 1440.0, fullWidth: false, card: 330.0...1110.0),
         (pane: 1440.0, fullWidth: true, card: 32.0...1408.0),
-    ])
-    func transcriptRowsSpanTheColumnOrThePane(pane: Double, fullWidth: Bool, card: ClosedRange<Double>) async throws {
+    ], [NSScroller.Style.overlay, .legacy])
+    func transcriptRowsSpanTheColumnOrThePane(_ layout: (pane: Double, fullWidth: Bool, card: ClosedRange<Double>),
+                                              scrollers: NSScroller.Style) async throws {
+        let (pane, fullWidth, card) = layout
         let theme = MicaTheme(dark: false)
         let input = NativeTranscript(messages: [
             TranscriptMessage(id: "message", role: "user", text: "Show me each width.", tools: [])
@@ -32,6 +39,7 @@ import Testing
            presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
            resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: theme, fullWidth: fullWidth)
         let adapter = NativeTranscriptCoordinator(input)
+        adapter.scroll.scrollerStyle = scrollers
         let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: pane, height: 400))
         window.contentView = adapter.scroll
         window.orderFront(nil)
@@ -78,7 +86,8 @@ import Testing
     /// A pane that stays wider than the reading column, as while the session
     /// sidebar is dragged, keeps its rows as they are: they only recentre. A
     /// pane that narrows the column builds and measures its rows again.
-    @Test func resizingAPaneAroundTheColumnRebuildsRowsOnlyWhenTheColumnChanges() async throws {
+    @Test(arguments: [NSScroller.Style.overlay, .legacy])
+    func resizingAPaneAroundTheColumnRebuildsRowsOnlyWhenTheColumnChanges(scrollers: NSScroller.Style) async throws {
         let theme = MicaTheme(dark: false)
         let prose = String(repeating: "A long paragraph that wraps differently at each width. ", count: 30)
         let input = NativeTranscript(messages: (0..<12).map { TranscriptMessage(id: "m\($0)", role: "assistant", text: prose, tools: []) },
@@ -86,6 +95,7 @@ import Testing
             presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
             resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: theme)
         let adapter = NativeTranscriptCoordinator(input)
+        adapter.scroll.scrollerStyle = scrollers
         let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1200, height: 500))
         window.contentView = adapter.scroll
         window.orderFront(nil)
@@ -109,7 +119,8 @@ import Testing
         window.setContentSize(NSSize(width: 960, height: 500))
         adapter.scroll.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(100))
-        #expect(adapter.table.bounds.width == 960)
+        // The table spans the pane, less a legacy scroller's width.
+        #expect(adapter.scroll.frame.width == 960 && adapter.table.bounds.width == adapter.scroll.contentSize.width)
         let wide = visible()
         #expect(wide.keys.sorted() == before.keys.sorted())
         for (row, value) in before {
@@ -122,6 +133,65 @@ import Testing
         let row = try #require(before.keys.min())
         try await eventually { (visible()[row]?.height ?? 0) > before[row]!.height + 20 }
         #expect(visible()[row]?.configuration != before[row]?.configuration)
+    }
+
+    /// A legacy scroller coming or going, as when a mouse is connected,
+    /// leaves the column where it is and the rows as they are: the scroller
+    /// takes part of the right gutter.
+    @Test(arguments: [false, true])
+    func aLegacyScrollerLeavesTheColumnInPlace(fullWidth: Bool) async throws {
+        let theme = MicaTheme(dark: false)
+        let prose = String(repeating: "A long paragraph that wraps differently at each width. ", count: 30)
+        let input = NativeTranscript(messages: [TranscriptMessage(id: "message", role: "user", text: "Show me each width.", tools: [])]
+            + (0..<12).map { TranscriptMessage(id: "m\($0)", role: "assistant", text: prose, tools: []) },
+            hasHistory: false, historyLoading: false, historyError: nil, active: false,
+            presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
+            resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: theme, fullWidth: fullWidth)
+        let adapter = NativeTranscriptCoordinator(input)
+        adapter.scroll.scrollerStyle = .overlay
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1440, height: 500))
+        window.contentView = adapter.scroll
+        window.orderFront(nil)
+        defer { adapter.stop(); window.close() }
+        adapter.receive(input)
+        try await eventually { adapter.table.bounds.height > 1_000 }
+        try await Task.sleep(for: .milliseconds(100))
+        // The reader scrolls back to the first message.
+        adapter.restore(.init(id: "message:message", inset: 0))
+        adapter.scroll.userScrolled?()
+        try await Task.sleep(for: .milliseconds(100))
+        func cells() -> [Int: UUID] {
+            let range = adapter.table.rows(in: adapter.scroll.contentView.bounds)
+            var rows: [Int: UUID] = [:]
+            for row in range.location..<NSMaxRange(range) {
+                if let cell = adapter.table.view(atColumn: 0, row: row, makeIfNecessary: false) as? NativeTranscriptCell {
+                    rows[row] = cell.configuration
+                }
+            }
+            return rows
+        }
+        // The user message's card, 18 pt down, spans the row.
+        let card = fullWidth ? 32.0...1408.0 : 330.0...1110.0
+        let overlay = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface))
+        #expect(abs(overlay.lowerBound - card.lowerBound) <= 1 && abs(overlay.upperBound - card.upperBound) <= 1, "card \(overlay)")
+        let before = cells()
+        try #require(!before.isEmpty)
+
+        // The system sets every scroll view's style when it changes, at
+        // whatever point it reaches the main thread: the column holds from
+        // the layout that places the scroller, and after.
+        adapter.scroll.scrollerStyle = .legacy
+        let legacy = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface))
+        #expect(adapter.scroll.contentSize.width < 1440)
+        #expect(abs(legacy.lowerBound - card.lowerBound) <= 1 && abs(legacy.upperBound - card.upperBound) <= 1, "card \(legacy)")
+        try await Task.sleep(for: .milliseconds(100))
+        let settled = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface))
+        #expect(abs(settled.lowerBound - card.lowerBound) <= 1 && abs(settled.upperBound - card.upperBound) <= 1, "card \(settled)")
+        // The rows in view kept the configuration they had: none was rebuilt.
+        let after = cells()
+        #expect(!after.isEmpty)
+        for (row, configuration) in after { #expect(before[row] == configuration, "row \(row)") }
+        #expect(adapter.anchor()?.id == "message:message")
     }
 
     /// The composer keeps its 844 pt column in a full-width transcript.
