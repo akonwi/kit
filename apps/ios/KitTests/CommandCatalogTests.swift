@@ -28,9 +28,8 @@ struct CommandCatalogTests {
         let sections = CommandCatalog.sections(Self.commands(), query: "",
                                                recents: ["prompt:review", "plugin:gone.away", "builtin:model", "builtin:compact"])
         #expect(Self.titles(sections) == [
-            "# Recent", "review", "Model", "Compact context",
-            "# Session", "Changes", "Open File…", "Scratchpad", "Thinking", "Rename…", "Fork…", "Change folder…",
-            "Reload context", "Details",
+            "# Recent", "review", "model", "compact",
+            "# Session", "diff", "files", "scratchpad", "thinking", "name", "fork", "cd", "reload", "debug",
             "# Plugins", "preview"
         ])
     }
@@ -39,7 +38,7 @@ struct CommandCatalogTests {
         let sections = CommandCatalog.sections(Self.commands(), query: "",
                                                recents: ["builtin:fork", "builtin:rename", "builtin:details", "builtin:changes"])
         #expect(sections.first == .init(title: "Recent", rows: sections.first?.rows ?? []))
-        #expect(sections.first?.rows.map(\.title) == ["Fork…", "Rename…", "Details"])
+        #expect(sections.first?.rows.map(\.title) == ["fork", "name", "debug"])
     }
 
     @Test func rowsShowTheSessionsValues() {
@@ -49,6 +48,9 @@ struct CommandCatalogTests {
         #expect(rows["builtin:thinking"] == "High")
         #expect(rows["builtin:compact"] == "41%")
         #expect(rows["prompt:review"] == "Review the working tree")
+        // Without a value, a row says what it does, as on the Mac.
+        #expect(rows["builtin:rename"] == "Rename session")
+        #expect(rows["builtin:changeFolder"] == "Change working directory")
         #expect(rows["plugin:netlify.preview"] == "Deploy a preview")
     }
 
@@ -57,17 +59,18 @@ struct CommandCatalogTests {
         #expect(sections.count == 1)
         #expect(sections[0].title == nil)
         // Equal matches keep the list's order, as in the TUI and Mac.
-        #expect(Array(sections[0].rows.map(\.title).prefix(3)) == ["Rename…", "Reload context", "review"])
+        #expect(Array(sections[0].rows.map(\.title).prefix(2)) == ["reload", "review"])
         #expect(CommandCatalog.sections(Self.commands(), query: "rev", recents: [])[0].rows.first?.title == "review")
     }
 
-    @Test func theTUIsNamesFindTheirCommands() {
+    @Test func theSessionMenusWordsFindTheirCommands() {
         func first(_ query: String) -> String? {
             CommandCatalog.sections(Self.commands(), query: query, recents: []).first?.rows.first?.title
         }
-        #expect(first("diff") == "Changes")
-        #expect(first("name") == "Rename…")
-        #expect(first("cd") == "Change folder…")
+        #expect(first("changes") == "diff")
+        #expect(first("rename") == "name")
+        #expect(first("folder") == "cd")
+        #expect(first("details") == "debug")
         #expect(first("netlify") == "preview")
         #expect(first("zzz") == nil)
     }

@@ -15,19 +15,37 @@ struct SessionCommand: Identifiable, Equatable {
     enum BuiltIn: String, CaseIterable {
         case changes, openFile, scratchpad, model, thinking, compact, rename, fork, changeFolder, reload, details
 
+        /// The command's name, as the TUI and Mac palette write it.
         var title: String {
             switch self {
-            case .changes: "Changes"
-            case .openFile: "Open File…"
-            case .scratchpad: "Scratchpad"
-            case .model: "Model"
-            case .thinking: "Thinking"
-            case .compact: "Compact context"
-            case .rename: "Rename…"
-            case .fork: "Fork…"
-            case .changeFolder: "Change folder…"
-            case .reload: "Reload context"
-            case .details: "Details"
+            case .changes: "diff"
+            case .openFile: "files"
+            case .scratchpad: "scratchpad"
+            case .model: "model"
+            case .thinking: "thinking"
+            case .compact: "compact"
+            case .rename: "name"
+            case .fork: "fork"
+            case .changeFolder: "cd"
+            case .reload: "reload"
+            case .details: "debug"
+            }
+        }
+
+        /// What it does, as the TUI and Mac palette say it.
+        var summary: String {
+            switch self {
+            case .changes: "Review working-tree changes"
+            case .openFile: "Open a workspace file"
+            case .scratchpad: "Open shared working notes"
+            case .model: "Change session model"
+            case .thinking: "Change reasoning effort"
+            case .compact: "Compact session context"
+            case .rename: "Rename session"
+            case .fork: "Fork the current session into a linked child session"
+            case .changeFolder: "Change working directory"
+            case .reload: "Reload session context"
+            case .details: "Show session diagnostics"
             }
         }
 
@@ -48,26 +66,26 @@ struct SessionCommand: Identifiable, Equatable {
             }
         }
 
-        /// What the TUI calls it, and words people search for.
+        /// The Mac palette's aliases, and the session menu's words.
         var searchTerms: [String] {
             switch self {
-            case .changes: ["diff", "working tree"]
-            case .openFile: ["files", "browse", "path"]
+            case .changes: ["changes", "working", "tree"]
+            case .openFile: ["file", "open", "browse", "path"]
             case .scratchpad: ["notes", "memory"]
             case .model: ["engine"]
             case .thinking: ["reasoning", "effort"]
             case .compact: ["summarize", "shrink"]
-            case .rename: ["name", "title"]
+            case .rename: ["rename", "title"]
             case .fork: ["branch"]
-            case .changeFolder: ["cd", "directory", "cwd", "move"]
-            case .reload: ["agents", "refresh", "instructions"]
-            case .details: ["debug", "usage", "tokens", "cost"]
+            case .changeFolder: ["cwd", "directory", "folder"]
+            case .reload: ["agents", "context", "refresh"]
+            case .details: ["details", "usage", "tokens", "cost"]
             }
         }
     }
 
     let kind: Kind
-    /// The name shown, plain: `Model`, `review`.
+    /// The name shown, as the TUI and Mac palette write it: `model`, `review`.
     let title: String
     /// What sits at the row's end: a value such as the model, or what the
     /// command does.
@@ -95,7 +113,7 @@ struct SessionCommand: Identifiable, Equatable {
     /// The text matched besides the title and terms.
     var description: String {
         switch kind {
-        case .builtIn: ""
+        case .builtIn(let command): command.summary
         case .prompt(let command): command.description
         case .plugin(let command): command.description
         }
@@ -157,17 +175,19 @@ enum CommandCatalog {
     static func builtIns(_ state: CommandState) -> [SessionCommand] {
         SessionCommand.BuiltIn.allCases.compactMap { command in
             var row = SessionCommand(kind: .builtIn(command), title: command.title)
+            // The session's value where there is one, otherwise what it does.
+            var value = ""
             switch command {
-            case .changes: row.detail = state.changes
+            case .changes: value = state.changes
             case .openFile: break
             case .scratchpad: if !state.scratchpad { return nil }
-            case .model: row.detail = state.model; row.unavailableReason = state.modelLocked
+            case .model: value = state.model; row.unavailableReason = state.modelLocked
             case .thinking:
                 guard state.hasThinking else { return nil }
-                row.detail = state.thinking
+                value = state.thinking
                 row.unavailableReason = state.thinkingLocked
             case .compact:
-                row.detail = state.contextPercent.map { "\($0)%" } ?? ""
+                value = state.contextPercent.map { "\($0)%" } ?? ""
                 row.unavailableReason = state.compactUnavailable
             case .rename: row.unavailableReason = state.live ? nil : "Reconnect to rename"
             case .fork: row.unavailableReason = state.forkUnavailable
@@ -175,6 +195,7 @@ enum CommandCatalog {
             case .reload: row.unavailableReason = state.reloadUnavailable
             case .details: break
             }
+            row.detail = value.isEmpty ? command.summary : value
             return row
         }
     }

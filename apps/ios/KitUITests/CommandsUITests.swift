@@ -30,14 +30,12 @@ final class CommandsUITests: XCTestCase {
         attach(app, "Composer")
         button.tap()
         XCTAssertTrue(app.buttons["command-builtin:changes"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["command-prompt:review"].exists)
-        XCTAssertTrue(app.buttons["command-builtin:reload"].exists)
         expectComposerAboveKeyboard(app)
         attach(app, "Search")
 
         // Typing narrows the list.
         app.typeText("rev")
-        XCTAssertTrue(waitForAbsence(app.buttons["command-builtin:changes"], timeout: 5))
+        XCTAssertTrue(waitForAbsence(app.buttons["command-builtin:fork"], timeout: 5))
         XCTAssertTrue(app.buttons["command-prompt:review"].exists)
         attach(app, "Filtered")
 
@@ -56,6 +54,8 @@ final class CommandsUITests: XCTestCase {
 
         // Model opens its choices in place, and Commands goes back.
         button.tap()
+        XCTAssertTrue(app.buttons["command-close"].waitForExistence(timeout: 5))
+        app.typeText("model")
         let model = app.buttons["command-builtin:model"]
         XCTAssertTrue(model.waitForExistence(timeout: 5))
         model.tap()
@@ -63,6 +63,8 @@ final class CommandsUITests: XCTestCase {
         expectComposerAboveKeyboard(app)
         attach(app, "Models")
         app.buttons["command-back"].tap()
+        XCTAssertTrue(app.buttons["command-builtin:model"].waitForExistence(timeout: 5))
+        app.typeText("reload")
         XCTAssertTrue(app.buttons["command-builtin:reload"].waitForExistence(timeout: 5))
 
         // Reload context runs at once and says how it went.
@@ -84,11 +86,16 @@ final class CommandsUITests: XCTestCase {
         changeFolder(app, to: "../project")
         XCTAssertTrue(header(app, containing: "/project").waitForExistence(timeout: 15))
 
-        // A tap outside the list closes it, and the keyboard with it.
+        // A tap outside the list closes it, and the keyboard with it. A
+        // query keeps the list short, so there's transcript to tap.
         button.tap()
-        XCTAssertTrue(app.buttons["command-builtin:reload"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
+        app.typeText("reload")
+        XCTAssertTrue(app.buttons["command-builtin:reload"].waitForExistence(timeout: 5))
+        let panel = app.descendants(matching: .any)["command-panel"].firstMatch
+        let above = panel.frame.minY - 60
+        XCTAssertGreaterThan(above, app.frame.height * 0.2, "Expected transcript above the list")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: app.frame.midX, dy: above)).tap()
         XCTAssertTrue(waitForAbsence(app.buttons["command-builtin:reload"], timeout: 5))
         XCTAssertTrue(waitForAbsence(app.keyboards.firstMatch, timeout: 5))
         attach(app, "Closed by a tap outside")
@@ -106,6 +113,8 @@ final class CommandsUITests: XCTestCase {
     @MainActor
     private func changeFolder(_ app: XCUIApplication, to path: String) {
         app.buttons["command-button"].tap()
+        XCTAssertTrue(app.buttons["command-close"].waitForExistence(timeout: 5))
+        app.typeText("folder")
         let row = app.buttons["command-builtin:changeFolder"]
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.tap()

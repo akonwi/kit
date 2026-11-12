@@ -335,7 +335,7 @@ private struct CommandRow: View {
                 icon
                     .frame(width: 22, height: 22)
                 Text(command.title)
-                    .font(.system(size: 17))
+                    .font(.system(size: 16, design: .monospaced))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
                     .layoutPriority(1)

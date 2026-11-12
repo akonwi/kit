@@ -153,20 +153,22 @@ final class SessionMenuUITests: XCTestCase {
         let field = app.textFields["rename-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
-        field.press(forDuration: 1)
-        if app.menuItems["Select All"].waitForExistence(timeout: 2) { app.menuItems["Select All"].tap() }
-        field.typeText(XCUIKeyboardKey.delete.rawValue)
+        let old = field.value as? String ?? ""
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count + 2))
         field.typeText(new)
+        XCTAssertEqual(field.value as? String, new)
         app.buttons["Save"].tap()
         XCTAssertTrue(waitForAbsence(field, timeout: 10), "Expected the sheet to close")
     }
 
-    /// Opens the composer's command search and taps a built-in command.
+    /// Opens the composer's command search, types the command's name, and taps it.
     @MainActor
     private func command(_ app: XCUIApplication, _ name: String) {
         let button = app.buttons["command-button"]
         XCTAssertTrue(button.waitForExistence(timeout: 15))
         button.tap()
+        XCTAssertTrue(app.buttons["command-close"].waitForExistence(timeout: 5))
+        app.typeText(name)
         let row = app.buttons["command-builtin:" + name]
         XCTAssertTrue(row.waitForExistence(timeout: 5), "Expected \(name) in the command search")
         row.tap()
@@ -178,6 +180,8 @@ final class SessionMenuUITests: XCTestCase {
         let button = app.buttons["command-button"]
         XCTAssertTrue(button.waitForExistence(timeout: 15))
         button.tap()
+        XCTAssertTrue(app.buttons["command-close"].waitForExistence(timeout: 5))
+        app.typeText(name)
         let row = app.buttons["command-builtin:" + name]
         XCTAssertTrue(row.waitForExistence(timeout: 5), "Expected \(name) in the command search")
         let value = row.value as? String ?? ""
