@@ -29,7 +29,8 @@ struct CommandCatalogTests {
                                                recents: ["prompt:review", "plugin:gone.away", "builtin:model", "builtin:compact"])
         #expect(Self.titles(sections) == [
             "# Recent", "review", "Model", "Compact context",
-            "# Session", "Changes", "Open File…", "Scratchpad", "Thinking", "Rename…", "Fork…", "Reload context", "Details",
+            "# Session", "Changes", "Open File…", "Scratchpad", "Thinking", "Rename…", "Fork…", "Change folder…",
+            "Reload context", "Details",
             "# Plugins", "preview"
         ])
     }
@@ -66,6 +67,7 @@ struct CommandCatalogTests {
         }
         #expect(first("diff") == "Changes")
         #expect(first("name") == "Rename…")
+        #expect(first("cd") == "Change folder…")
         #expect(first("netlify") == "preview")
         #expect(first("zzz") == nil)
     }
@@ -77,11 +79,13 @@ struct CommandCatalogTests {
         state.hasThinking = false
         state.scratchpad = false
         state.pluginUnavailable = "A command is running"
+        state.folderUnavailable = "Available when the turn ends"
         let rows = Self.commands(state)
         let reasons = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.unavailableReason) })
         #expect(reasons["builtin:model"] == "Changes when the turn ends")
         #expect(reasons["builtin:rename"] == "Reconnect to rename")
         #expect(reasons["plugin:netlify.preview"] == "A command is running")
+        #expect(reasons["builtin:changeFolder"] == "Available when the turn ends")
         #expect(!rows.map(\.id).contains("builtin:thinking"))
         #expect(!rows.map(\.id).contains("builtin:scratchpad"))
     }
@@ -280,5 +284,80 @@ struct CommandActionsTests {
         await SessionComposerTests.settle()
         #expect(client.plugins.isEmpty)
         #expect(actions.notice == .init(text: "preview is no longer available. Choose it again.", tone: .danger))
+    }
+
+    // MARK: Change folder
+
+    @Test func aFolderChangeSendsThePathAsTypedAndReadsTheSessionAgain() async {
+        let client = FakeActionsClient()
+        let actions = await Self.actions(client)
+        var delivered = 0
+        actions.deliver = { _ in delivered += 1 }
+        #expect(await actions.changeFolder(to: "  ../web  "))
+        #expect(client.folderChanges.map(\.path) == ["../web"])
+        #expect(delivered == 1)
+        #expect(actions.directory.request == nil)
+    }
+
+    @Test func theFolderChangesOnlyBetweenTurnsAndWhileConnected() async {
+        var running = SessionActionsTests.snapshot(running: "t1")
+        running.pluginCommands = []
+        let client = FakeActionsClient()
+        let busy = await SessionActionsTests.actions(client, snapshot: running)
+        #expect(busy.folderUnavailableReason == "Available when the turn ends")
+        #expect(await busy.changeFolder(to: "~/web") == false)
+        let offline = await SessionActionsTests.actions(client, live: false)
+        #expect(offline.folderUnavailableReason == "Reconnect to change")
+        #expect(client.folderChanges.isEmpty)
+    }
+
+    @Test func aChangeThatMayHaveArrivedIsRetriedAsTheSameChange() async {
+        let client = FakeActionsClient()
+        client.folderErrors = [URLError(.networkConnectionLost)]
+        let actions = await Self.actions(client)
+        #expect(await actions.changeFolder(to: "~/web") == false)
+        #expect(actions.directory.request?.path == "~/web")
+        #expect(actions.directory.error != nil)
+        // Another path waits until the first is settled.
+        #expect(await actions.changeFolder(to: "~/api") == false)
+        #expect(await actions.changeFolder(to: "~/web"))
+        let ids = client.folderChanges.map(\.mutationId)
+        #expect(ids.count == 2)
+        #expect(Set(ids).count == 1)
+    }
+
+    @Test func aBusySessionSaysWhyTheFolderDidNotChange() async {
+        let client = FakeActionsClient()
+        client.folderErrors = [ClientError.http(409)]
+        let actions = await Self.actions(client)
+        #expect(await actions.changeFolder(to: "~/web") == false)
+        #expect(actions.directory.error == "The session has active work. Wait for it to finish before changing directories.")
+        // The server refused it, so another path can go.
+        #expect(actions.directory.request == nil)
+    }
+
+    @Test func aRetryThatCouldNotBeSentKeepsTheEarlierChange() async {
+        let client = FakeActionsClient()
+        client.folderErrors = [URLError(.networkConnectionLost), MutationNotSent(reason: "Offline")]
+        let actions = await Self.actions(client)
+        #expect(await actions.changeFolder(to: "~/web") == false)
+        // The retry never left the phone, but the first try may have arrived.
+        #expect(await actions.changeFolder(to: "~/web") == false)
+        #expect(actions.directory.request?.path == "~/web")
+        #expect(await actions.changeFolder(to: "~/web"))
+        #expect(Set(client.folderChanges.map(\.mutationId)).count == 1)
+        #expect(client.folderChanges.count == 3)
+    }
+
+    @Test func aRunningPluginCommandHoldsTheFolder() async {
+        let client = FakeActionsClient()
+        let (gate, release) = AsyncStream<Void>.makeStream()
+        client.pluginGate = gate
+        let actions = await Self.actions(client)
+        actions.runPlugin(CommandCatalogTests.preview, args: "")
+        #expect(actions.folderUnavailableReason == "Wait for the command")
+        release.finish()
+        await SessionComposerTests.settle()
+        #expect(actions.folderUnavailableReason == nil)
     }
 }

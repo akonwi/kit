@@ -13,7 +13,7 @@ struct SessionCommand: Identifiable, Equatable {
     /// The session menu's actions, and reloading the session's context, in
     /// the order the menu lists them.
     enum BuiltIn: String, CaseIterable {
-        case changes, openFile, scratchpad, model, thinking, compact, rename, fork, reload, details
+        case changes, openFile, scratchpad, model, thinking, compact, rename, fork, changeFolder, reload, details
 
         var title: String {
             switch self {
@@ -25,6 +25,7 @@ struct SessionCommand: Identifiable, Equatable {
             case .compact: "Compact context"
             case .rename: "Rename…"
             case .fork: "Fork…"
+            case .changeFolder: "Change folder…"
             case .reload: "Reload context"
             case .details: "Details"
             }
@@ -41,6 +42,7 @@ struct SessionCommand: Identifiable, Equatable {
             case .compact: "arrow.down.right.and.arrow.up.left"
             case .rename: "pencil"
             case .fork: "arrow.triangle.branch"
+            case .changeFolder: "folder"
             case .reload: "arrow.clockwise"
             case .details: "info.circle"
             }
@@ -57,6 +59,7 @@ struct SessionCommand: Identifiable, Equatable {
             case .compact: ["summarize", "shrink"]
             case .rename: ["name", "title"]
             case .fork: ["branch"]
+            case .changeFolder: ["cd", "directory", "cwd", "move"]
             case .reload: ["agents", "refresh", "instructions"]
             case .details: ["debug", "usage", "tokens", "cost"]
             }
@@ -123,6 +126,7 @@ struct CommandState: Equatable {
     var compactUnavailable: String?
     var live = true
     var forkUnavailable: String?
+    var folderUnavailable: String?
     var reloadUnavailable: String?
     var pluginUnavailable: String?
     /// Temporary sessions have no scratchpad.
@@ -167,6 +171,7 @@ enum CommandCatalog {
                 row.unavailableReason = state.compactUnavailable
             case .rename: row.unavailableReason = state.live ? nil : "Reconnect to rename"
             case .fork: row.unavailableReason = state.forkUnavailable
+            case .changeFolder: row.unavailableReason = state.folderUnavailable
             case .reload: row.unavailableReason = state.reloadUnavailable
             case .details: break
             }

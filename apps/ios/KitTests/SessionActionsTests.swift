@@ -285,6 +285,22 @@ final class FakeActionsClient: SessionActionsClient, @unchecked Sendable {
     /// Holds plugin runs until released, when set.
     var pluginGate: AsyncStream<Void>?
 
+    private var _folderChanges: [WireChangeCWDInput] = []
+    var folderChanges: [WireChangeCWDInput] { lock.withLock { _folderChanges } }
+    /// Thrown by the next folder changes, one each, before they succeed.
+    var folderErrors: [any Error] = []
+
+    func changeDirectory(_ session: String, input: WireChangeCWDInput) async throws -> SessionExcerpt {
+        let error: (any Error)? = lock.withLock {
+            _folderChanges.append(input)
+            return folderErrors.isEmpty ? nil : folderErrors.removeFirst()
+        }
+        if let error { throw error }
+        return SessionActionsTests.snapshot()
+    }
+    func vcs(_ session: String) async throws -> WireSessionVCSStatus { throw ClientError.http(404) }
+    func watchVCS(_ session: String, receive: @escaping @Sendable (WireSessionVCSStatus) async -> Void) async throws {}
+
     func reloadSession(_ id: String) async throws -> WireReloadSessionResult {
         lock.withLock { _reloads.append(id) }
         if let reloadError { throw reloadError }

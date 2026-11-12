@@ -144,6 +144,18 @@ struct SessionRepositoryTests {
         #expect(repository.pullRequest == nil)
     }
 
+    @Test func movingToAnotherFolderForgetsTheRepository() {
+        let repository = SessionRepository(session: "s", client: FakeRepositoryClient())
+        repository.apply(Self.record(name: "main", pull: 312))
+        repository.moved(to: Self.cwd)
+        #expect(repository.status?.branch == "main")
+        repository.moved(to: "/Users/me/web")
+        #expect(repository.status == nil)
+        #expect(repository.pullRequest == nil)
+        repository.apply(Self.record(name: "trunk", cwd: "/Users/me/web"))
+        #expect(repository.status?.branch == "trunk")
+    }
+
     @Test func aRecordForAnotherSessionIsIgnored() {
         let repository = SessionRepository(session: "s", client: FakeRepositoryClient())
         repository.apply(Self.record(name: "main", session: "other"))

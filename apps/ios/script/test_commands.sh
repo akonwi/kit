@@ -2,9 +2,10 @@
 # Uses the composer's command button in one session in the app on a
 # simulator, against the server of an isolated Kit home that the app is
 # already paired with (see test_pairing.sh). The session's project needs a
-# prompt command named review (.agents/prompts/review.md). It searches
-# commands, picks the prompt and removes it, opens the model choices, and
-# reloads the session's context. No turn starts:
+# prompt command named review (.agents/prompts/review.md), and a sibling
+# folder named other. It searches commands, picks the prompt and removes it,
+# opens the model choices, reloads the session's context, and changes the
+# session's folder to ../other and back. No turn starts:
 #
 #   KIT_HOME=/tmp/kit-ios-dev apps/ios/script/test_commands.sh "Fix SSE reconnect" [simulator-udid]
 #

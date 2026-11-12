@@ -4,8 +4,9 @@ import XCTest
 /// isolated Kit home whose project has a `review` prompt command. It searches
 /// commands, picks the prompt into a chip and removes it, opens the model
 /// choices, and reloads the session's context, which then leads the list as a
-/// recent command. Run by script/test_commands.sh, which names the session.
-/// Nothing here starts a turn.
+/// recent command. It also moves the session to a sibling folder, other/, and
+/// back. Run by script/test_commands.sh, which names the session. Nothing
+/// here starts a turn.
 final class CommandsUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -76,6 +77,13 @@ final class CommandsUITests: XCTestCase {
         app.buttons["command-close"].tap()
         XCTAssertTrue(waitForAbsence(app.buttons["command-builtin:reload"], timeout: 5))
 
+        // Change folder moves the session as cd would, then back.
+        changeFolder(app, to: "../other")
+        XCTAssertTrue(header(app, containing: "/other").waitForExistence(timeout: 15), "Expected the header to show other/")
+        attach(app, "Moved")
+        changeFolder(app, to: "../project")
+        XCTAssertTrue(header(app, containing: "/project").waitForExistence(timeout: 15))
+
         // A tap outside the list closes it, and the keyboard with it.
         button.tap()
         XCTAssertTrue(app.buttons["command-builtin:reload"].waitForExistence(timeout: 5))
@@ -93,6 +101,24 @@ final class CommandsUITests: XCTestCase {
         let close = app.buttons["command-close"]
         XCTAssertTrue(close.isHittable)
         XCTAssertLessThanOrEqual(close.frame.maxY, keyboard.frame.minY + 1, "The composer is behind the keyboard")
+    }
+
+    @MainActor
+    private func changeFolder(_ app: XCUIApplication, to path: String) {
+        app.buttons["command-button"].tap()
+        let row = app.buttons["command-builtin:changeFolder"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        let field = app.textFields["change-folder-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText(path)
+        attach(app, "Change folder to \(path)")
+        app.buttons["change-folder-submit"].tap()
+        XCTAssertTrue(waitForAbsence(field, timeout: 15), "Expected the sheet to close")
+    }
+
+    private func header(_ app: XCUIApplication, containing text: String) -> XCUIElement {
+        app.navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
     private func clear(_ field: XCUIElement) {

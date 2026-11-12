@@ -3,10 +3,11 @@ import KitClient
 import Observation
 
 /// The client the session menu and command search act through: the model
-/// catalog and configuration, compaction, rename, fork, delete, reloading
-/// context, and plugin commands.
+/// catalog and configuration, compaction, rename, fork, delete, changing
+/// folder, reloading context, and plugin commands.
 typealias SessionActionsClient = ComposerClient & SessionCompactionClient & SessionNamingClient
-    & SessionForkClient & SessionDeletionClient & SessionDisposalClient & SessionReloadClient & PluginCommandClient
+    & SessionForkClient & SessionDeletionClient & SessionDisposalClient & SessionDirectoryClient
+    & SessionReloadClient & PluginCommandClient
 
 /// What the session menu can do with one session, and why an item is off.
 /// Model and thinking changes and compaction go through the shared
@@ -26,6 +27,9 @@ final class SessionActions {
     let compaction = SessionCompactionOperation()
     let fork = SessionForkOperation()
     let reload = SessionReloadOperation()
+    /// A folder change. One that may have reached the server is kept, so it's
+    /// retried as the same change, never sent again as another.
+    let directory = DirectoryChangeOperation()
     private let client: any SessionActionsClient
 
     private(set) var latest: SessionExcerpt?
@@ -91,6 +95,7 @@ final class SessionActions {
     var modelLockedReason: String? {
         if !live { return "Reconnect to change" }
         if configuration.changing { return "Changing…" }
+        if directory.pending { return "Wait for the folder change" }
         if latest?.activeRunID != nil || latest?.activeBashID != nil { return "Changes when the turn ends" }
         if compaction.pending || latest?.activeCompactionID != nil { return "Wait for compaction" }
         if latest?.configurationRevision == nil { return "Unavailable" }
@@ -102,6 +107,7 @@ final class SessionActions {
     var thinkingLockedReason: String? {
         if !live { return "Reconnect to change" }
         if configuration.changing { return "Changing…" }
+        if directory.pending { return "Wait for the folder change" }
         if compaction.pending || latest?.activeCompactionID != nil { return "Wait for compaction" }
         if latest?.configurationRevision == nil { return "Unavailable" }
         return nil
@@ -137,7 +143,7 @@ final class SessionActions {
         if !live { return "Reconnect to compact" }
         if compaction.pending || latest?.activeCompactionID != nil { return "Compacting…" }
         if latest?.activeRunID != nil || latest?.activeBashID != nil { return "Available when the turn ends" }
-        if configuration.changing { return "Wait for the current change" }
+        if configuration.changing || directory.pending { return "Wait for the current change" }
         return nil
     }
 
@@ -192,12 +198,38 @@ final class SessionActions {
         if subject != .compaction { compaction.dismissFeedback() }
     }
 
+    // MARK: Folder
+
+    /// Why the session's folder can't change now, or nil when it can. The
+    /// server changes it only between turns.
+    var folderUnavailableReason: String? {
+        if !live && directory.request == nil { return "Reconnect to change" }
+        if directory.pending { return "Changing…" }
+        if latest?.activeRunID != nil || latest?.activeBashID != nil { return "Available when the turn ends" }
+        if compacting { return "Wait for compaction" }
+        if reload.pending { return "Wait for the reload" }
+        if runningPlugin != nil { return "Wait for the command" }
+        if configuration.changing { return "Wait for the current change" }
+        return nil
+    }
+
+    /// Moves the session to another folder, as `cd` would: a path can be
+    /// absolute, start with `~`, or be relative to the current folder.
+    /// Returns whether it moved; the error stays for the sheet.
+    func changeFolder(to path: String) async -> Bool {
+        guard folderUnavailableReason == nil else { return false }
+        // A new action replaces the last one's notice.
+        dismissNotice()
+        return await directory.perform(path: path, session: identity.session, client: client, refresh: refresh)
+    }
+
     // MARK: Reload
 
     /// Why the session's context can't be reloaded now, or nil when it can.
     var reloadUnavailableReason: String? {
         if !live { return "Reconnect to reload" }
         if reload.pending { return "Reloading…" }
+        if directory.pending { return "Wait for the folder change" }
         if compacting { return "Wait for compaction" }
         if configuration.changing { return "Wait for the current change" }
         return nil
@@ -231,6 +263,7 @@ final class SessionActions {
     var pluginUnavailableReason: String? {
         if !live { return "Reconnect to run" }
         if runningPlugin != nil { return "A command is running" }
+        if directory.pending { return "Wait for the folder change" }
         return nil
     }
 

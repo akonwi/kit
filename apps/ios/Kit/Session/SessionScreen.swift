@@ -6,7 +6,7 @@ import SwiftUI
 struct SessionScreen: View {
     /// What the session menu opens over the screen.
     enum Sheet: String, Identifiable {
-        case rename, fork, details
+        case rename, fork, changeFolder, details
         var id: String { rawValue }
     }
 
@@ -145,6 +145,11 @@ struct SessionScreen: View {
                         refreshList()
                         openSession(child)
                     }
+                case .changeFolder:
+                    if let session = feed.session {
+                        ChangeFolderSheet(actions: actions, current: session.cwd ?? session.workspace,
+                                          recent: recentFolders(excluding: session.cwd ?? session.workspace))
+                    }
                 case .details:
                     if let session = feed.session {
                         SessionDetailsSheet(session: session, server: feed.identity.server)
@@ -208,6 +213,17 @@ struct SessionScreen: View {
                 guard idle else { return }
                 Task { await diff.poll(client: client, session: feed.identity.session) { true } }
             }
+            // A new folder has other files and changes.
+            .onChange(of: feed.session?.cwd) { old, new in
+                guard old != nil, let new, old != new else { return }
+                // What was shown came from the old folder.
+                openedFile = nil
+                files = WorkspaceFiles()
+                diff.invalidate()
+                repository.moved(to: new)
+                Task { await diff.refresh(client: client, session: feed.identity.session) }
+                refreshList()
+            }
             .onChange(of: feed.session?.lastActivity) { markSeen() }
             .onDisappear { markSeen() }
     }
@@ -225,9 +241,17 @@ struct SessionScreen: View {
         case .compact: actions.compact()
         case .rename: sheet = .rename
         case .fork: sheet = .fork
+        case .changeFolder: sheet = .changeFolder
         case .reload: actions.reloadContext()
         case .details: sheet = .details
         }
+    }
+
+    /// Other folders this server's sessions use, for Change folder.
+    private func recentFolders(excluding current: String) -> [String] {
+        let server = feed.identity.server
+        let recent = NewSessionForm.places(servers: [server], rows: sessions.rows).first?.recent ?? []
+        return recent.filter { $0 != current }
     }
 
     // MARK: Delete

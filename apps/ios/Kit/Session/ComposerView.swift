@@ -245,7 +245,8 @@ struct ComposerBar: View {
             thinking: SessionContext.thinkingName(actions.thinking), hasThinking: !actions.thinkingLevels.isEmpty,
             thinkingLocked: actions.thinkingLockedReason, contextPercent: session.flatMap(SessionContext.init)?.percent,
             compactUnavailable: actions.compactionUnavailableReason, live: actions.live,
-            forkUnavailable: actions.forkUnavailableReason, reloadUnavailable: actions.reloadUnavailableReason,
+            forkUnavailable: actions.forkUnavailableReason, folderUnavailable: actions.folderUnavailableReason,
+            reloadUnavailable: actions.reloadUnavailableReason,
             pluginUnavailable: actions.pluginUnavailableReason, scratchpad: !actions.temporary)
         return CommandCatalog.commands(state, prompts: session?.promptCommands ?? [], plugins: session?.pluginCommands ?? [])
     }

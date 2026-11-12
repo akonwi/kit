@@ -227,6 +227,16 @@ final class SessionRepository {
         end(watch)
     }
 
+    /// Forgets the repository when the session moves to another folder,
+    /// so the old branch and checks don't show for the new one. The
+    /// server's next status says what's there.
+    func moved(to cwd: String) {
+        guard let repository, repository.cwd != cwd else { return }
+        self.repository = nil
+        pullRequest = nil
+        stopPullRequest()
+    }
+
     /// Accepts a repository status, and opens or closes the pull request
     /// stream to match it while watching.
     func apply(_ status: WireSessionVCSStatus) {
