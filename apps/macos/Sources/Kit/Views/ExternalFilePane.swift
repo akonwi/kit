@@ -74,6 +74,10 @@ struct ExternalFilePane: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                     Rule()
+                    if let find = workspace.find(for: pane), find.isOpen {
+                        FileFindBar(find: find)
+                        Rule()
+                    }
                     if let note = loader.note {
                         Text("Showing an older preview. " + note)
                             .font(.kit(size: 12)).foregroundStyle(theme.muted).padding(12)
@@ -136,13 +140,18 @@ struct ExternalFilePane: View {
             if case .text(let source, let truncated) = file.content {
                 Group {
                     if pane.isMarkdown && !workspace.showsMarkdownSource(pane) {
-                        MarkdownFileText(workspace: workspace, pane: pane, source: source, cwd: state.selected?.cwd)
+                        MarkdownFileText(workspace: workspace, pane: pane, source: source, cwd: state.selected?.cwd,
+                                         find: workspace.find(for: pane))
                     } else {
                         ReadOnlyFileEditor(path: file.path, source: source, lineReveal: workspace.lineReveal(for: pane),
-                                           lineRevealed: { [workspace, pane] in workspace.finishLineReveal($0, in: pane) })
+                                           lineRevealed: { [workspace, pane] in workspace.finishLineReveal($0, in: pane) },
+                                           find: workspace.find(for: pane))
                     }
                 }
                 .workspaceFocusTarget(pane)
+                .onChange(of: FileFind.searchedLines(source, truncated: truncated), initial: true) {
+                    workspace.find(for: pane)?.searchedLines = $1
+                }
                 Text(ExternalFilePhase.footer(size: file.size, truncated: truncated))
                     .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
             }

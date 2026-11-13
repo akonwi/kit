@@ -747,6 +747,7 @@ struct FilePane: View {
     private var loading: Bool { entry?.loading == true }
     private var workspace: WorkspaceState { state.ui.workspace }
     private var pane: WorkspacePane { .file(path) }
+    private var find: FileFind? { workspace.find(for: pane) }
     private var active: Bool { workspace.isVisible(pane) }
     /// Whether the file shows its preview: Markdown, not switched to source.
     private var rendered: Bool { pane.isMarkdown && !workspace.showsMarkdownSource(pane) }
@@ -792,6 +793,10 @@ struct FilePane: View {
                     .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file").disabled(loading)
             }.padding(.horizontal, 20).padding(.vertical, 10)
             Rule()
+            if let find, find.isOpen {
+                FileFindBar(find: find)
+                Rule()
+            }
             if let error {
                 Text((preview == nil ? "" : "Showing an older preview. ") + error)
                     .font(.kit(size: 12)).foregroundStyle(theme.muted).padding(12)
@@ -830,20 +835,20 @@ struct FilePane: View {
             Group {
                 if rendered, let source = preview?.content ?? workspace.fixture.files.first(where: { $0.path == path })?.content {
                     MarkdownFileText(workspace: workspace, pane: pane, source: source, cwd: state.selected?.cwd,
-                                     annotations: previewAnnotations)
+                                     annotations: previewAnnotations, find: find)
                 } else if let preview {
                     if let client = state.catalogClient as? any AnnotationClient {
                         AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
                             client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false,
-                            lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal)
+                            lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)
                             .id(preview.workspace.workspaceId + preview.revision).clipped()
                     } else {
                         ReadOnlyFileEditor(path: path, source: preview.content, position: $position,
-                                           lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal)
+                                           lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)
                     }
                 } else if let file = workspace.fixture.files.first(where: { $0.path == path }) {
                     ReadOnlyFileEditor(path: path, source: file.content,
-                                       lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal)
+                                       lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)
                 } else {
                     Text(loading ? "Loading file…" : error == nil ? "File preview unavailable" : "Refresh to try again")
                         .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -852,6 +857,8 @@ struct FilePane: View {
             .workspaceFocusTarget(pane)
             Text((entry?.stale == true && preview != nil ? "Read-only · Preview may be out of date" : "Read-only") + (preview?.truncated == true ? " · Preview truncated" : ""))
                 .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
+        }.onChange(of: FileFind.searchedLines(preview?.content, truncated: preview?.truncated == true), initial: true) {
+            find?.searchedLines = $1
         }.onChange(of: state.annotationState.evidenceConflict) {
             guard active, state.annotationState.selectionDraft?.path == path,
                   state.annotationState.evidenceConflict == .staleFile || state.annotationState.evidenceConflict == .staleWorkspace else { return }

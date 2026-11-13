@@ -13,12 +13,14 @@ struct ReadOnlyFileEditor: View {
     var lineReveal: FileLineReveal? = nil
     /// Called once `lineReveal` shows.
     var lineRevealed: ((FileLineReveal) -> Void)? = nil
+    /// The tab's find bar, whose matches the editor shows.
+    var find: FileFind? = nil
     @State private var retainedState = SourceEditorState()
     private struct Document: Hashable { let path: String; let source: String }
 
     var body: some View {
         FileEditorDocument(path: path, source: source, editorState: position ?? $retainedState,
-                           lineReveal: lineReveal, lineRevealed: lineRevealed)
+                           lineReveal: lineReveal, lineRevealed: lineRevealed, find: find)
             .id(Document(path: path, source: source))
             // AppKit's gutter can extend past the representable during scrolling.
             // The file editor owns only the area below the workspace headers.
@@ -41,8 +43,10 @@ private struct FileEditorDocument: View {
     @Binding var editorState: SourceEditorState
     let lineReveal: FileLineReveal?
     let lineRevealed: ((FileLineReveal) -> Void)?
+    let find: FileFind?
     @State private var ardHighlighter = ArdHighlightProvider()
     @State private var revealer = LineRevealCoordinator()
+    @State private var finder = FileFindPainter()
 
     static func clamped(_ state: SourceEditorState, source: String) -> SourceEditorState {
         var result = state
@@ -61,9 +65,13 @@ private struct FileEditorDocument: View {
                 get: { Self.clamped(editorState, source: source) }, set: { editorState = $0 }),
             // One provider for the document's life; nil keeps the editor's own.
             highlightProviders: ArdHighlightProvider.colors(path) ? [ardHighlighter] : nil,
-            coordinators: [revealer]
+            coordinators: [revealer, finder]
         )
         .accessibilityLabel("Read-only file: \(path)")
+        .onChange(of: FindSignal(find), initial: true) {
+            finder.update(find: find, source: source, theme: theme)
+        }
+        .onChange(of: theme) { finder.update(find: find, source: source, theme: theme) }
         .onChange(of: lineReveal, initial: true) {
             revealer.revealed = { [$editorState, lineRevealed] reveal, controller in
                 // The editor's own state follows a scroll only later, and

@@ -19,12 +19,15 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
     var lineReveal: FileLineReveal?
     /// Called once `lineReveal` shows.
     var lineRevealed: ((FileLineReveal) -> Void)?
+    /// The tab's find bar, whose matches the editor shows.
+    var find: FileFind?
 
     init(file: WireWorkspaceFileRead, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String,
-         canAnnotate: Bool = true, lineReveal: FileLineReveal? = nil, lineRevealed: ((FileLineReveal) -> Void)? = nil) {
+         canAnnotate: Bool = true, lineReveal: FileLineReveal? = nil, lineRevealed: ((FileLineReveal) -> Void)? = nil,
+         find: FileFind? = nil) {
         document = AnnotationDocument(file: file); _position = position
         self.annotations = annotations; self.client = client; self.session = session; self.canAnnotate = canAnnotate
-        self.lineReveal = lineReveal; self.lineRevealed = lineRevealed
+        self.lineReveal = lineReveal; self.lineRevealed = lineRevealed; self.find = find
     }
     init(diff: DiffDocument, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String, canAnnotate: Bool, contentHeightChanged: ((CGFloat) -> Void)? = nil, wrapLines: Bool = false, splitAlignment: DiffSplitAlignment? = nil) {
         document = AnnotationDocument(diff: diff); _position = position
@@ -63,7 +66,9 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
         // Register observable dependencies before deferring the AppKit layout work.
         let _ = (annotations.records, annotations.editor, annotations.pending, annotations.uncertain,
                  annotations.draft, annotations.revealToken)
+        let _ = FindSignal(find)
         context.coordinator.parent = self
+        context.coordinator.updateFind()
         let configuration = FileEditorTheme.configuration(theme, wrapLines: wrapLines)
         if controller.configuration != configuration { controller.configuration = configuration }
         context.coordinator.schedule()
@@ -85,6 +90,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
         var hostConfigurations: [String: HostConfiguration] = [:]
         var blocks: [(key: String, line: Int, height: CGFloat)] = []
         let gutter = AnnotationGutterOverlay()
+        let finder = FileFindPainter()
         var scrollObserver: NSObjectProtocol?
         var frameObserver: NSObjectProtocol?
         var scheduled = false
@@ -106,8 +112,11 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                 MainActor.assumeIsolated {
                     guard let self, let textView else { return }
                     self.gutter.drawRowTints(in: rect, width: textView.bounds.width)
+                    self.finder.draw(in: rect)
                 }
             }
+            finder.attach(controller, drawsBackground: false)
+            updateFind()
             gutter.track(controller.scrollView.contentView)
             gutter.onSelect = { [weak self] lines in
                 guard let self else { return }
@@ -139,6 +148,14 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                 guard let self, self.controller != nil else { return }
                 self.parent.position = SourceEditorState(cursorPositions: newPositions,
                     scrollPosition: controller.scrollView.contentView.bounds.origin)
+            }
+        }
+        /// Has the painter follow the find bar once SwiftUI's update is
+        /// over, since it gives the bar the editor's text.
+        func updateFind() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.controller != nil else { return }
+                self.finder.update(find: self.parent.find, source: self.parent.document.content, theme: self.parent.theme)
             }
         }
         func schedule() {
@@ -248,6 +265,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                 }
             } else if state.editor == nil { lastEditor = nil }
             revealLines()
+            finder.sync()
             if lastReveal != state.revealToken, let id = state.revealed,
                let note = current.first(where: { $0.id == id }), let line = manager.lineStorage.getLine(atIndex: parent.document.range(note.anchor)!.upperBound) {
                 lastReveal = state.revealToken; flashing = id

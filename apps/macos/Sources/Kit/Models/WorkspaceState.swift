@@ -64,6 +64,14 @@ enum WorkspacePane: Hashable, Identifiable {
     }
     var closable: Bool { self != .conversation }
     /// Whether the pane is a Markdown file, which shows rendered.
+    /// Whether the pane is a file tab: a workspace, host, or local file.
+    var isFile: Bool {
+        switch self {
+        case .file, .hostFile, .localFile: true
+        default: false
+        }
+    }
+
     var isMarkdown: Bool {
         switch self {
         case .file(let path), .hostFile(let path), .localFile(let path): MarkdownFiles.isMarkdown(path)
@@ -142,6 +150,9 @@ final class WorkspaceState {
     private(set) var markdownSources: Set<WorkspacePane> = []
     /// Lines file tabs are to show, until their views show them.
     private(set) var lineReveals: [WorkspacePane: FileLineReveal] = [:]
+    /// File tabs' find bars, made as they're first asked for. Each is
+    /// observed itself; making one doesn't re-render the workspace.
+    @ObservationIgnored private var finds: [WorkspacePane: FileFind] = [:]
     /// Makes the engine behind each browser tab.
     @ObservationIgnored var makeBrowserEngine: @MainActor () -> any BrowserEngine = WebKitBrowserEngine.make
     /// Where browser downloads and terminal notifications are reported.
@@ -260,6 +271,7 @@ final class WorkspaceState {
         if case .diagram(let id) = pane { diagrams.removeValue(forKey: id) }
         markdownSources.remove(pane)
         lineReveals.removeValue(forKey: pane)
+        finds.removeValue(forKey: pane)
         panes.removeAll { $0 == pane }
         tile.panes.remove(at: index)
         if tile.panes.isEmpty {
@@ -443,6 +455,7 @@ final class WorkspaceState {
         let sources = Set(arrangement.markdownSources ?? [])
         markdownSources = Set(panes.filter { $0.isMarkdown && sources.contains($0.id) })
         lineReveals = [:]
+        finds = [:]
         let order = tree.tiles
         focusedTile = order[min(max(arrangement.focused, 0), order.count - 1)]
         zoomedTile = arrangement.zoomed && order.count > 1 ? focusedTile : nil
@@ -549,6 +562,17 @@ final class WorkspaceState {
     /// Notes that a file tab's view has shown `reveal`.
     func finishLineReveal(_ reveal: FileLineReveal, in pane: WorkspacePane) {
         if lineReveals[pane] == reveal { lineReveals.removeValue(forKey: pane) }
+    }
+
+    // MARK: Find
+
+    /// A file tab's find bar; nil for other tabs.
+    func find(for pane: WorkspacePane) -> FileFind? {
+        guard pane.isFile else { return nil }
+        if let find = finds[pane] { return find }
+        let find = FileFind()
+        finds[pane] = find
+        return find
     }
 
     // MARK: Markdown files

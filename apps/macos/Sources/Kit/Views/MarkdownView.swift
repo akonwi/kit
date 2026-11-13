@@ -260,16 +260,24 @@ struct MarkdownDocumentView: View {
     var lineReveal: FileLineReveal? = nil
     /// Called once `lineReveal` shows.
     var lineRevealed: ((FileLineReveal) -> Void)? = nil
+    /// The file's find bar, which searches the rendered text.
+    var find: FileFind? = nil
     /// The reading column's widest.
     static let columnWidth: CGFloat = 844
     /// The margin a row's + sits in.
     static let gutterWidth: CGFloat = 18
     /// The rows of the source last parsed, or nil for one past what renders.
-    @State private var parsed: (source: String, rows: [MarkdownDocumentRow]?)?
+    @State private var parsed: (source: String, rows: [MarkdownDocumentRow]?, find: MarkdownFind.Index)?
+    /// The rows on screen, by ID, where a find starts and whose current
+    /// match needs no scrolling to.
+    @State private var visibleRows: Set<Int> = []
     @State private var flashing: UInt64?
     /// The rows a followed link's lines are in, highlighted until the next
     /// click in the document.
     @State private var highlighted: Set<Int> = []
+    /// Whether the document has the keyboard, as it takes it back from a
+    /// closed find bar.
+    @FocusState private var focused: Bool
 
     enum Entry: Identifiable {
         case row(MarkdownDocumentRow)
@@ -327,6 +335,7 @@ struct MarkdownDocumentView: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(entries(rows)) { entry in entryView(entry) }
                         }
+                        .scrollTargetLayout()
                         .frame(maxWidth: TranscriptLayout.maxWidth(Self.columnWidth, fullWidth: fullWidth),
                                alignment: .leading)
                         .padding(.leading, 24 - Self.gutterWidth - 6).padding(.trailing, 24).padding(.vertical, 20)
@@ -338,24 +347,41 @@ struct MarkdownDocumentView: View {
                     .onChange(of: annotations?.state.revealToken, initial: true) { reveal(rows, proxy: proxy) }
                     .onChange(of: lineReveal, initial: true) { revealLines(rows, proxy: proxy) }
                     .onChange(of: parsed?.source) { reveal(rows, proxy: proxy); revealLines(rows, proxy: proxy) }
+                    .onScrollTargetVisibilityChange(idType: String.self) { ids in
+                        visibleRows = Set(ids.compactMap { $0.hasPrefix("row-") ? Int($0.dropFirst(4)) : nil })
+                    }
+                    .onChange(of: find?.revealRequest) { revealMatch(proxy: proxy) }
+                    // A file's document takes the keyboard back from its
+                    // closed find bar, so the keys scroll it.
+                    .focusable(find != nil)
+                    .focusEffectDisabled()
+                    .focused($focused)
+                    .onChange(of: find?.dismissRequest) {
+                        if find?.corpus == .rendered { focused = true }
+                    }
                 }
             }
         }
         .task(id: source) {
             let source = source
-            let rows = await Task.detached(priority: .userInitiated) { () -> [MarkdownDocumentRow]? in
-                guard MarkdownFiles.renderable(source) else { return nil }
-                return MarkdownDocumentRow.rows(MarkdownContent(source: source))
+            let (rows, index) = await Task.detached(priority: .userInitiated) { () -> ([MarkdownDocumentRow]?, MarkdownFind.Index) in
+                guard MarkdownFiles.renderable(source) else { return (nil, MarkdownFind.Index(rows: [])) }
+                let rows = MarkdownDocumentRow.rows(MarkdownContent(source: source))
+                return (rows, MarkdownFind.Index(rows: rows))
             }.value
             guard !Task.isCancelled else { return }
-            parsed = (source, rows)
+            parsed = (source, rows, index)
         }
+        .onChange(of: FindTarget(find: find, version: parsed?.source), initial: true) { connectFind() }
     }
 
     @ViewBuilder private func entryView(_ entry: Entry) -> some View {
         switch entry {
         case .row(let row):
-            MarkdownPreviewRow(row: row, annotations: annotations, highlighted: highlighted.contains(row.id))
+            let found = findMarks(row)
+            MarkdownPreviewRow(row: found.row, annotations: annotations, highlighted: highlighted.contains(row.id),
+                               findCurrent: found.current)
+                .environment(\.findCodeMarks, found.code)
                 .padding(.top, row.gap)
         case .note(let note):
             if let annotations {
@@ -389,6 +415,49 @@ struct MarkdownDocumentView: View {
         lineRevealed?(reveal)
     }
 
+    /// Gives the find bar this document's rendered text, and where to start.
+    private func connectFind() {
+        guard let find, let parsed else { return }
+        let index = parsed.find
+        find.setPieces(index.pieces, corpus: .rendered)
+        find.visibleAnchor = {
+            guard let top = self.visibleRows.min() else { return .start }
+            return FindPosition(piece: index.starts[min(top, index.starts.count - 1)], offset: 0)
+        }
+        find.selectedText = { nil }
+    }
+
+    /// `row` with the find bar's matches in it marked, its code blocks'
+    /// marks, and whether it holds the current match.
+    private func findMarks(_ row: MarkdownDocumentRow) -> (row: MarkdownDocumentRow, code: [String: [FindCodeMark]], current: Bool) {
+        guard let find, find.isOpen, find.corpus == .rendered, !find.matches.isEmpty,
+              let index = parsed?.find else { return (row, [:], false) }
+        let pieces = index.pieces(of: row.id)
+        guard !pieces.isEmpty,
+              let first = FileFind.following(find.matches, anchor: FindPosition(piece: pieces.lowerBound, offset: 0)),
+              find.matches[first].piece >= pieces.lowerBound else { return (row, [:], false) }
+        var marks: [Int: [(range: Range<Int>, mark: FindMark)]] = [:]
+        var current = false
+        var position = first
+        while position < find.matches.count, find.matches[position].piece < pieces.upperBound {
+            let match = find.matches[position]
+            let isCurrent = position == find.current
+            current = current || isCurrent
+            marks[match.piece - pieces.lowerBound, default: []].append((match.range, isCurrent ? .current : .match))
+            position += 1
+        }
+        let marked = MarkdownFind.marked(row, marks: marks)
+        return (marked.row, marked.code, current)
+    }
+
+    /// Scrolls the current find match's row to the middle of the view
+    /// unless it's already on screen.
+    private func revealMatch(proxy: ScrollViewProxy) {
+        guard let match = find?.currentMatch, let row = parsed?.find.row(of: match.piece),
+              !visibleRows.contains(row) else { return }
+        proxy.scrollTo("row-\(row)", anchor: .center)
+    }
+
     /// Scrolls to a comment revealed on this file, briefly outlining it.
     private func reveal(_ rows: [MarkdownDocumentRow], proxy: ScrollViewProxy) {
         guard let annotations, !rows.isEmpty, let id = annotations.state.revealed,
@@ -412,6 +481,8 @@ private struct MarkdownPreviewRow: View {
     let annotations: MarkdownPreviewAnnotations?
     /// Whether a followed link's lines are in the row.
     var highlighted = false
+    /// Whether the row holds the find bar's current match.
+    var findCurrent = false
     @State private var hovering = false
 
     private var lines: ClosedRange<Int>? {
@@ -436,8 +507,9 @@ private struct MarkdownPreviewRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             ZStack(alignment: .top) {
-                if annotated || highlighted {
+                if annotated || highlighted || findCurrent {
                     RoundedRectangle(cornerRadius: 1.5).fill(theme.accent).frame(width: 3).frame(maxHeight: .infinity)
+                        .accessibilityIdentifier(findCurrent ? "find-current-row" : "")
                 }
             }
             .frame(width: MarkdownDocumentView.gutterWidth)
@@ -495,6 +567,16 @@ private struct MarkdownInline: View {
         for run in Array(text.runs) where run.inlinePresentationIntent?.contains(.code) == true {
             text[run.range].font = .kit(size: 12, design: .monospaced)
             text[run.range].backgroundColor = theme.raised
+        }
+        for run in Array(text.runs) {
+            switch run[FindMarkAttribute.self] {
+            case .current?:
+                text[run.range].backgroundColor = theme.accent
+                text[run.range].foregroundColor = theme.surface
+            case .match?:
+                text[run.range].backgroundColor = theme.accent.opacity(0.22)
+            case nil: break
+            }
         }
         return SessionMentions.presented(text, link: sessionLink, theme: theme)
     }
@@ -776,6 +858,7 @@ extension View {
 /// Shared native code text for fenced Markdown and expanded tool snippets.
 struct HighlightedCodeText: View {
     @Environment(\.mica) private var theme
+    @Environment(\.findCodeMarks) private var findMarks
     let language: String
     let source: String
     var fontSize: CGFloat = 12
@@ -800,6 +883,15 @@ struct HighlightedCodeText: View {
                     value: NSColor(theme.syntax(span.role, fallback: fallback)), range: span.range)
             }
         }
+        for found in findMarks[source] ?? [] where NSMaxRange(found.range) <= value.length {
+            switch found.mark {
+            case .current:
+                value.addAttribute(.backgroundColor, value: NSColor(theme.accent), range: found.range)
+                value.addAttribute(.foregroundColor, value: NSColor(theme.surface), range: found.range)
+            case .match:
+                value.addAttribute(.backgroundColor, value: NSColor(theme.accent.opacity(0.22)), range: found.range)
+            }
+        }
         return AttributedString(value)
     }
 
@@ -818,4 +910,12 @@ struct HighlightedCodeText: View {
                 }
             }
     }
+}
+
+/// What a rendered Markdown file gives its find bar: changes to either give
+/// it again.
+private struct FindTarget: Equatable {
+    let find: FileFind?
+    let version: String?
+    static func == (a: Self, b: Self) -> Bool { a.find === b.find && a.version == b.version }
 }

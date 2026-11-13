@@ -91,6 +91,7 @@ struct KitApp: App {
             UpdateCommands()
             SessionCommands(windows: windows)
             TileCommands()
+            FindCommands()
             TranscriptCommands()
             SidebarCommands()
         }
@@ -218,6 +219,40 @@ private struct SidebarCommands: Commands {
             Button(SessionSidebarCommand.title(hidden: window?.sidebarHidden == true)) { window?.toggleSidebar() }
                 .keyboardShortcut(SessionSidebarCommand.shortcut)
                 .disabled(!SessionSidebarCommand.enabled(window: window, placement: placement))
+        }
+    }
+}
+
+/// Edit › Find, for the focused tile's file tab. Elsewhere the commands are
+/// disabled, so their keys reach the focused view as they would without them.
+private struct FindCommands: Commands {
+    @FocusedValue(\.sessionWindow) private var window
+
+    /// The focused tile's file tab's find bar, once its session's workspace shows.
+    private var find: FileFind? {
+        guard let store = window?.selectedTab.store, store.selected != nil else { return nil }
+        let workspace = store.ui.workspace
+        return workspace.find(for: workspace.selected)
+    }
+
+    var body: some Commands {
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Menu("Find") {
+                let find = find
+                Button("Find…") { find?.open() }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(find == nil)
+                Button("Find Next") { find?.next() }
+                    .keyboardShortcut("g", modifiers: .command)
+                    .disabled(find == nil || find?.query.isEmpty == true)
+                Button("Find Previous") { find?.previous() }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(find == nil || find?.query.isEmpty == true)
+                Button("Use Selection for Find") { find?.useSelection() }
+                    .keyboardShortcut("e", modifiers: .command)
+                    .disabled(find == nil)
+            }
         }
     }
 }

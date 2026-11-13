@@ -59,12 +59,15 @@ struct MarkdownFileText: View {
     let cwd: String?
     /// The comments a workspace file's preview shows and takes.
     var annotations: MarkdownPreviewAnnotations? = nil
+    /// The file's find bar.
+    var find: FileFind? = nil
 
     var body: some View {
         MarkdownDocumentView(source: source, annotations: annotations,
                              showSource: { [workspace, pane] in workspace.showMarkdownSource(pane) },
                              lineReveal: workspace.lineReveal(for: pane),
-                             lineRevealed: { [workspace, pane] in workspace.finishLineReveal($0, in: pane) })
+                             lineRevealed: { [workspace, pane] in workspace.finishLineReveal($0, in: pane) },
+                             find: find)
             .environment(\.openURL, .markdownFile(workspace, file: pane, cwd: cwd))
             .environment(\.linkMenu, .markdownFile(workspace, file: pane, cwd: cwd))
     }
