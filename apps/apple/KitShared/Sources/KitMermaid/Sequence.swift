@@ -34,6 +34,10 @@ enum Sequence {
         var placement = Placement.over
         var keyword = ""
         var text = ""
+        /// A message's text as written, before any number, and the number
+        /// `autonumber` gives it, or empty.
+        var written = ""
+        var number = ""
     }
 
     struct Diagram {
@@ -49,6 +53,11 @@ enum Sequence {
         let dashed: Bool
         let start: Head
         let end: Head
+    }
+
+    /// A message's arrow as Mermaid writes it.
+    static func arrow(_ item: Event) -> String {
+        arrows.last { $0.dashed == item.dashed && $0.start == item.start && $0.end == item.end }?.token ?? "->"
     }
 
     private static let arrows: [Arrow] = [
@@ -160,13 +169,16 @@ enum Sequence {
             var text = colon >= 0 ? clean(rest.slice(start: colon + 1) ?? "") : ""
             let from = try participant(sender)
             let to = try participant(receiver)
+            let written = text
+            var shown = ""
             if numbered {
+                shown = "\(number)"
                 text = clean("\(number). \(text)")
                 // Numbers wrap as the reference's Go integers do, rather than trap.
                 number = number &+ step
             }
             events.append(Event(kind: .message, from: from, to: to, dashed: arrow.dashed,
-                                start: arrow.start, end: arrow.end, text: text))
+                                start: arrow.start, end: arrow.end, text: text, written: written, number: shown))
         }
 
         mutating func open(_ keyword: String, _ rest: String) {
@@ -268,6 +280,8 @@ enum Sequence {
         var min = 0
         var max = 0
         var empty = true
+        /// The statement that opens the frame.
+        var event = 0
     }
 
     /// Where an event is drawn.
@@ -403,7 +417,8 @@ enum Sequence {
             case .open:
                 if depth < open.count { open[depth] = frames.count } else { open.append(frames.count) }
                 depth += 1
-                frames.append(Frame(top: row, bottom: row, keyword: item.keyword, condition: item.text))
+                frames.append(Frame(top: row, bottom: row, keyword: item.keyword, condition: item.text,
+                                    event: placed.count))
                 row += 1
             case .divider:
                 let current = open.at(depth - 1) ?? 0
@@ -490,6 +505,8 @@ enum Sequence {
                                           x1: x0 + box - 1, y1: header + 2))
             drawing.vertical(x, header + 2, height - 1, .frame, dashed: false)
             drawing.write(x0 + 2, header + 1, participant.label, .name, bold: true)
+            drawing.mark(.participant, index, x0, header, x0 + box - 1, header + 2, line: false)
+            drawing.mark(.participant, index, x, header + 3, x, height - 1, line: true)
         }
 
         // Block frames, so their borders cross the lifelines.
@@ -499,6 +516,12 @@ enum Sequence {
             drawing.outline(x0, frame.top, x1, frame.bottom, .frame, rounded: false)
             drawing.figures.append(Figure(kind: .block, x0: x0, y0: frame.top, x1: x1, y1: frame.bottom))
             drawing.write(x0 + 1, frame.top, " \(frame.keyword) ", .keyword, bold: true)
+            drawing.mark(.block, frame.event, x0, frame.top, x1, frame.top, line: true)
+            drawing.mark(.block, frame.event, x0, frame.bottom, x1, frame.bottom, line: true)
+            drawing.mark(.block, frame.event, x0, frame.top, x0, frame.bottom, line: true)
+            drawing.mark(.block, frame.event, x1, frame.top, x1, frame.bottom, line: true)
+            drawing.mark(.block, frame.event, x0 + 1, frame.top,
+                         x0 + TextWidth.of(frameLabel(frame.keyword, frame.condition)), frame.top, line: false)
             if frame.condition != "" {
                 drawing.write(x0 + 1 + TextWidth.of(" \(frame.keyword) "), frame.top, "[\(frame.condition)] ",
                               .condition, bold: false)
@@ -509,6 +532,9 @@ enum Sequence {
                 let condition = frame.dividerConditions[divider]
                 drawing.horizontal(y, x0, x1, .frame, dashed: true)
                 drawing.write(x0 + 1, y, " \(keyword) ", .keyword, bold: true)
+                drawing.mark(.block, frame.event, x0, y, x1, y, line: true)
+                drawing.mark(.block, frame.event, x0 + 1, y, x0 + TextWidth.of(frameLabel(keyword, condition)), y,
+                             line: false)
                 if condition != "" {
                     drawing.write(x0 + 1 + TextWidth.of(" \(keyword) "), y, "[\(condition)] ", .condition, bold: false)
                 }
@@ -521,11 +547,14 @@ enum Sequence {
             switch item.kind {
             case .message:
                 drawMessage(&drawing, item, place, from: center(item.from) + shift, to: center(item.to) + shift)
+                let bottom = item.from == item.to ? place.row + 2 : place.line
+                drawing.mark(.message, eventIndex, place.x0 + shift, place.row, place.x1 + shift, bottom, line: false)
             case .note:
                 let x0 = place.x0 + shift
                 let x1 = place.x1 + shift
                 clear(&drawing, x0, place.row, x1, place.row + 2)
                 drawing.outline(x0, place.row, x1, place.row + 2, .note, rounded: false)
+                drawing.mark(.note, eventIndex, x0, place.row, x1, place.row + 2, line: false)
                 drawing.figures.append(Figure(kind: .note, x0: x0, y0: place.row, x1: x1, y1: place.row + 2))
                 let inner = x1 - x0 - 1
                 let text = TextWidth.of(item.text)

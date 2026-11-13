@@ -28,6 +28,74 @@ struct MermaidFixtureTests {
         #expect(actual == expected, "\(name)")
     }
 
+    /// The port records where it drew each part in the same cells as the
+    /// reference, naming the same parts.
+    @Test(arguments: names) func recordsRegionsLikeTheReference(_ name: String) throws {
+        let source = try String(contentsOf: Self.directory.appendingPathComponent("\(name).mmd"), encoding: .utf8)
+        guard case .success(let drawing) = Mermaid.render(source) else { return }
+        let expected = try String(contentsOf: Self.directory.appendingPathComponent("\(name).regions"), encoding: .utf8)
+        #expect(Self.recordRegions(source, drawing) == expected, "\(name)")
+    }
+
+    /// A drawing's regions as the reference's harness records them: a line
+    /// for each, without repeats, sorted by their bytes.
+    static func recordRegions(_ source: String, _ drawing: Canvas) -> String {
+        var lines: [String] = []
+        for region in drawing.regions {
+            let summary = (try? DiagramAnnotationText.summary(source, Part(region.target, region.index))) ?? "?"
+            let line = "\(region.x0) \(region.y0) \(region.x1) \(region.y1) \(region.line ? "line" : "box") "
+                + "\(region.target.rawValue) \(region.index) \(summary)"
+            if !lines.contains(line) { lines.append(line) }
+        }
+        return lines.sorted { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }.joined(separator: "\n") + "\n"
+    }
+
+    static var annotationCases: [String] {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            atPath: directory.appendingPathComponent("annotations").path)) ?? []
+        return files.filter { $0.hasSuffix(".txt") }.sorted()
+    }
+
+    @Test func annotationFixturesArePresent() {
+        #expect(Self.annotationCases.count >= 4)
+    }
+
+    /// The port writes the reference's text for each annotation fixture: its
+    /// `annotate <fixture>.mmd <kind> <index> <nonce>` lines, each followed
+    /// by a comment, then `===` and the text.
+    @Test(arguments: annotationCases) func annotatesLikeTheReference(_ name: String) throws {
+        let content = try String(contentsOf: Self.directory.appendingPathComponent("annotations/\(name)"), encoding: .utf8)
+        let split = try #require(content.range(of: "\n===\n"))
+        var items: [DiagramAnnotation] = []
+        var comment: [String] = []
+        var pending: (source: String, part: Part, nonce: String)?
+        func finish() {
+            if let pending {
+                items.append(DiagramAnnotation(comment: comment.joined(separator: "\n"), source: pending.source,
+                                               part: pending.part, nonce: pending.nonce))
+            }
+            comment = []
+        }
+        for line in content[..<split.lowerBound].split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("annotate ") {
+                finish()
+                let fields = line.split(separator: " ").map(String.init)
+                let source = try String(contentsOf: Self.directory.appendingPathComponent(fields[1]), encoding: .utf8)
+                pending = (source, Part(Target(rawValue: fields[2]) ?? .heading, Int(fields[3]) ?? -1), fields[4])
+            } else {
+                comment.append(String(line))
+            }
+        }
+        finish()
+        let actual: String
+        do {
+            actual = try DiagramAnnotationText.text(items) + "\n"
+        } catch let notDrawn as NotDrawn {
+            actual = "not annotated: \(notDrawn.reason)\n"
+        }
+        #expect(actual == String(content[split.upperBound...]), "\(name)")
+    }
+
     /// A drawing as fixture text, as the reference's harness records it:
     /// its size, its rows, then a row of role letters for each, where capitals
     /// are bold, a blank cell is a space, and a wide character's trailing half is `~`.

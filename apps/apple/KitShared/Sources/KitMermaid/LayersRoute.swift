@@ -315,7 +315,10 @@ extension Layers {
         if height > maxHeight { throw NotDrawn("the flowchart is taller than \(maxHeight) rows") }
 
         var drawing = Canvas(width: width, height: height)
-        if input.title != "" { drawing.write(0, 0, input.title, .title, bold: true) }
+        if input.title != "" {
+            drawing.write(0, 0, input.title, .title, bold: true)
+            drawing.mark(.heading, 0, 0, 0, TextWidth.of(input.title) - 1, 0, line: false)
+        }
         for vertex in 0..<count {
             let k = get(layer, vertex)
             let top = get(tops, k)
@@ -325,15 +328,16 @@ extension Layers {
                 let box = get(boxes, vertex)
                 if across {
                     let x0 = min(pen.x(c, top), pen.x(c, top + get(thick, vertex) - 1))
-                    drawNode(&drawing, node, x0: x0, top: pen.y(c, top) - box / 2, box: get(thick, vertex), height: box)
+                    drawNode(&drawing, node, vertex, x0: x0, top: pen.y(c, top) - box / 2, box: get(thick, vertex), height: box)
                 } else {
                     let y0 = min(pen.y(c, top), pen.y(c, top + 2))
-                    drawNode(&drawing, node, x0: c - box / 2, top: y0, box: box, height: 3)
+                    drawNode(&drawing, node, vertex, x0: c - box / 2, top: y0, box: box, height: 3)
                 }
             } else if vertex < virtualStart {
                 // A placeholder carries its edge's line through the layer.
                 let stroke = strokeInto(graph, segments, vertex)
-                pen.along(&drawing, c, top, top + get(heights, k) - 1, dashed: stroke == .dotted, heavy: stroke == .thick)
+                pen.along(&drawing, c, top, top + get(heights, k) - 1, dashed: stroke == .dotted, heavy: stroke == .thick,
+                          edge: edgeInto(segments, vertex))
             }
         }
         var heads: [(x: Int, y: Int, glyph: String)] = []
@@ -381,21 +385,25 @@ extension Layers {
             if segment.to >= virtualStart {
                 // A loop leaves its source for its outer column, and enters
                 // its target from it.
-                pen.along(&drawing, from, start, row, dashed: dashed, heavy: heavy)
-                pen.side(&drawing, row, from, to, dashed: dashed, heavy: heavy)
+                pen.along(&drawing, from, start, row, dashed: dashed, heavy: heavy, edge: segment.edge)
+                pen.side(&drawing, row, from, to, dashed: dashed, heavy: heavy, edge: segment.edge)
                 exitRows.put(segment.edge, row)
             } else if segment.from >= virtualStart {
-                pen.side(&drawing, row, to, from, dashed: dashed, heavy: heavy)
-                pen.along(&drawing, to, row, end, dashed: dashed, heavy: heavy)
+                pen.side(&drawing, row, to, from, dashed: dashed, heavy: heavy, edge: segment.edge)
+                pen.along(&drawing, to, row, end, dashed: dashed, heavy: heavy, edge: segment.edge)
                 entryRows.put(segment.edge, row)
             } else if star.straight {
-                pen.along(&drawing, from, start, end, dashed: dashed, heavy: heavy)
+                pen.along(&drawing, from, start, end, dashed: dashed, heavy: heavy, edge: segment.edge)
             } else {
-                pen.along(&drawing, from, start, row, dashed: dashed, heavy: heavy)
-                if from != to { pen.side(&drawing, row, from, to, dashed: dashed, heavy: heavy) }
-                pen.along(&drawing, to, row, end, dashed: dashed, heavy: heavy)
+                pen.along(&drawing, from, start, row, dashed: dashed, heavy: heavy, edge: segment.edge)
+                if from != to { pen.side(&drawing, row, from, to, dashed: dashed, heavy: heavy, edge: segment.edge) }
+                pen.along(&drawing, to, row, end, dashed: dashed, heavy: heavy, edge: segment.edge)
             }
-            if head { heads.append((pen.x(to, below - 1), pen.y(to, below - 1), pen.head(edge.head))) }
+            if head {
+                heads.append((pen.x(to, below - 1), pen.y(to, below - 1), pen.head(edge.head)))
+                let x = pen.x(to, below - 1), y = pen.y(to, below - 1)
+                drawing.mark(.edge, segment.edge, x, y, x, y, line: true)
+            }
             let first = segment.from == edge.from
             if spot == .drop && target { place(segment.edge, to, below - 1 - get(dropRows, k), below - 2) }
             if spot == .stem && first { place(segment.edge, from, bandEnd + 1, bandEnd + get(stemRows, k)) }
@@ -404,6 +412,8 @@ extension Layers {
             let decision = segment.from < real && graph.nodes[segment.from].shape == .decision
             if decision && get(stemUses, get(ports.stem, index)) > 1 && !star.straight {
                 forks.append((pen.x(from, row), pen.y(from, row)))
+                let x = pen.x(from, row), y = pen.y(from, row)
+                drawing.mark(.edge, segment.edge, x, y, x, y, line: true)
             }
         }
         for fork in forks { drawing.write(fork.x, fork.y, "◆", .arrow, bold: false) }
@@ -415,7 +425,8 @@ extension Layers {
             guard x >= 0 else { continue }
             let top = get(entryRows, edgeIndex)
             let bottom = get(exitRows, edgeIndex)
-            pen.along(&drawing, x, top, bottom, dashed: edge.stroke == .dotted, heavy: edge.stroke == .thick)
+            pen.along(&drawing, x, top, bottom, dashed: edge.stroke == .dotted, heavy: edge.stroke == .thick,
+                      edge: edgeIndex)
             let x0 = min(pen.x(x, top), pen.x(x, bottom))
             let x1 = max(pen.x(x, top), pen.x(x, bottom))
             let y0 = min(pen.y(x, top), pen.y(x, bottom))
@@ -457,6 +468,7 @@ extension Layers {
             }
             if fits {
                 drawing.write(label.x, label.y, text, .label, bold: false)
+                drawing.mark(.edge, label.edge, label.x, label.y, x1, label.y, line: false)
                 placed.put(label.edge, 1)
             }
         }
@@ -493,8 +505,9 @@ extension Layers {
         }
 
         /// Draws a line along the flow, at cross from a0 to a1.
-        func along(_ drawing: inout Canvas, _ c: Int, _ a0: Int, _ a1: Int, dashed: Bool, heavy: Bool) {
+        func along(_ drawing: inout Canvas, _ c: Int, _ a0: Int, _ a1: Int, dashed: Bool, heavy: Bool, edge: Int) {
             let x0 = x(c, a0), x1 = x(c, a1), y0 = y(c, a0), y1 = y(c, a1)
+            drawing.mark(.edge, edge, x0, y0, x1, y1, line: true)
             if flow == .down || flow == .up {
                 drawing.vertical(x0, min(y0, y1), max(y0, y1), .arrow, dashed: dashed, heavy: heavy)
             } else {
@@ -503,8 +516,9 @@ extension Layers {
         }
 
         /// Draws a line across the flow, at along from c0 to c1.
-        func side(_ drawing: inout Canvas, _ a: Int, _ c0: Int, _ c1: Int, dashed: Bool, heavy: Bool) {
+        func side(_ drawing: inout Canvas, _ a: Int, _ c0: Int, _ c1: Int, dashed: Bool, heavy: Bool, edge: Int) {
             let x0 = x(c0, a), x1 = x(c1, a), y0 = y(c0, a), y1 = y(c1, a)
+            drawing.mark(.edge, edge, x0, y0, x1, y1, line: true)
             if flow == .down || flow == .up {
                 drawing.horizontal(y0, min(x0, x1), max(x0, x1), .arrow, dashed: dashed, heavy: heavy)
             } else {
@@ -576,9 +590,11 @@ extension Layers {
     }
 
     /// Draws a node's outline in its shape, with its text inside.
-    static func drawNode(_ drawing: inout Canvas, _ node: Node, x0: Int, top: Int, box: Int, height: Int) {
+    static func drawNode(_ drawing: inout Canvas, _ node: Node, _ index: Int, x0: Int, top: Int, box: Int,
+                         height: Int) {
         let x1 = x0 + box - 1
         let bottom = top + height - 1
+        drawing.mark(.node, index, x0, top, x1, bottom, line: false)
         let middle = top + height / 2
         let rounded = node.shape == .round || node.shape == .stadium || node.shape == .circle
         let shape: Figure.NodeShape
@@ -634,6 +650,13 @@ extension Layers {
         for x in b.stems where x >= a.left && x <= a.right && !a.stems.contains(x) { total += 1 }
         for x in a.drops where x >= b.left && x <= b.right && !b.drops.contains(x) { total += 1 }
         return total
+    }
+
+    /// The edge whose segment enters vertex.
+    static func edgeInto(_ segments: [Segment], _ vertex: Int) -> Int {
+        var edge = 0
+        for segment in segments where segment.to == vertex { edge = segment.edge }
+        return edge
     }
 
     /// The stroke of the edge whose segment enters vertex.

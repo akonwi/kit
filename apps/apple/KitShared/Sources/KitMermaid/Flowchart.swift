@@ -491,8 +491,11 @@ enum Flowchart {
     static func render(header: String, lines: [String], title: String) throws -> Canvas {
         let chart = try parse(header: header, lines: lines)
         if chart.groups.isEmpty {
-            return try Layers.draw(Layers.Graph(nodes: chart.nodes, edges: chart.edges), title: clean(title),
-                                   flow: chart.flow)
+            let graph = Layers.Graph(nodes: chart.nodes, edges: chart.edges)
+            let drawing = try Layers.draw(graph, title: clean(title), flow: chart.flow)
+            return retarget(drawing, Section(graph: graph, kinds: chart.nodes.map { _ in .node },
+                                             sources: Array(chart.nodes.indices), edges: Array(chart.edges.indices)),
+                            group: -1)
         }
         return try sections(chart, title: clean(title))
     }
@@ -504,26 +507,26 @@ enum Flowchart {
         // are bounded together: each counts as the square of its nodes and
         // edges, and together they may cost what the largest flowchart
         // without subgraphs does.
-        var graphs: [Layers.Graph] = []
+        var graphs: [Section] = []
         var work = 0
         for group in -1..<chart.groups.count {
-            let graph = section(chart, group)
-            let size = graph.nodes.count + graph.edges.count
+            let found = section(chart, group)
+            let size = found.graph.nodes.count + found.graph.edges.count
             work += size * size
-            graphs.append(graph)
+            graphs.append(found)
         }
         if work > (maxNodes + maxEdges) * (maxNodes + maxEdges) {
             throw NotDrawn("the subgraphs repeat too many nodes and edges to draw")
         }
         var parts: [Canvas] = []
         var height = 0
-        for (offset, graph) in graphs.enumerated() where !graph.nodes.isEmpty {
+        for (offset, found) in graphs.enumerated() where !found.graph.nodes.isEmpty {
             let group = offset - 1
             let heading = group < 0 ? title : chart.groups[group].title
             do {
-                let drawing = try Layers.draw(graph, title: heading, flow: sectionFlow(chart, group))
+                let drawing = try Layers.draw(found.graph, title: heading, flow: sectionFlow(chart, group))
                 height += drawing.height + 1
-                parts.append(drawing)
+                parts.append(retarget(drawing, found, group: group))
             } catch let notDrawn as NotDrawn {
                 throw group < 0 ? notDrawn : NotDrawn("in subgraph `\(chart.groups[group].id)`, \(notDrawn.reason)")
             }
@@ -576,22 +579,57 @@ enum Flowchart {
     /// itself (`n`), the box of the subgraph inside outer that holds it
     /// (`g`), a box for outer as a whole (`s`), or a box for something
     /// outside (`x`).
+    /// The box stands for the node or subgraph target at index.
     private struct End {
         let key: String
         let node: Layers.Node
+        let target: Target
+        let index: Int
+    }
+
+    /// The graph drawn for a section, and what its parts stand for in the
+    /// flowchart: each node a node or a subgraph, by kind and index, and each
+    /// edge the first of the flowchart's edges it draws.
+    private struct Section {
+        let graph: Layers.Graph
+        let kinds: [Target]
+        let sources: [Int]
+        let edges: [Int]
+    }
+
+    /// A section's drawing with its regions naming what they stand for in
+    /// the flowchart. A subgraph's heading names the subgraph; the
+    /// flowchart's title names nothing.
+    private static func retarget(_ drawing: Canvas, _ found: Section, group: Int) -> Canvas {
+        var result = drawing
+        result.regions = drawing.regions.compactMap { region in
+            func moved(_ target: Target, _ index: Int) -> Region {
+                Region(target: target, index: index, x0: region.x0, y0: region.y0, x1: region.x1, y1: region.y1,
+                       line: region.line)
+            }
+            switch region.target {
+            case .node: return moved(found.kinds.at(region.index) ?? .node, found.sources.at(region.index) ?? 0)
+            case .edge: return moved(.edge, found.edges.at(region.index) ?? 0)
+            case .heading: return group >= 0 ? moved(.subgraph, group) : nil
+            default: return region
+            }
+        }
+        return result
     }
 
     private static func groupEnd(_ chart: Chart, _ group: Int, _ outer: Int) -> End {
         let found = chart.groups[group]
         if group == outer {
-            return End(key: "s", node: Layers.Node(id: found.id, text: clean("all of \(found.title)"), shape: .elsewhere))
+            return End(key: "s", node: Layers.Node(id: found.id, text: clean("all of \(found.title)"), shape: .elsewhere),
+                       target: .subgraph, index: group)
         }
         if inside(chart, group, outer) {
             let child = childOf(chart, group, outer)
-            return End(key: "g\(child)", node: groupBox(chart, child))
+            return End(key: "g\(child)", node: groupBox(chart, child), target: .subgraph, index: child)
         }
         return End(key: "xg\(group)",
-                   node: Layers.Node(id: found.id, text: placeName(chart, found.parent, found.title), shape: .elsewhere))
+                   node: Layers.Node(id: found.id, text: placeName(chart, found.parent, found.title), shape: .elsewhere),
+                   target: .subgraph, index: group)
     }
 
     /// text named with the subgraph that holds it, if any.
@@ -604,23 +642,29 @@ enum Flowchart {
         let group = chart.member.at(node) ?? -1
         let found = chart.nodes[node]
         if alias >= 0 { return groupEnd(chart, alias, outer) }
-        if group == outer { return End(key: "n\(node)", node: found) }
+        if group == outer { return End(key: "n\(node)", node: found, target: .node, index: node) }
         if group >= 0 && inside(chart, group, outer) { return groupEnd(chart, group, outer) }
         return End(key: "xn\(node)",
-                   node: Layers.Node(id: found.id, text: placeName(chart, group, found.text), shape: .elsewhere))
+                   node: Layers.Node(id: found.id, text: placeName(chart, group, found.text), shape: .elsewhere),
+                   target: .node, index: node)
     }
 
     /// The graph drawn for subgraph outer, or the whole flowchart for -1: its
     /// own nodes, a box for each subgraph inside it, and a box for each node
     /// outside it that its edges reach. Edges within one inner subgraph are
     /// left to that subgraph's drawing, and repeated edges are drawn once.
-    private static func section(_ chart: Chart, _ outer: Int) -> Layers.Graph {
+    private static func section(_ chart: Chart, _ outer: Int) -> Section {
         var nodes: [Layers.Node] = []
+        var kinds: [Target] = []
+        var sources: [Int] = []
+        var firsts: [Int] = []
         var keys: [String: Int] = [:]
         func add(_ end: End) -> Int {
             if let found = keys[end.key] { return found }
             let index = nodes.count
             nodes.append(end.node)
+            kinds.append(end.target)
+            sources.append(end.index)
             keys[end.key] = index
             return index
         }
@@ -634,7 +678,7 @@ enum Flowchart {
             _ = add(groupEnd(chart, index, outer))
         }
         var edges: [Layers.Edge] = []
-        for edge in chart.edges {
+        for (edgeIndex, edge) in chart.edges.enumerated() {
             let from = nodeEnd(chart, edge.from, outer)
             let to = nodeEnd(chart, edge.to, outer)
             let outside = Go.hasPrefix(from.key, "x") && Go.hasPrefix(to.key, "x")
@@ -642,9 +686,12 @@ enum Flowchart {
             if !(outside || inner) {
                 let mapped = Layers.Edge(from: add(from), to: add(to), stroke: edge.stroke, head: edge.head,
                                          label: edge.label)
-                if !hasEdge(edges, mapped) { edges.append(mapped) }
+                if !hasEdge(edges, mapped) {
+                    edges.append(mapped)
+                    firsts.append(edgeIndex)
+                }
             }
         }
-        return Layers.Graph(nodes: nodes, edges: edges)
+        return Section(graph: Layers.Graph(nodes: nodes, edges: edges), kinds: kinds, sources: sources, edges: firsts)
     }
 }

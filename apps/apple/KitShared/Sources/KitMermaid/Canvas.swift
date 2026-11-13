@@ -75,6 +75,44 @@ public struct Figure: Equatable, Sendable {
     public let x0: Int, y0: Int, x1: Int, y1: Int
 }
 
+/// What a part of a diagram a person can point at stands for in its source.
+/// Flowchart nodes, subgraphs, and edges are numbered in the order the parser
+/// declares them; sequence participants likewise, and messages, notes, and
+/// blocks by the statement that writes them, counting every statement. A
+/// heading is a drawing's title, which a flowchart's subgraph section names
+/// its subgraph by.
+public enum Target: String, Equatable, Hashable, Sendable, CaseIterable {
+    case node, subgraph, edge, participant, message, note, block, heading
+}
+
+/// The cells, first and last inclusive, where a target was drawn. A line
+/// gives way to any box over it, and a cell on the lines of two targets
+/// points at neither.
+public struct Region: Equatable, Hashable, Sendable {
+    public let target: Target
+    public let index: Int
+    public let x0: Int, y0: Int, x1: Int, y1: Int
+    public let line: Bool
+
+    public init(target: Target, index: Int, x0: Int, y0: Int, x1: Int, y1: Int, line: Bool) {
+        self.target = target; self.index = index
+        self.x0 = x0; self.y0 = y0; self.x1 = x1; self.y1 = y1
+        self.line = line
+    }
+
+    func contains(_ x: Int, _ y: Int) -> Bool { x >= x0 && x <= x1 && y >= y0 && y <= y1 }
+}
+
+/// A part of a diagram, by kind and index in its source.
+public struct Part: Equatable, Hashable, Sendable {
+    public let target: Target
+    public let index: Int
+
+    public init(_ target: Target, _ index: Int) {
+        self.target = target; self.index = index
+    }
+}
+
 /// The kind of diagram a canvas shows.
 public enum DiagramKind: Equatable, Sendable {
     case flowchart, sequence
@@ -87,6 +125,9 @@ public struct Canvas: Equatable, Sendable {
     public internal(set) var kind: DiagramKind = .flowchart
     /// The shapes drawn, in drawing order.
     public internal(set) var figures: [Figure] = []
+    /// Where each target was drawn, in drawing order. They never change a
+    /// cell, so the drawing is the same with or without them.
+    public internal(set) var regions: [Region] = []
     /// The text a cell shows, where empty is blank. Line cells show their
     /// mask's glyph, and a wide character's trailing cells are skipped.
     var texts: [String]
@@ -125,6 +166,11 @@ public struct Canvas: Equatable, Sendable {
             for figure in part.figures {
                 drawing.figures.append(Figure(kind: figure.kind, x0: figure.x0, y0: figure.y0 + top,
                                               x1: figure.x1, y1: figure.y1 + top))
+            }
+            for region in part.regions {
+                drawing.regions.append(Region(target: region.target, index: region.index, x0: region.x0,
+                                              y0: region.y0 + top, x1: region.x1, y1: region.y1 + top,
+                                              line: region.line))
             }
             top += part.height + 1
         }
@@ -266,6 +312,42 @@ public struct Canvas: Equatable, Sendable {
 
     public func isBold(_ x: Int, _ y: Int) -> Bool {
         flagged(cell(y * width + x), boldBit)
+    }
+
+    /// Records that target index was drawn in the cells from x0, y0 to x1,
+    /// y1, in either order.
+    mutating func mark(_ target: Target, _ index: Int, _ x0: Int, _ y0: Int, _ x1: Int, _ y1: Int, line: Bool) {
+        regions.append(Region(target: target, index: index, x0: min(x0, x1), y0: min(y0, y1),
+                              x1: max(x0, x1), y1: max(y0, y1), line: line))
+    }
+
+    /// What the cell at x, y points at: the smallest box over it, else the
+    /// one target whose lines run through it. Lines two targets share, as
+    /// where edges branch or merge, point at neither.
+    public func hit(_ x: Int, _ y: Int) -> Region? {
+        var found: Region?
+        var area = 0
+        for region in regions where !region.line && region.contains(x, y) {
+            let size = (region.x1 - region.x0 + 1) * (region.y1 - region.y0 + 1)
+            if found == nil || size < area {
+                found = region
+                area = size
+            }
+        }
+        if found != nil { return found }
+        for region in regions where region.line && region.contains(x, y) {
+            if let other = found {
+                if other.target != region.target || other.index != region.index { return nil }
+            } else {
+                found = region
+            }
+        }
+        return found
+    }
+
+    /// The regions of one part, in drawing order.
+    public func regions(of part: Part) -> [Region] {
+        regions.filter { $0.target == part.target && $0.index == part.index }
     }
 
     /// The drawing as plain rows, with trailing spaces removed.

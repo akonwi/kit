@@ -28,17 +28,26 @@ public enum Mermaid {
         return renderLines(source)
     }
 
-    private static func firstWord(_ line: String) -> String {
+    static func firstWord(_ line: String) -> String {
         let space = Go.indexAny(line, " \t")
         return space >= 0 ? line.slice(end: space) ?? line : line
     }
 
-    private static func renderLines(_ source: String) -> Result<Canvas, NotDrawn> {
+    /// A source read into the parts every diagram type shares: the
+    /// frontmatter's title, the header statement that names the diagram's
+    /// type, the lines after it, and why it can't be read, or empty.
+    struct Parts {
+        var title = ""
+        var header = ""
+        var body: [String] = []
+        var failure = ""
+    }
+
+    static func read(_ source: String) -> Parts {
         let lines = Go.split(Go.replaceAll(source, "\r\n", "\n"), "\n")
         let line = { (index: Int) -> String in index >= 0 && index < lines.count ? lines[index] : "" }
         var index = 0
-        var title = ""
-        var failure = ""
+        var parts = Parts()
         while index < lines.count && Go.trimSpace(line(index)) == "" {
             index += 1
         }
@@ -51,20 +60,25 @@ public enum Mermaid {
                 if trimmed == "---" {
                     closed = true
                 } else if Go.hasPrefix(line(index), "title:") {
-                    title = Go.trim(Go.trimSpace(Go.trimPrefix(trimmed, "title:")), "\"'")
+                    parts.title = Go.trim(Go.trimSpace(Go.trimPrefix(trimmed, "title:")), "\"'")
                 }
                 index += 1
             }
-            if !closed { failure = "the frontmatter isn't closed" }
+            if !closed { parts.failure = "the frontmatter isn't closed" }
         }
         // The header is the first statement; comments and directives come first.
-        var header = ""
-        while header == "" && index < lines.count {
+        while parts.header == "" && index < lines.count {
             let trimmed = Go.trimSpace(line(index))
-            if trimmed != "" && !Go.hasPrefix(trimmed, "%%") { header = trimmed }
+            if trimmed != "" && !Go.hasPrefix(trimmed, "%%") { parts.header = trimmed }
             index += 1
         }
-        let body = index < lines.count ? Array(lines[index...]) : []
+        parts.body = index < lines.count ? Array(lines[index...]) : []
+        return parts
+    }
+
+    private static func renderLines(_ source: String) -> Result<Canvas, NotDrawn> {
+        let parts = read(source)
+        let header = parts.header, title = parts.title, body = parts.body, failure = parts.failure
         let kind = firstWord(header)
         do {
             switch true {
