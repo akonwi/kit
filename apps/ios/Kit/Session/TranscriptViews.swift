@@ -83,7 +83,7 @@ private struct UserMessage: View {
                     .padding(.bottom, -4)
             }
             if !message.text.isEmpty {
-                Prose(text: AttributedString(message.text), lineHeight: 23)
+                Prose(text: SessionMentions.linked(AttributedString(message.text)), lineHeight: 23)
             }
             TranscriptAttachments(attachments: message.attachments ?? [])
             if let notes = message.annotations, !notes.isEmpty {
@@ -193,6 +193,7 @@ struct ToolRowDetails: Layout {
 /// beneath itself.
 private struct ToolRow: View {
     @Environment(\.agentLinks) private var agentLinks
+    @Environment(\.sessionLinks) private var sessionLinks
     let tool: ToolActivity
     let open: Bool
     let toggle: () -> Void
@@ -201,6 +202,29 @@ private struct ToolRow: View {
     private func linkedAgent(_ presentation: ToolPresentation) -> String? {
         guard case .agent(let name)? = presentation.link, agentLinks?.names.contains(name) == true else { return nil }
         return name
+    }
+
+    /// The session the call names, such as one it created or consulted,
+    /// which its chip opens, with its title when it's listed.
+    private func linkedSession(_ presentation: ToolPresentation) -> (id: String, title: String?)? {
+        guard case .session(let id)? = presentation.link, let links = sessionLinks else { return nil }
+        return (id, links.title(id))
+    }
+
+    /// A chip that opens what it names, with a chevron.
+    private func linkChip(_ text: String, label: String, identifier: String, open: @escaping () -> Void) -> some View {
+        Button(action: open) {
+            HStack(spacing: 4) {
+                chipText(text, color: Theme.accent, truncation: .tail)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.strongBorder)
+            }
+            .chipBox()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
     }
 
     private func chipText(_ text: String, color: Color, truncation: Text.TruncationMode) -> some View {
@@ -224,18 +248,15 @@ private struct ToolRow: View {
                 // The chip and the facts share one line that never outgrows the row.
                 ToolRowDetails(spacing: 8) {
                     if let agent = linkedAgent(presentation), let links = agentLinks {
-                        Button { links.open(agent) } label: {
-                            HStack(spacing: 4) {
-                                chipText(presentation.chip ?? agent, color: Theme.accent, truncation: .tail)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(Theme.strongBorder)
-                            }
-                            .chipBox()
+                        linkChip(presentation.chip ?? agent, label: "Open \(agent)", identifier: "open-agent-\(agent)") {
+                            links.open(agent)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open \(agent)")
-                        .accessibilityIdentifier("open-agent-\(agent)")
+                    } else if let session = linkedSession(presentation), let links = sessionLinks {
+                        linkChip(presentation.chip ?? SessionMentions.label(title: session.title),
+                                 label: "Open \(session.title ?? "session")",
+                                 identifier: "open-session-\(session.id)") {
+                            links.open(session.id)
+                        }
                     } else if let chip = presentation.chip {
                         chipText(chip, color: Theme.text, truncation: presentation.chipIsPath ? .head : .tail)
                             .chipBox()
@@ -249,7 +270,8 @@ private struct ToolRow: View {
             .contentShape(Rectangle())
             .onTapGesture { if presentation.expandable { toggle() } }
             // A row that opens an agent keeps the link its own element.
-            .accessibilityElement(children: linkedAgent(presentation) == nil ? .combine : .contain)
+            .accessibilityElement(children: linkedAgent(presentation) == nil && linkedSession(presentation) == nil
+                                  ? .combine : .contain)
             .accessibilityAddTraits(presentation.expandable ? .isButton : [])
             if open && presentation.expandable {
                 ToolDetail(tool: tool, presentation: presentation)

@@ -83,8 +83,13 @@ struct SessionScreen: View {
 
     var body: some View {
         content
-            // A file link opens its file at its lines; other links open as before.
+            // A session mention opens its session over this one, and a file
+            // link its file at its lines; other links open as before.
             .environment(\.openURL, OpenURLAction { url in
+                if let id = SessionMentions.session(in: url) {
+                    openLinkedSession(id)
+                    return .handled
+                }
                 guard FilePaths.path(fromLink: url) != nil else { return .systemAction }
                 guard let file = OpenedFile.linked(url, cwd: feed.session?.cwd) else { return .discarded }
                 openedFile = file
@@ -233,6 +238,10 @@ struct SessionScreen: View {
                 refreshList()
             }
             .onChange(of: feed.session?.lastActivity) { markSeen() }
+            // A run may create or mention sessions; list them for their titles.
+            .onChange(of: feed.session?.activeRunID == nil) { _, idle in
+                if idle { refreshList() }
+            }
             .onDisappear { markSeen() }
     }
 
@@ -329,6 +338,12 @@ struct SessionScreen: View {
 
     // MARK: Transcript
 
+    /// Opens a session this one links to, on the same server, over it.
+    private func openLinkedSession(_ id: String) {
+        guard id != feed.identity.session else { return }
+        openSession.push(SessionIdentity(server: feed.identity.server, session: id))
+    }
+
     @ViewBuilder
     private var content: some View {
         if let session = feed.session {
@@ -347,6 +362,11 @@ struct SessionScreen: View {
                 }
             }
             .environment(\.agentLinks, AgentLinks(names: Set(agents.strip.agents.map(\.name))) { agents.show($0) })
+            .environment(\.sessionLinks, SessionLinks(
+                title: { [sessions, server = feed.identity.server] in
+                    sessions.title(of: SessionIdentity(server: server, session: $0))
+                },
+                open: openLinkedSession))
         } else if case .unavailable(let reason) = feed.connection {
             ContentUnavailableView("Can’t show this session", systemImage: "exclamationmark.triangle", description: Text(reason))
         } else {

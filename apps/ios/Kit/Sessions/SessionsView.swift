@@ -92,7 +92,9 @@ struct SessionsView: View {
             }
         }
         // Set on the stack so pushed sessions see it.
-        .environment(\.openSession, OpenSessionAction { path = [$0] })
+        .environment(\.openSession, OpenSessionAction { path = [$0] } push: { id in
+            if path.last != id { path.append(id) }
+        })
     }
 
     private var saved: [SavedServer] { servers.entries.map(\.server) }
@@ -462,9 +464,11 @@ struct LaneSpinner: View {
     }
 }
 
-/// Opens a session in place of the one shown, such as a fork just made.
+/// Opens a session in place of the one shown, such as a fork just made, or
+/// over it, such as one a transcript mentions, so Back returns to it.
 struct OpenSessionAction {
     let open: @MainActor (SessionIdentity) -> Void
+    var push: @MainActor (SessionIdentity) -> Void = { _ in }
     @MainActor func callAsFunction(_ id: SessionIdentity) { open(id) }
 }
 

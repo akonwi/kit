@@ -244,6 +244,11 @@ final class SessionsStore {
 
     func server(named name: String) -> SavedServer? { listings[name]?.server }
 
+    /// The title of a session its server lists, or nil for one it doesn't.
+    func title(of id: SessionIdentity) -> String? {
+        listings[id.server]?.sessions.first { $0.id == id.session }?.title
+    }
+
     // MARK: Loading
 
     /// Lists every server's sessions, then fetches the previews that are due.

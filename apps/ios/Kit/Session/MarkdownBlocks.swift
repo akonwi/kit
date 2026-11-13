@@ -100,12 +100,14 @@ extension MarkdownBlockView {
 /// Body text: 16 points on 24-point lines. A long press on its message
 /// copies it or opens it to select from.
 struct Prose: View {
+    @Environment(\.sessionLinks) private var sessionLinks
     let text: AttributedString
     var size: CGFloat = 16
     var lineHeight: CGFloat = 24
 
     var body: some View {
-        Text(text)
+        // Session mentions read as their sessions' titles.
+        Text(SessionMentions.presented(text, links: sessionLinks))
             .font(.system(size: size))
             .lineSpacing(lineHeight - size * 1.2)
             .foregroundStyle(Theme.text)
