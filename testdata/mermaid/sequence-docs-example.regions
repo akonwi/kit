@@ -1,0 +1,6 @@
+0 0 7 2 box participant 0 actor U "User"
+11 0 17 2 box participant 1 participant K "Kit"
+14 3 14 9 line participant 1 participant K "Kit"
+4 3 4 9 line participant 0 actor U "User"
+4 4 14 5 box message 0 message 1 of 2: U->>K: ask
+4 7 14 8 box message 1 message 2 of 2: K-->>U: answer

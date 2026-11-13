@@ -42,6 +42,36 @@ let covered_bit = 128
 let bold_bit = 256
 let role_unit = 512
 
+// What a part of a diagram a person can point at stands for in its source.
+// Flowchart nodes, subgraphs, and edges are numbered in the order the
+// parser declares them; sequence participants likewise, and messages, notes,
+// and blocks by the statement that writes them, counting every statement.
+// A heading is a drawing's title, which a flowchart's subgraph section
+// names its subgraph by.
+enum Target {
+  node,
+  subgraph,
+  edge,
+  participant,
+  message,
+  note,
+  block,
+  heading,
+}
+
+// The cells, first and last inclusive, where a target was drawn. A line
+// gives way to any box over it, and a cell on the lines of two targets
+// points at neither.
+struct Region {
+  target: Target,
+  index: Int,
+  x0: Int,
+  y0: Int,
+  x1: Int,
+  y1: Int,
+  line: Bool,
+}
+
 struct Canvas {
   width: Int,
   height: Int,
@@ -50,6 +80,9 @@ struct Canvas {
   texts: [Str],
   // Each cell's line directions, styles, and role, packed.
   cells: [Int],
+  // Where each target was drawn, in drawing order. They never change a
+  // cell, so the drawing is the same with or without them.
+  regions: [Region],
 }
 
 // A blank canvas. Its cells start empty in a single allocation each.
@@ -60,11 +93,19 @@ fn new(width: Int, height: Int) &mut Canvas {
     height: height,
     texts: List::new<Str>(size),
     cells: List::new<Int>(size),
+    regions: [],
   }
 }
 
 private fn maximum(a: Int, b: Int) Int {
   match a > b {
+    true => a,
+    false => b,
+  }
+}
+
+private fn minimum(a: Int, b: Int) Int {
+  match a < b {
     true => a,
     false => b,
   }
@@ -95,6 +136,19 @@ fn stack(parts: [Canvas]) &mut Canvas {
         x =+ 1
       }
       y =+ 1
+    }
+    for region in part.regions {
+      drawing.regions.push(
+        Region{
+          target: region.target,
+          index: region.index,
+          x0: region.x0,
+          y0: region.y0 + top,
+          x1: region.x1,
+          y1: region.y1 + top,
+          line: region.line,
+        },
+      )
     }
     top =+ part.height + 1
   }
@@ -384,6 +438,60 @@ impl Canvas {
     self.shown(x, y) == " "
   }
 
+  // Records that target index was drawn in the cells from x0, y0 to x1, y1,
+  // in either order.
+  fn mut mark(target: Target, index: Int, x0: Int, y0: Int, x1: Int, y1: Int, line: Bool) {
+    self.regions.push(
+      Region{
+        target: target,
+        index: index,
+        x0: minimum(x0, x1),
+        y0: minimum(y0, y1),
+        x1: maximum(x0, x1),
+        y1: maximum(y0, y1),
+        line: line,
+      },
+    )
+  }
+
+  // What the cell at x, y points at: the smallest box over it, else the
+  // one target whose lines run through it. Lines two targets share, as
+  // where edges branch or merge, point at neither.
+  fn hit(x: Int, y: Int) Region? {
+    mut found = Maybe::new<Region>()
+    mut area = 0
+    for region in self.regions {
+      let over = x >= region.x0 and x <= region.x1 and y >= region.y0 and y <= region.y1
+      if over and not region.line {
+        let size = (region.x1 - region.x0 + 1) * (region.y1 - region.y0 + 1)
+        if found.is_none() or size < area {
+          found = Maybe::new(region)
+          area = size
+        }
+      }
+    }
+    if found.is_none() {
+      mut shared = false
+      for region in self.regions {
+        let over = x >= region.x0 and x <= region.x1 and y >= region.y0 and y <= region.y1
+        if over and region.line {
+          match found {
+            other => {
+              if other.target != region.target or other.index != region.index {
+                shared = true
+              }
+            },
+            _ => { found = Maybe::new(region) },
+          }
+        }
+      }
+      if shared {
+        found = Maybe::new<Region>()
+      }
+    }
+    found
+  }
+
   // The drawing as plain rows, with trailing spaces removed.
   fn lines() [Str] {
     let rows = &mut List::new<Str>()
@@ -461,4 +569,57 @@ test fn heavy_lines_join_heavily_only_with_heavy_lines() Void!Str {
   let rows = canvas.lines()
   let shown = strings::Join(rows, "|")
   testing::assert(shown == "  │ ┃|━━┼━┛|  │", "got {shown}")
+}
+
+// The region a cell points at, as `target index`, or `none`.
+private fn pointed(canvas: Canvas, x: Int, y: Int) Str {
+  match canvas.hit(x, y) {
+    region => {
+      let kind = match region.target {
+        Target::node => "node",
+        Target::subgraph => "subgraph",
+        Target::edge => "edge",
+        Target::participant => "participant",
+        Target::message => "message",
+        Target::note => "note",
+        Target::block => "block",
+        Target::heading => "heading",
+      }
+      "{kind} {region.index}"
+    },
+    _ => "none",
+  }
+}
+
+test fn a_box_over_a_line_takes_the_point() Void!Str {
+  let canvas = new(10, 5)
+  canvas.mark(Target::participant, 0, 4, 0, 4, 4, true)
+  canvas.mark(Target::message, 3, 0, 2, 9, 3, false)
+  let got = [pointed(canvas.*, 4, 1), pointed(canvas.*, 4, 2), pointed(canvas.*, 9, 3)]
+  let shown = strings::Join(got, "|")
+  testing::assert(shown == "participant 0|message 3|message 3", "got {shown}")
+}
+
+test fn the_smallest_box_over_a_cell_takes_the_point() Void!Str {
+  let canvas = new(10, 5)
+  canvas.mark(Target::block, 0, 0, 0, 9, 4, false)
+  canvas.mark(Target::note, 2, 6, 3, 2, 1, false)
+  let got = [pointed(canvas.*, 3, 2), pointed(canvas.*, 8, 2)]
+  let shown = strings::Join(got, "|")
+  testing::assert(shown == "note 2|block 0", "got {shown}")
+}
+
+test fn a_line_two_targets_share_points_at_neither() Void!Str {
+  let canvas = new(10, 5)
+  canvas.mark(Target::edge, 0, 2, 0, 2, 2, true)
+  canvas.mark(Target::edge, 0, 2, 2, 8, 2, true)
+  canvas.mark(Target::edge, 1, 2, 0, 2, 4, true)
+  let got = [
+    pointed(canvas.*, 2, 1),
+    pointed(canvas.*, 5, 2),
+    pointed(canvas.*, 2, 3),
+    pointed(canvas.*, 9, 4),
+  ]
+  let shown = strings::Join(got, "|")
+  testing::assert(shown == "none|edge 0|edge 1|none", "got {shown}")
 }

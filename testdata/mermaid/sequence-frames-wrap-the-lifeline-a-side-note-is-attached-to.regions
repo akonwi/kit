@@ -1,0 +1,11 @@
+0 12 10 12 line block 1 block 1 of 1: loop
+0 7 0 12 line block 1 block 1 of 1: loop
+0 7 10 7 line block 1 block 1 of 1: loop
+1 7 6 7 box block 1 block 1 of 1: loop
+10 7 10 12 line block 1 block 1 of 1: loop
+14 0 18 2 box participant 1 participant B
+16 3 16 13 line participant 1 participant B
+2 8 6 10 box note 2 note 1 of 1: Note left of A: l
+6 0 10 2 box participant 0 participant A
+8 3 8 13 line participant 0 participant A
+8 4 16 5 box message 0 message 1 of 1: A->>B: x

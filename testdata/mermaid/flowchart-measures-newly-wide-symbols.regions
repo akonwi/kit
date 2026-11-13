@@ -1,0 +1,10 @@
+0 0 12 2 box node 0 node A "☰☷ ⚊⚏" (box)
+0 10 12 12 box node 2 node C "𝌀𝍖 𝍠𝍶" (box)
+1 15 11 17 box node 3 node D "㉈㉏ ㉐㏿" (box)
+2 5 9 7 box node 1 node B "䷀䷿" (box)
+6 12 6 14 line edge 2 edge C --> D
+6 14 6 14 line edge 2 edge C --> D
+6 2 6 4 line edge 0 edge A --> B
+6 4 6 4 line edge 0 edge A --> B
+6 7 6 9 line edge 1 edge B --> C
+6 9 6 9 line edge 1 edge B --> C

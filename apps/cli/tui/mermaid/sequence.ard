@@ -68,6 +68,10 @@ struct Event {
   keyword: Str,
   // A message's or note's text, or a block's condition.
   text: Str,
+  // A message's text as written, before any number, and the number
+  // `autonumber` gives it, or empty.
+  written: Str,
+  number: Str,
 }
 
 struct Diagram {
@@ -124,6 +128,8 @@ private fn event(kind: Kind) Event {
     placement: Placement::over,
     keyword: "",
     text: "",
+    written: "",
+    number: "",
   }
 }
 
@@ -197,6 +203,17 @@ private fn arrows() [Arrow] {
       end: Head::none,
     },
   ]
+}
+
+// A message's arrow as Mermaid writes it.
+fn arrow(item: Event) Str {
+  mut token = "->"
+  for found in arrows() {
+    if found.dashed == item.dashed and found.start == item.start and found.end == item.end {
+      token = found.token
+    }
+  }
+  token
 }
 
 private struct Parser {
@@ -366,7 +383,10 @@ impl Parser {
         }
         let from = try self.participant(sender)
         let to = try self.participant(receiver)
+        let written = text
+        mut number = ""
         if self.numbered {
+          number = "{self.number}"
           text = clean("{self.number}. {text}")
           self.number =+ self.step
         }
@@ -377,6 +397,8 @@ impl Parser {
         message.start = arrow.start
         message.end = arrow.end
         message.text = text
+        message.written = written
+        message.number = number
         self.events.push(message.*)
         Result::ok(())
       },
@@ -565,6 +587,8 @@ private struct Frame {
   min: Int,
   max: Int,
   empty: Bool,
+  // The statement that opens the frame.
+  event: Int,
 }
 
 // Where an event is drawn.
@@ -684,6 +708,7 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
     max_x = maximum(max_x, center(index) - width / 2 + width - 1)
     index =+ 1
   }
+  mut opening = 0
   for item in diagram.events {
     let text = ui::text_width(item.text)
     let place = &mut Placed{
@@ -768,6 +793,7 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
             min: 0,
             max: 0,
             empty: true,
+            event: opening,
           },
         )
         row =+ 1
@@ -859,6 +885,7 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
       max_x = maximum(max_x, place.x1)
     }
     placed.push(place.*)
+    opening =+ 1
   }
   let height = row
   let shift = 0 - min_x
@@ -889,6 +916,16 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
         )
         drawing.vertical(x, header + 2, height - 1, canvas::Role::frame, false)
         drawing.write(x0 + 2, header + 1, participant.label, canvas::Role::name, true)
+        drawing.mark(
+          canvas::Target::participant,
+          index,
+          x0,
+          header,
+          x0 + box - 1,
+          header + 2,
+          false,
+        )
+        drawing.mark(canvas::Target::participant, index, x, header + 3, x, height - 1, true)
         index =+ 1
       }
 
@@ -898,6 +935,19 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
         let x1 = frame.x1 + shift
         drawing.outline(x0, frame.top, x1, frame.bottom, canvas::Role::frame, false)
         drawing.write(x0 + 1, frame.top, " {frame.keyword} ", canvas::Role::keyword, true)
+        drawing.mark(canvas::Target::block, frame.event, x0, frame.top, x1, frame.top, true)
+        drawing.mark(canvas::Target::block, frame.event, x0, frame.bottom, x1, frame.bottom, true)
+        drawing.mark(canvas::Target::block, frame.event, x0, frame.top, x0, frame.bottom, true)
+        drawing.mark(canvas::Target::block, frame.event, x1, frame.top, x1, frame.bottom, true)
+        drawing.mark(
+          canvas::Target::block,
+          frame.event,
+          x0 + 1,
+          frame.top,
+          x0 + ui::text_width(frame_label(frame.keyword, frame.condition)),
+          frame.top,
+          false,
+        )
         if frame.condition != "" {
           drawing.write(
             x0 + 1 + ui::text_width(" {frame.keyword} "),
@@ -914,6 +964,16 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
           let condition = frame.divider_conditions.at(divider).or("")
           drawing.horizontal(y, x0, x1, canvas::Role::frame, true)
           drawing.write(x0 + 1, y, " {keyword} ", canvas::Role::keyword, true)
+          drawing.mark(canvas::Target::block, frame.event, x0, y, x1, y, true)
+          drawing.mark(
+            canvas::Target::block,
+            frame.event,
+            x0 + 1,
+            y,
+            x0 + ui::text_width(frame_label(keyword, condition)),
+            y,
+            false,
+          )
           if condition != "" {
             drawing.write(
               x0 + 1 + ui::text_width(" {keyword} "),
@@ -934,12 +994,26 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
         match item.kind {
           Kind::message => {
             draw_message(drawing, item, place, center(item.from) + shift, center(item.to) + shift)
+            let bottom = match item.from == item.to {
+              true => place.row + 2,
+              false => place.line,
+            }
+            drawing.mark(
+              canvas::Target::message,
+              event_index,
+              place.x0 + shift,
+              place.row,
+              place.x1 + shift,
+              bottom,
+              false,
+            )
           },
           Kind::note => {
             let x0 = place.x0 + shift
             let x1 = place.x1 + shift
             clear(drawing, x0, place.row, x1, place.row + 2)
             drawing.outline(x0, place.row, x1, place.row + 2, canvas::Role::note, false)
+            drawing.mark(canvas::Target::note, event_index, x0, place.row, x1, place.row + 2, false)
             let inner = x1 - x0 - 1
             let text = ui::text_width(item.text)
             drawing.write(
@@ -1324,4 +1398,51 @@ test fn long_text_is_cut_short() Void!Str {
   let text = clean(strings::Repeat("word ", 20))
   try testing::assert(ui::text_width(text) == max_text, "cut text is {ui::text_width(text)} cells")
   testing::assert(strings::HasSuffix(text, "…"), "cut text ends with an ellipsis: {text}")
+}
+
+// The region a cell of a drawing points at, as `target index`, or `none`.
+private fn pointed(drawing: canvas::Canvas, x: Int, y: Int) Str {
+  match drawing.hit(x, y) {
+    region => {
+      let kind = match region.target {
+        canvas::Target::participant => "participant",
+        canvas::Target::message => "message",
+        canvas::Target::note => "note",
+        canvas::Target::block => "block",
+        _ => "other",
+      }
+      "{kind} {region.index}"
+    },
+    _ => "none",
+  }
+}
+
+// A message's text and arrow point at it over the lifelines it crosses; a
+// block's frame and legend at the block; a lifeline alone at its
+// participant; and where a frame crosses a lifeline, nothing.
+test fn points_on_a_sequence_find_its_parts() Void!Str {
+  // Drawn as testdata/mermaid/sequence-nested-blocks-with-dividers-and-heads.txt.
+  let drawing = try render(
+    strings::Split(
+      "par fetch\nA->>B: x\nand\ncritical lock\nA-)B: y\noption timeout\nB<<-->>A: z\nend\nend",
+      "\n",
+    ),
+    "",
+  )
+  let got = [
+    pointed(drawing, 4, 1),
+    pointed(drawing, 8, 5),
+    pointed(drawing, 12, 6),
+    pointed(drawing, 4, 7),
+    pointed(drawing, 5, 4),
+    pointed(drawing, 0, 12),
+    pointed(drawing, 6, 13),
+    pointed(drawing, 4, 17),
+    pointed(drawing, 20, 1),
+  ]
+  let shown = strings::Join(got, "|")
+  testing::assert(
+    shown == "participant 0|message 1|message 1|participant 0|block 0|block 0|block 3|none|none",
+    "got {shown}",
+  )
 }

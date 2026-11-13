@@ -2,16 +2,20 @@ use ard/testing
 
 use go:bytes
 use kit/tui/mermaid
+use kit/tui/mermaid/annotation
 use kit/tui/mermaid/canvas
 use go:os
 use go:path/filepath
 use go:sort
+use go:strconv
 use go:strings
 
 // The shared Mermaid fixtures in `testdata/mermaid`: each `.mmd` source and
-// the drawing this renderer makes of it in the matching `.txt`. The macOS
-// client's port is checked against the same files (ADR 0046). Set
-// KIT_UPDATE_MERMAID_FIXTURES=1 to write the drawings this renderer makes.
+// the drawing this renderer makes of it in the matching `.txt`, with where it
+// drew each part a person can point at in the matching `.regions`; and in
+// `annotations`, the text the model gets for comments on those parts. The
+// Apple clients' port is checked against the same files (ADR 0046). Set
+// KIT_UPDATE_MERMAID_FIXTURES=1 to write what this renderer makes.
 
 let fixtures = "../../testdata/mermaid"
 
@@ -58,6 +62,60 @@ fn record(drawing: canvas::Canvas) Str {
     y =+ 1
   }
   strings::Join(lines, "\n") + "\n"
+}
+
+private fn target_name(target: canvas::Target) Str {
+  match target {
+    canvas::Target::node => "node",
+    canvas::Target::subgraph => "subgraph",
+    canvas::Target::edge => "edge",
+    canvas::Target::participant => "participant",
+    canvas::Target::message => "message",
+    canvas::Target::note => "note",
+    canvas::Target::block => "block",
+    canvas::Target::heading => "heading",
+  }
+}
+
+// The target named name; a heading, which nothing annotates, for others.
+private fn target_named(name: Str) canvas::Target {
+  match name {
+    "node" => canvas::Target::node,
+    "subgraph" => canvas::Target::subgraph,
+    "edge" => canvas::Target::edge,
+    "participant" => canvas::Target::participant,
+    "message" => canvas::Target::message,
+    "note" => canvas::Target::note,
+    "block" => canvas::Target::block,
+    _ => canvas::Target::heading,
+  }
+}
+
+// A drawing's regions as fixture text: a line for each, sorted, with its
+// cells, whether it is a box or a line, and the target it stands for by
+// kind, index, and summary.
+fn record_regions(source: Str, drawing: canvas::Canvas) Str {
+  let lines = &mut List::new<Str>()
+  for region in drawing.regions {
+    let shape = match region.line {
+      true => "line",
+      false => "box",
+    }
+    let summary = annotation::summary(source, region.target, region.index).or("?")
+    let line = "{region.x0} {region.y0} {region.x1} {region.y1} {shape} {target_name(region.target)} {region.index} {summary}"
+    mut seen = false
+    for other in lines {
+      if other == line {
+        seen = true
+      }
+    }
+    if not seen {
+      lines.push(line)
+    }
+  }
+  let sorted = &mut lines.*
+  sort::Strings(sorted)
+  strings::Join(sorted, "\n") + "\n"
 }
 
 // What the renderer makes of source, as fixture text.
@@ -110,9 +168,116 @@ test fn the_renderer_draws_each_shared_fixture() Void!Str {
         }
       },
     }
+    match mermaid::render(source) {
+      ok(drawing) => {
+        let regions_path = strings::TrimSuffix(path, ".mmd") + ".regions"
+        let regions = record_regions(source, drawing)
+        match update {
+          true => try write(regions_path, regions),
+          false => {
+            let want = read(regions_path).or("(missing)\n")
+            if regions != want {
+              failures.push("{filepath::Base(regions_path)}:\ngot:\n{regions}want:\n{want}")
+            }
+          },
+        }
+      },
+      err(_) => (),
+    }
   }
   testing::assert(
     failures.size() == 0,
     "{failures.size()} fixtures differ; regenerate with KIT_UPDATE_MERMAID_FIXTURES=1 after reviewing:\n{strings::Join(failures, "\n")}",
+  )
+}
+
+// An annotation fixture's annotations: each starts with a line
+// `annotate <fixture>.mmd <kind> <index> <nonce>`, and the lines up to the
+// next one are its comment.
+private fn annotations_of(head: Str) [annotation::Annotation]!Str {
+  let items = &mut List::new<annotation::Annotation>()
+  mut comment = ""
+  mut lines = 0
+  mut started = false
+  mut source = ""
+  mut target = canvas::Target::node
+  mut index = 0
+  mut nonce = ""
+  for line in strings::Split(head, "\n") {
+    match strings::HasPrefix(line, "annotate ") {
+      true => {
+        if started {
+          items.push(
+            annotation::Annotation{
+              comment: comment,
+              source: source,
+              target: target,
+              index: index,
+              nonce: nonce,
+            },
+          )
+        }
+        let fields = strings::Fields(line)
+        source = try read(filepath::Join(fixtures, fields.at(1).or("")))
+        target = target_named(fields.at(2).or(""))
+        index = strconv::Atoi(fields.at(3).or("")).or(-1)
+        nonce = fields.at(4).or("")
+        comment = ""
+        lines = 0
+        started = true
+      },
+      false => {
+        comment = match lines == 0 {
+          true => line,
+          false => "{comment}\n{line}",
+        }
+        lines =+ 1
+      },
+    }
+  }
+  if started {
+    items.push(
+      annotation::Annotation{
+        comment: comment,
+        source: source,
+        target: target,
+        index: index,
+        nonce: nonce,
+      },
+    )
+  }
+  Result::ok(items.*)
+}
+
+test fn the_annotations_read_as_each_shared_fixture() Void!Str {
+  let update = os::Getenv("KIT_UPDATE_MERMAID_FIXTURES") == "1"
+  mut found = filepath::Glob(filepath::Join(fixtures, "annotations", "*.txt")).or([])
+  let cases = &mut found
+  sort::Strings(cases)
+  try testing::assert(cases.size() > 0, "no annotation fixtures")
+  let failures = &mut List::new<Str>()
+  for path in cases {
+    let content = try read(path)
+    let split = strings::Index(content, "\n===\n")
+    try testing::assert(split >= 0, "{path}: no `===` line")
+    let head = content.slice(end: split).or("")
+    let want = content.slice(start: split + 5).or("")
+    let items = try annotations_of(head)
+    let got = match annotation::text(items) {
+      ok(text) => text + "\n",
+      err(reason) => "not annotated: {reason}\n",
+    }
+    match update {
+      true => try write(path, "{head}\n===\n{got}"),
+      false => {
+        if got != want {
+          failures.push("{filepath::Base(path)}:\ngot:\n{got}want:\n{want}")
+        }
+      },
+    }
+  }
+  testing::assert(
+    failures.size() == 0,
+    "{failures.size()} annotation fixtures differ; regenerate with KIT_UPDATE_MERMAID_FIXTURES=1 after reviewing:\n{strings::Join(failures, "\n")}",
   )
 }

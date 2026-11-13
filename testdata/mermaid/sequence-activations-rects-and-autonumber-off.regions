@@ -1,0 +1,13 @@
+0 0 4 2 box participant 0 participant A
+10 0 14 2 box participant 1 participant B
+12 3 12 30 line participant 1 participant B
+2 10 12 11 box message 2 message 3 of 9: A-xB: three
+2 13 12 14 box message 3 message 4 of 9: A--)B: four
+2 16 12 17 box message 4 message 5 of 9: A-)B: five
+2 19 12 20 box message 5 message 6 of 9: A--xB: six
+2 22 12 23 box message 6 message 7 of 9: A->B: seven
+2 25 12 26 box message 7 message 8 of 9: A-->B: eight
+2 28 12 29 box message 8 message 9 of 9: A<<->>B: nine
+2 3 2 30 line participant 0 participant A
+2 4 12 5 box message 0 message 1 of 9, numbered 1: A->>B: one
+2 7 12 8 box message 1 message 2 of 9, numbered 2: B-->>A: two

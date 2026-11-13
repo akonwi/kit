@@ -1,0 +1,20 @@
+0 0 11 2 box subgraph 0 subgraph Client
+0 16 17 18 box node 1 node B "Session client" (box)
+0 25 5 25 box subgraph 1 subgraph Server
+0 27 26 29 box node 1 node B "Session client" (box)
+0 5 11 7 box subgraph 1 subgraph Server
+0 9 5 9 box subgraph 0 subgraph Client
+1 21 16 23 box node 2 node C "API" (box)
+10 32 16 34 box node 2 node C "API" (box)
+13 29 13 31 line edge 2 edge B --> C
+13 31 13 31 line edge 2 edge B --> C
+13 34 13 36 line edge 1 edge C --> D
+13 36 13 36 line edge 1 edge C --> D
+6 11 11 13 box node 0 node A "UI" (box)
+6 2 6 4 line edge 2 edge B --> C
+6 4 6 4 line edge 2 edge B --> C
+8 37 17 39 box node 3 node D "SQLite" (database)
+9 13 9 15 line edge 0 edge A --> B
+9 15 9 15 line edge 0 edge A --> B
+9 18 9 20 line edge 2 edge B --> C
+9 20 9 20 line edge 2 edge B --> C

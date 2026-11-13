@@ -1,0 +1,4 @@
+annotate sequence-actors-notes-and-self-messages.mmd message 0 n0301
+This is a note, not a message.
+===
+not annotated: the diagram has no such part

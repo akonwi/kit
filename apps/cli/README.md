@@ -71,9 +71,13 @@ The Mermaid renderer in `tui/mermaid` is the reference the Apple clients' Swift
 port in `apps/apple/KitShared/Sources/KitMermaid` follows
 ([ADR 0046](../../docs/adrs/0046-draw-mermaid-diagrams-with-kits-own-renderer.md)).
 `test/mermaid_fixtures_test.ard` checks it against the shared fixtures in
-`testdata/mermaid`: each `.mmd` source and its drawing in the matching `.txt`.
-After changing the renderer, or adding a source, review the drawings it makes
-and write them:
+`testdata/mermaid`: each `.mmd` source, its drawing in the matching `.txt`,
+and in the matching `.regions` the cells where it drew each node, edge,
+subgraph, participant, message, note, and block a person can point at to
+annotate. `testdata/mermaid/annotations` holds comments on those parts and the
+text the model gets for them (`tui/mermaid/annotation.ard`). After changing
+the renderer or the annotation text, or adding a source, review what it makes
+and write it:
 
 ```sh
 KIT_UPDATE_MERMAID_FIXTURES=1 ard test test/mermaid_fixtures_test.ard

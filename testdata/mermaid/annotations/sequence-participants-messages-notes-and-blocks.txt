@@ -1,0 +1,89 @@
+annotate sequence-nested-blocks-with-dividers-and-heads.mmd message 6 n0201
+Why both directions?
+annotate sequence-nested-blocks-with-dividers-and-heads.mmd block 3 n0202
+What does the lock guard?
+annotate sequence-actors-notes-and-self-messages.mmd participant 0 n0203
+Who is this exactly?
+annotate sequence-titles-numbering-and-notes-beside-and-across.mmd note 2 n0204
+Too vague.
+annotate sequence-titles-numbering-and-notes-beside-and-across.mmd message 3 n0205
+Second step.
+===
+<diagram-annotation n="1">
+Comment: Why both directions?
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0201]
+Diagram: sequenceDiagram
+Target: message 3 of 3: B<<-->>A: z
+From: B
+To: A
+Inside: par fetch / and > critical lock / option timeout
+Source:
+sequenceDiagram
+par fetch
+A->>B: x
+and
+critical lock
+A-)B: y
+option timeout
+B<<-->>A: z
+end
+end
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0201]
+</diagram-annotation>
+
+<diagram-annotation n="2">
+Comment: What does the lock guard?
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0202]
+Diagram: sequenceDiagram
+Target: block 2 of 2: critical lock
+Sections: option timeout
+Holds: message 2; message 3
+Inside: par fetch / and
+Source: as in annotation 1
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0202]
+</diagram-annotation>
+
+<diagram-annotation n="3">
+Comment: Who is this exactly?
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0203]
+Diagram: sequenceDiagram
+Target: actor U "User"
+Messages: 1. U->>U: think
+Source:
+sequenceDiagram
+actor U as User
+Note left of U: you
+U->>U: think
+Note over U: idea
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0203]
+</diagram-annotation>
+
+<diagram-annotation n="4">
+Comment: Too vague.
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0204]
+Diagram: sequenceDiagram
+Title: Plan
+Target: note 2 of 2: Note over A,B: wide note
+Source:
+sequenceDiagram
+title Plan
+autonumber 10 5
+A->>B: one
+Note right of B: r
+Note over A,B: wide note
+A->>B: two
+A->>A
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0204]
+</diagram-annotation>
+
+<diagram-annotation n="5">
+Comment: Second step.
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0205]
+Diagram: sequenceDiagram
+Title: Plan
+Target: message 2 of 3, numbered 15: A->>B: two
+From: A
+To: B
+Source: as in annotation 4
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0205]
+</diagram-annotation>

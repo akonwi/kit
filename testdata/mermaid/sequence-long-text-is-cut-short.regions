@@ -1,0 +1,6 @@
+0 0 4 2 box participant 0 participant A
+2 3 2 10 line participant 0 participant A
+2 4 70 5 box message 0 message 1 of 1: A->>B: word word word word word word word word word word word word wor…
+68 0 72 2 box participant 1 participant B
+70 3 70 10 line participant 1 participant B
+72 7 139 9 box note 1 note 1 of 1: Note right of B: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…

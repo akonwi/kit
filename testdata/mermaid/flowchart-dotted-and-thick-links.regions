@@ -1,0 +1,13 @@
+0 0 4 2 box node 0 node A (box)
+0 10 4 12 box node 2 node C (box)
+0 15 4 17 box node 3 node D (box)
+0 20 4 22 box node 4 node E (box)
+0 25 4 27 box node 5 node F (box)
+0 5 4 7 box node 1 node B (box)
+2 12 2 15 line edge 2 edge C --- D
+2 17 2 20 line edge 3 edge D -.- E
+2 2 2 4 line edge 0 edge A -.-> B
+2 22 2 25 line edge 4 edge E === F
+2 4 2 4 line edge 0 edge A -.-> B
+2 7 2 9 line edge 1 edge B ==> C
+2 9 2 9 line edge 1 edge B ==> C

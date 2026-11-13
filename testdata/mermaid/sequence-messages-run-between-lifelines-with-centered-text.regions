@@ -1,0 +1,6 @@
+0 0 6 2 box participant 0 participant T "TUI"
+10 0 19 2 box participant 1 participant S "Server"
+15 3 15 9 line participant 1 participant S "Server"
+3 3 3 9 line participant 0 participant T "TUI"
+3 4 15 5 box message 0 message 1 of 2: T->>S: prompt
+3 7 15 8 box message 1 message 2 of 2: S-->>T: stream

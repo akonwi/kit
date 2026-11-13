@@ -1,0 +1,7 @@
+0 0 7 2 box participant 0 participant 你 "用户"
+13 0 22 2 box participant 1 participant K "Kit 🚀"
+18 3 18 13 line participant 1 participant K "Kit 🚀"
+2 10 20 12 box note 2 note 1 of 1: Note over 你,K: été 👩🏽‍🚀 🇨🇭
+4 3 4 13 line participant 0 participant 你 "用户"
+4 4 18 5 box message 0 message 1 of 2: 你->>K: 你好，世界
+4 7 18 8 box message 1 message 2 of 2: K-->>你: café ✅

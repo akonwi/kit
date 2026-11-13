@@ -1,0 +1,16 @@
+1 4 5 4 box edge 0 edge A -->|yes| B
+1 6 5 8 box node 1 node B (box)
+10 6 16 8 box node 2 node End (box)
+11 4 14 4 box edge 1 edge A -->|no| End
+13 10 13 10 line edge 2 edge End --> Style
+13 3 13 5 line edge 1 edge A -->|no| End
+13 5 13 5 line edge 1 edge A -->|no| End
+13 8 13 10 line edge 2 edge End --> Style
+3 3 3 5 line edge 0 edge A -->|yes| B
+3 3 8 3 line edge 0 edge A -->|yes| B
+3 5 3 5 line edge 0 edge A -->|yes| B
+6 0 10 2 box node 0 node A (box)
+8 2 8 3 line edge 0 edge A -->|yes| B
+8 2 8 3 line edge 1 edge A -->|no| End
+8 3 13 3 line edge 1 edge A -->|no| End
+9 11 17 13 box node 3 node Style (box)

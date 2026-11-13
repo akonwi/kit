@@ -1,0 +1,4 @@
+0 0 13 2 box node 0 node A "soft­hyphen" (box)
+13 1 17 1 line edge 0 edge A --> B
+17 1 17 1 line edge 0 edge A --> B
+18 0 35 2 box node 1 node B "lone 🇯 flag 🇯🇵" (box)

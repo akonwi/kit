@@ -1,0 +1,16 @@
+0 0 4 2 box node 0 node A (box)
+0 4 4 6 box node 2 node B (box)
+14 1 14 3 line edge 0 edge A -->|first| C
+14 3 14 5 line edge 1 edge B --> C
+14 3 16 3 line edge 0 edge A -->|first| C
+14 3 16 3 line edge 1 edge B --> C
+16 3 16 3 line edge 0 edge A -->|first| C
+16 3 16 3 line edge 1 edge B --> C
+17 2 21 4 box node 1 node C (box)
+21 3 34 3 line edge 2 edge C -->|second| D
+25 3 32 3 box edge 2 edge C -->|second| D
+34 3 34 3 line edge 2 edge C -->|second| D
+35 2 39 4 box node 3 node D (box)
+4 1 14 1 line edge 0 edge A -->|first| C
+4 5 14 5 line edge 1 edge B --> C
+6 1 12 1 box edge 0 edge A -->|first| C

@@ -1,0 +1,5 @@
+0 0 4 2 box participant 0 participant A
+2 3 2 6 line participant 0 participant A
+2 4 33 5 box message 0 message 1 of 1, numbered -9223372036854775808: A->>B: least
+31 0 35 2 box participant 1 participant B
+33 3 33 6 line participant 1 participant B

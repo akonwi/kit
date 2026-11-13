@@ -1,0 +1,24 @@
+0 0 11 2 box subgraph 0 subgraph Client
+0 14 7 14 box subgraph 1 subgraph Services
+0 16 19 18 box node 0 node UI "Web app" (box)
+0 4 5 4 box subgraph 0 subgraph Client
+0 8 10 10 box node 0 node UI "Web app" (box)
+10 9 12 9 line edge 0 edge UI --> API
+10 9 12 9 line edge 1 edge UI --> Cache
+11 1 15 1 line edge 0 edge UI --> API
+12 11 14 11 line edge 0 edge UI --> API
+12 7 12 9 line edge 1 edge UI --> Cache
+12 7 14 7 line edge 1 edge UI --> Cache
+12 9 12 11 line edge 0 edge UI --> API
+14 11 14 11 line edge 0 edge UI --> API
+14 7 14 7 line edge 1 edge UI --> Cache
+15 1 15 1 line edge 0 edge UI --> API
+15 10 40 12 box node 2 node API "API gateway" (box)
+15 6 29 8 box node 1 node Cache "Local cache" (database)
+16 0 29 2 box subgraph 1 subgraph Services
+19 17 23 17 line edge 0 edge UI --> API
+23 17 23 17 line edge 0 edge UI --> API
+24 16 38 18 box node 2 node API "API gateway" (box)
+38 17 42 17 line edge 2 edge API --> Auth
+42 17 42 17 line edge 2 edge API --> Auth
+43 16 58 18 box node 3 node Auth "Auth service" (box)

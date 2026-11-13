@@ -1,0 +1,34 @@
+annotate flowchart-labeled-branches-merge-again.mmd node 0 n0001
+Check the schema here,
+not just "valid" or not.
+annotate flowchart-labeled-branches-merge-again.mmd edge 1 n0002
+Rejected configs should say why.
+===
+<diagram-annotation n="1">
+Comment: Check the schema here,
+  not just "valid" or not.
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0001]
+Diagram: flowchart TD
+Target: node A "Valid?" (decision)
+Edges in: none
+Edges out: A -->|yes| B; A -->|no| C
+Neighbors: B "Save"; C "Reject"
+Source:
+flowchart TD
+A{Valid?} -- yes --> B[Save]
+A -- no --> C[Reject]
+B --> D[Done]
+C --> D
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0001]
+</diagram-annotation>
+
+<diagram-annotation n="2">
+Comment: Rejected configs should say why.
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0002]
+Diagram: flowchart TD
+Target: edge A -->|no| C
+From: A "Valid?"
+To: C "Reject"
+Source: as in annotation 1
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0002]
+</diagram-annotation>

@@ -1,0 +1,21 @@
+0 19 24 19 line block 0 block 1 of 2: par fetch
+0 4 0 19 line block 0 block 1 of 2: par fetch
+0 4 24 4 line block 0 block 1 of 2: par fetch
+0 8 24 8 line block 0 block 1 of 2: par fetch
+1 4 13 4 box block 0 block 1 of 2: par fetch
+1 8 5 8 box block 0 block 1 of 2: par fetch
+10 0 14 2 box participant 1 participant B
+12 3 12 20 line participant 1 participant B
+2 0 6 2 box participant 0 participant A
+2 13 22 13 line block 3 block 2 of 2: critical lock
+2 17 22 17 line block 3 block 2 of 2: critical lock
+2 9 2 17 line block 3 block 2 of 2: critical lock
+2 9 22 9 line block 3 block 2 of 2: critical lock
+22 9 22 17 line block 3 block 2 of 2: critical lock
+24 4 24 19 line block 0 block 1 of 2: par fetch
+3 13 20 13 box block 3 block 2 of 2: critical lock
+3 9 19 9 box block 3 block 2 of 2: critical lock
+4 10 12 11 box message 4 message 2 of 3: A-)B: y
+4 14 12 15 box message 6 message 3 of 3: B<<-->>A: z
+4 3 4 20 line participant 0 participant A
+4 5 12 6 box message 1 message 1 of 3: A->>B: x

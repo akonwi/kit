@@ -1,0 +1,11 @@
+0 0 4 2 box node 0 node A (box)
+0 4 4 6 box node 2 node B (box)
+4 1 6 1 line edge 0 edge A --> C
+4 5 6 5 line edge 1 edge B --o C
+6 1 6 2 line edge 0 edge A --> C
+6 2 8 2 line edge 0 edge A --> C
+6 4 6 5 line edge 1 edge B --o C
+6 4 8 4 line edge 1 edge B --o C
+8 2 8 2 line edge 0 edge A --> C
+8 4 8 4 line edge 1 edge B --o C
+9 1 13 5 box node 1 node C (box)

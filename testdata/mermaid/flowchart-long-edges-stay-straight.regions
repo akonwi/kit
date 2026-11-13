@@ -1,0 +1,37 @@
+0 5 7 7 box node 1 node Lint (box)
+10 20 20 22 box node 6 node Release (box)
+11 0 18 2 box node 0 node Push (box)
+11 15 18 17 box node 4 node Gate (box)
+11 5 18 7 box node 2 node Test (box)
+15 10 15 12 line edge 4 edge Test --> Gate
+15 12 15 13 line edge 4 edge Test --> Gate
+15 13 15 14 line edge 3 edge Lint --> Gate
+15 13 15 14 line edge 4 edge Test --> Gate
+15 13 15 14 line edge 6 edge Package --> Gate
+15 13 23 13 line edge 6 edge Package --> Gate
+15 14 15 14 line edge 3 edge Lint --> Gate
+15 14 15 14 line edge 4 edge Test --> Gate
+15 14 15 14 line edge 6 edge Package --> Gate
+15 17 15 19 line edge 7 edge Gate --> Release
+15 19 15 19 line edge 7 edge Gate --> Release
+15 2 15 3 line edge 0 edge Push --> Lint
+15 2 15 3 line edge 1 edge Push --> Test
+15 2 15 3 line edge 2 edge Push --> Build
+15 3 15 4 line edge 1 edge Push --> Test
+15 3 26 3 line edge 2 edge Push --> Build
+15 4 15 4 line edge 1 edge Push --> Test
+15 7 15 10 line edge 4 edge Test --> Gate
+18 10 28 12 box node 5 node Package (box)
+22 5 30 7 box node 3 node Build (box)
+23 12 23 13 line edge 6 edge Package --> Gate
+26 3 26 4 line edge 2 edge Push --> Build
+26 4 26 4 line edge 2 edge Push --> Build
+26 7 26 9 line edge 5 edge Build --> Package
+26 9 26 9 line edge 5 edge Build --> Package
+4 10 4 12 line edge 3 edge Lint --> Gate
+4 12 4 13 line edge 3 edge Lint --> Gate
+4 13 15 13 line edge 3 edge Lint --> Gate
+4 3 15 3 line edge 0 edge Push --> Lint
+4 3 4 4 line edge 0 edge Push --> Lint
+4 4 4 4 line edge 0 edge Push --> Lint
+4 7 4 10 line edge 3 edge Lint --> Gate

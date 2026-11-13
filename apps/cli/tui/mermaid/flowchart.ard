@@ -853,7 +853,33 @@ fn render(header: Str, lines: [Str], title: Str) canvas::Canvas!Str {
   let chart = try parse(header, lines)
   match chart.groups.size() == 0 {
     true => {
-      layers::draw(layers::Graph{nodes: chart.nodes, edges: chart.edges}, clean(title), chart.flow)
+      let drawing = try layers::draw(layers::Graph{nodes: chart.nodes, edges: chart.edges}, clean(title), chart.flow)
+      let nodes = &mut List::new<canvas::Target>()
+      let sources = &mut List::new<Int>()
+      mut index = 0
+      for _ in chart.nodes {
+        nodes.push(canvas::Target::node)
+        sources.push(index)
+        index =+ 1
+      }
+      let edges = &mut List::new<Int>()
+      index = 0
+      for _ in chart.edges {
+        edges.push(index)
+        index =+ 1
+      }
+      Result::ok(
+        retarget(
+          drawing,
+          Section{
+            graph: layers::Graph{nodes: chart.nodes, edges: chart.edges},
+            kinds: nodes.*,
+            sources: sources.*,
+            edges: edges.*,
+          },
+          -1,
+        ),
+      )
     },
     false => sections(chart, clean(title)),
   }
@@ -866,14 +892,14 @@ private fn sections(chart: Flowchart, title: Str) canvas::Canvas!Str {
   // bounded together. Layout grows faster than a graph's size, so each
   // section counts as the square of its nodes and edges, and together they
   // may cost what the largest flowchart without subgraphs does.
-  let graphs = &mut List::new<layers::Graph>()
+  let graphs = &mut List::new<Section>()
   mut work = 0
   mut group = -1
   while group < chart.groups.size() {
-    let graph = section(chart, group)
-    let size = graph.nodes.size() + graph.edges.size()
+    let found = section(chart, group)
+    let size = found.graph.nodes.size() + found.graph.edges.size()
     work =+ size * size
-    graphs.push(graph)
+    graphs.push(found)
     group =+ 1
   }
   let parts = &mut List::new<canvas::Canvas>()
@@ -883,7 +909,8 @@ private fn sections(chart: Flowchart, title: Str) canvas::Canvas!Str {
     false => "",
   }
   group = -1
-  for graph in graphs {
+  for found in graphs {
+    let graph = found.graph
     if failure == "" and graph.nodes.size() > 0 {
       let heading = match group < 0 {
         true => title,
@@ -892,7 +919,7 @@ private fn sections(chart: Flowchart, title: Str) canvas::Canvas!Str {
       match layers::draw(graph, heading, section_flow(chart, group)) {
         ok(drawing) => {
           height =+ drawing.height + 1
-          parts.push(drawing)
+          parts.push(retarget(drawing, found, group))
         },
         err(reason) => {
           failure = match group < 0 {
@@ -966,10 +993,90 @@ private fn group_box(chart: Flowchart, group: Int) layers::Node {
 // What an end of an edge is in the drawing of subgraph outer: the node
 // itself, the box of the subgraph inside outer that holds it, a box for the
 // subgraph outer as a whole, or a box for something outside. Keys name each
-// one: `n`, `g`, `s`, or `x` for outside.
+// one: `n`, `g`, `s`, or `x` for outside. The box stands for the node or
+// subgraph target at index.
 private struct End {
   key: Str,
   node: layers::Node,
+  target: canvas::Target,
+  index: Int,
+}
+
+// The graph drawn for a section, and what its parts stand for in the
+// flowchart: each node a node or a subgraph, by kind and index, and each
+// edge the first of the flowchart's edges it draws.
+private struct Section {
+  graph: layers::Graph,
+  kinds: [canvas::Target],
+  sources: [Int],
+  edges: [Int],
+}
+
+// A section's drawing with its regions naming what they stand for in the
+// flowchart. A subgraph's heading names the subgraph; the flowchart's title
+// names nothing.
+private fn retarget(drawing: canvas::Canvas, found: Section, group: Int) canvas::Canvas {
+  let regions = &mut List::new<canvas::Region>()
+  for region in drawing.regions {
+    let kept = match region.target {
+      canvas::Target::node => {
+        Maybe::new(
+          canvas::Region{
+            target: found.kinds.at(region.index).or(canvas::Target::node),
+            index: found.sources.at(region.index).or(0),
+            x0: region.x0,
+            y0: region.y0,
+            x1: region.x1,
+            y1: region.y1,
+            line: region.line,
+          },
+        )
+      },
+      canvas::Target::edge => {
+        Maybe::new(
+          canvas::Region{
+            target: canvas::Target::edge,
+            index: found.edges.at(region.index).or(0),
+            x0: region.x0,
+            y0: region.y0,
+            x1: region.x1,
+            y1: region.y1,
+            line: region.line,
+          },
+        )
+      },
+      canvas::Target::heading => {
+        match group >= 0 {
+          true => {
+            Maybe::new(
+              canvas::Region{
+                target: canvas::Target::subgraph,
+                index: group,
+                x0: region.x0,
+                y0: region.y0,
+                x1: region.x1,
+                y1: region.y1,
+                line: region.line,
+              },
+            )
+          },
+          false => Maybe::new<canvas::Region>(),
+        }
+      },
+      _ => Maybe::new(region),
+    }
+    match kept {
+      region => regions.push(region),
+      _ => (),
+    }
+  }
+  canvas::Canvas{
+    width: drawing.width,
+    height: drawing.height,
+    texts: drawing.texts,
+    cells: drawing.cells,
+    regions: regions.*,
+  }
 }
 
 // An edge naming a subgraph ends at its box in its parent's drawing, at a
@@ -988,12 +1095,31 @@ private fn group_end(chart: Flowchart, group: Int, outer: Int) End {
     shape: layers::Shape::elsewhere,
   }
   match {
-    group == outer => End{key: "s", node: whole},
+    group == outer => {
+      End{
+        key: "s",
+        node: whole,
+        target: canvas::Target::subgraph,
+        index: group,
+      }
+    },
     inside(chart, group, outer) => {
       let child = child_of(chart, group, outer)
-      End{key: "g{child}", node: group_box(chart, child)}
+      End{
+        key: "g{child}",
+        node: group_box(chart, child),
+        target: canvas::Target::subgraph,
+        index: child,
+      }
     },
-    _ => End{key: "xg{group}", node: outside},
+    _ => {
+      End{
+        key: "xg{group}",
+        node: outside,
+        target: canvas::Target::subgraph,
+        index: group,
+      }
+    },
   }
 }
 
@@ -1016,9 +1142,23 @@ private fn node_end(chart: Flowchart, node: Int, outer: Int) End {
   }
   match {
     alias >= 0 => group_end(chart, alias, outer),
-    group == outer => End{key: "n{node}", node: found},
+    group == outer => {
+      End{
+        key: "n{node}",
+        node: found,
+        target: canvas::Target::node,
+        index: node,
+      }
+    },
     group >= 0 and inside(chart, group, outer) => group_end(chart, group, outer),
-    _ => End{key: "xn{node}", node: outside},
+    _ => {
+      End{
+        key: "xn{node}",
+        node: outside,
+        target: canvas::Target::node,
+        index: node,
+      }
+    },
   }
 }
 
@@ -1026,8 +1166,11 @@ private fn node_end(chart: Flowchart, node: Int, outer: Int) End {
 // nodes, a box for each subgraph inside it, and a box for each node outside
 // it that its edges reach. Edges within one inner subgraph are left to that
 // subgraph's drawing, and repeated edges are drawn once.
-private fn section(chart: Flowchart, outer: Int) layers::Graph {
+private fn section(chart: Flowchart, outer: Int) Section {
   let nodes = &mut List::new<layers::Node>()
+  let kinds = &mut List::new<canvas::Target>()
+  let sources = &mut List::new<Int>()
+  let firsts = &mut List::new<Int>()
   let keys = &mut Map::new<Int>()
   let add = fn(end: End) Int {
     match keys.get(end.key) {
@@ -1035,6 +1178,8 @@ private fn section(chart: Flowchart, outer: Int) layers::Graph {
       _ => {
         let index = nodes.size()
         nodes.push(end.node)
+        kinds.push(end.target)
+        sources.push(end.index)
         keys.set(end.key, index)
         index
       },
@@ -1056,6 +1201,7 @@ private fn section(chart: Flowchart, outer: Int) layers::Graph {
     index =+ 1
   }
   let edges = &mut List::new<layers::Edge>()
+  mut edge_index = 0
   for edge in chart.edges {
     let from = node_end(chart, edge.from, outer)
     let to = node_end(chart, edge.to, outer)
@@ -1071,10 +1217,17 @@ private fn section(chart: Flowchart, outer: Int) layers::Graph {
       }
       if not has_edge(edges.*, mapped) {
         edges.push(mapped)
+        firsts.push(edge_index)
       }
     }
+    edge_index =+ 1
   }
-  layers::Graph{nodes: nodes.*, edges: edges.*}
+  Section{
+    graph: layers::Graph{nodes: nodes.*, edges: edges.*},
+    kinds: kinds.*,
+    sources: sources.*,
+    edges: firsts.*,
+  }
 }
 
 fn expect_drawing(source: Str, expected: [Str]) Void!Str {
@@ -2122,4 +2275,81 @@ test fn common_spellings_are_read_as_mermaid_reads_them() Void!Str {
       "         └───────┘",
     ],
   )
+}
+
+// source's drawing.
+private fn drawn(source: Str) canvas::Canvas!Str {
+  let lines = strings::Split(source, "\n")
+  let body = &mut List::new<Str>()
+  mut index = 1
+  while index < lines.size() {
+    body.push(lines.at(index).or(""))
+    index =+ 1
+  }
+  render(lines.at(0).or(""), body.*, "")
+}
+
+// The region a cell of a drawing points at, as `target index`, or `none`.
+private fn pointed(drawing: canvas::Canvas, x: Int, y: Int) Str {
+  match drawing.hit(x, y) {
+    region => {
+      let kind = match region.target {
+        canvas::Target::node => "node",
+        canvas::Target::subgraph => "subgraph",
+        canvas::Target::edge => "edge",
+        _ => "other",
+      }
+      "{kind} {region.index}"
+    },
+    _ => "none",
+  }
+}
+
+// A node's box, an edge's own line and its text point at them; where edges
+// branch or merge, and off the drawing, nothing is pointed at.
+test fn points_on_a_flowchart_find_its_nodes_and_edges() Void!Str {
+  // Drawn as testdata/mermaid/flowchart-labeled-branches-merge-again.txt.
+  let drawing = try drawn("flowchart TD\nA{{Valid?}} -- yes --> B[Save]\nA -- no --> C[Reject]\nB --> D[Done]\nC --> D")
+  let got = [
+    pointed(drawing, 7, 1),
+    pointed(drawing, 16, 5),
+    pointed(drawing, 4, 4),
+    pointed(drawing, 10, 3),
+    pointed(drawing, 10, 10),
+    pointed(drawing, 0, 0),
+  ]
+  let shown = strings::Join(got, "|")
+  testing::assert(shown == "node 0|edge 1|edge 0|none|none|none", "got {shown}")
+}
+
+// A subgraph's box in the flowchart and its section's heading point at the
+// subgraph; its nodes, drawn in the section, at themselves.
+test fn points_on_a_flowchart_with_subgraphs_find_them() Void!Str {
+  let drawing = try drawn("flowchart TD\nA --> one\nsubgraph one\n  B --> C\nend")
+  let rows = strings::Join(drawing.lines(), "\n")
+  let found = &mut List::new<Str>()
+  mut y = 0
+  while y < drawing.height {
+    mut x = 0
+    while x < drawing.width {
+      let here = pointed(drawing, x, y)
+      if here != "none" and not has_text(found.*, here) {
+        found.push(here)
+      }
+      x =+ 1
+    }
+    y =+ 1
+  }
+  let shown = strings::Join(found.*, "|")
+  testing::assert(shown == "node 0|edge 0|subgraph 0|node 2|edge 1|node 3", "got {shown}\n{rows}")
+}
+
+private fn has_text(values: [Str], value: Str) Bool {
+  mut found = false
+  for other in values {
+    if other == value {
+      found = true
+    }
+  }
+  found
 }

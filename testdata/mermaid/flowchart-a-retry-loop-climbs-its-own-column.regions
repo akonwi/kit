@@ -1,0 +1,24 @@
+0 13 11 15 box node 2 node C "Run tool" (box)
+13 0 13 1 line edge 2 edge C --> A
+13 0 25 0 line edge 2 edge C --> A
+13 1 13 1 line edge 2 edge C --> A
+13 10 13 10 line edge 1 edge B -->|yes| C
+13 10 13 10 line edge 3 edge B -->|no| D
+13 10 19 10 line edge 3 edge B -->|no| D
+13 4 13 6 line edge 0 edge A --> B
+13 6 13 6 line edge 0 edge A --> B
+13 9 13 10 line edge 1 edge B -->|yes| C
+13 9 13 10 line edge 3 edge B -->|no| D
+15 13 23 15 box node 3 node D "Reply" (box)
+17 11 20 11 box edge 3 edge B -->|no| D
+19 10 19 12 line edge 3 edge B -->|no| D
+19 12 19 12 line edge 3 edge B -->|no| D
+25 0 25 16 line edge 2 edge C --> A
+4 11 8 11 box edge 1 edge B -->|yes| C
+6 10 13 10 line edge 1 edge B -->|yes| C
+6 10 6 12 line edge 1 edge B -->|yes| C
+6 12 6 12 line edge 1 edge B -->|yes| C
+6 15 6 16 line edge 2 edge C --> A
+6 16 25 16 line edge 2 edge C --> A
+6 7 19 9 box node 1 node B "Tool call?" (decision)
+8 2 17 4 box node 0 node A "Prompt" (box)

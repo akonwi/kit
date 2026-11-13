@@ -1529,6 +1529,7 @@ private fn route(
           let drawing = canvas::new(width, height)
           if title != "" {
             drawing.write(0, 0, title, canvas::Role::title, true)
+            drawing.mark(canvas::Target::heading, 0, 0, 0, ui::text_width(title) - 1, 0, false)
           }
           vertex = 0
           while vertex < count {
@@ -1543,11 +1544,19 @@ private fn route(
                 match across {
                   true => {
                     let x0 = minimum(pen.x(c, top), pen.x(c, top + get(thick, vertex) - 1))
-                    draw_node(drawing, node, x0, pen.y(c, top) - box / 2, get(thick, vertex), box)
+                    draw_node(
+                      drawing,
+                      node,
+                      vertex,
+                      x0,
+                      pen.y(c, top) - box / 2,
+                      get(thick, vertex),
+                      box,
+                    )
                   },
                   false => {
                     let y0 = minimum(pen.y(c, top), pen.y(c, top + 2))
-                    draw_node(drawing, node, c - box / 2, y0, box, 3)
+                    draw_node(drawing, node, vertex, c - box / 2, y0, box, 3)
                   },
                 }
               },
@@ -1560,6 +1569,7 @@ private fn route(
                   top + get(heights.*, k) - 1,
                   stroke == Stroke::dotted,
                   stroke == Stroke::thick,
+                  edge_into(segments, vertex),
                 )
               },
               _ => (),
@@ -1630,27 +1640,30 @@ private fn route(
               // A loop leaves its source for its outer column, and enters
               // its target from it.
               segment.to >= virtual_start => {
-                pen.along(drawing, from, start, row, dashed, heavy)
-                pen.side(drawing, row, from, to, dashed, heavy)
+                pen.along(drawing, from, start, row, dashed, heavy, segment.edge)
+                pen.side(drawing, row, from, to, dashed, heavy, segment.edge)
                 exit_rows.set(segment.edge, row)
               },
               segment.from >= virtual_start => {
-                pen.side(drawing, row, to, from, dashed, heavy)
-                pen.along(drawing, to, row, end, dashed, heavy)
+                pen.side(drawing, row, to, from, dashed, heavy, segment.edge)
+                pen.along(drawing, to, row, end, dashed, heavy, segment.edge)
                 entry_rows.set(segment.edge, row)
               },
-              star.straight => pen.along(drawing, from, start, end, dashed, heavy),
+              star.straight => pen.along(drawing, from, start, end, dashed, heavy, segment.edge),
               _ => {
-                pen.along(drawing, from, start, row, dashed, heavy)
+                pen.along(drawing, from, start, row, dashed, heavy, segment.edge)
                 if from != to {
-                  pen.side(drawing, row, from, to, dashed, heavy)
+                  pen.side(drawing, row, from, to, dashed, heavy, segment.edge)
                 }
-                pen.along(drawing, to, row, end, dashed, heavy)
+                pen.along(drawing, to, row, end, dashed, heavy, segment.edge)
               },
             }
             if head {
               heads.push(pen.x(to, below - 1))
               heads.push(pen.y(to, below - 1))
+              let head_x = pen.x(to, below - 1)
+              let head_y = pen.y(to, below - 1)
+              drawing.mark(canvas::Target::edge, segment.edge, head_x, head_y, head_x, head_y, true)
               head_glyphs.push(pen.head(edge.head))
             }
             let first = segment.from == edge.from
@@ -1668,6 +1681,9 @@ private fn route(
             if decision and get(stem_uses, get(ports.stem, index)) > 1 and (not star.straight) {
               forks.push(pen.x(from, row))
               forks.push(pen.y(from, row))
+              let fork_x = pen.x(from, row)
+              let fork_y = pen.y(from, row)
+              drawing.mark(canvas::Target::edge, segment.edge, fork_x, fork_y, fork_x, fork_y, true)
             }
             index =+ 1
           }
@@ -1708,6 +1724,7 @@ private fn route(
                 bottom,
                 edge.stroke == Stroke::dotted,
                 edge.stroke == Stroke::thick,
+                edge_index,
               )
               let x0 = minimum(pen.x(x, top), pen.x(x, bottom))
               let x1 = maximum(pen.x(x, top), pen.x(x, bottom))
@@ -1800,6 +1817,7 @@ private fn route(
             }
             if fits {
               drawing.write(x0, y, text, canvas::Role::label, false)
+              drawing.mark(canvas::Target::edge, get(labels.*, index), x0, y, x1, y, false)
               placed.set(get(labels.*, index), 1)
             }
             index =+ 4
@@ -1851,11 +1869,20 @@ impl Pen {
   }
 
   // Draws a line along the flow, at cross from a0 to a1.
-  fn along(drawing: &mut canvas::Canvas, c: Int, a0: Int, a1: Int, dashed: Bool, heavy: Bool) {
+  fn along(
+    drawing: &mut canvas::Canvas,
+    c: Int,
+    a0: Int,
+    a1: Int,
+    dashed: Bool,
+    heavy: Bool,
+    edge: Int,
+  ) {
     let x0 = self.x(c, a0)
     let x1 = self.x(c, a1)
     let y0 = self.y(c, a0)
     let y1 = self.y(c, a1)
+    drawing.mark(canvas::Target::edge, edge, x0, y0, x1, y1, true)
     match self.flow == Flow::down or self.flow == Flow::up {
       true => {
         drawing.vertical_styled(
@@ -1881,11 +1908,20 @@ impl Pen {
   }
 
   // Draws a line across the flow, at along from c0 to c1.
-  fn side(drawing: &mut canvas::Canvas, a: Int, c0: Int, c1: Int, dashed: Bool, heavy: Bool) {
+  fn side(
+    drawing: &mut canvas::Canvas,
+    a: Int,
+    c0: Int,
+    c1: Int,
+    dashed: Bool,
+    heavy: Bool,
+    edge: Int,
+  ) {
     let x0 = self.x(c0, a)
     let x1 = self.x(c1, a)
     let y0 = self.y(c0, a)
     let y1 = self.y(c1, a)
+    drawing.mark(canvas::Target::edge, edge, x0, y0, x1, y1, true)
     match self.flow == Flow::down or self.flow == Flow::up {
       true => {
         drawing.horizontal_styled(
@@ -2018,6 +2054,7 @@ private fn has_drop_label(graph: Graph, spots: [Spot], node: Int) Bool {
 private fn draw_node(
   drawing: &mut canvas::Canvas,
   node: Node,
+  index: Int,
   x0: Int,
   top: Int,
   box: Int,
@@ -2025,6 +2062,7 @@ private fn draw_node(
 ) {
   let x1 = x0 + box - 1
   let bottom = top + height - 1
+  drawing.mark(canvas::Target::node, index, x0, top, x1, bottom, false)
   let middle = top + height / 2
   let rounded = node.shape == Shape::round or node.shape == Shape::stadium or node.shape == Shape::circle
   match node.shape == Shape::elsewhere {
@@ -2102,6 +2140,17 @@ private fn has(values: [Int], value: Int) Bool {
     }
   }
   found
+}
+
+// The edge whose segment enters vertex.
+private fn edge_into(segments: [Segment], vertex: Int) Int {
+  mut edge = 0
+  for segment in segments {
+    if segment.to == vertex {
+      edge = segment.edge
+    }
+  }
+  edge
 }
 
 // The stroke of the edge whose segment enters vertex.

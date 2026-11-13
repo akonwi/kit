@@ -1,0 +1,82 @@
+use go:strings
+
+// A Mermaid source read into the parts every diagram type shares: the
+// frontmatter's title, the header statement that names the diagram's type,
+// and the lines after it.
+
+struct Source {
+  title: Str,
+  header: Str,
+  body: [Str],
+  // Why the source can't be read, or empty.
+  failure: Str,
+}
+
+private fn first_word(line: Str) Str {
+  let space = strings::IndexAny(line, " \t")
+  match space >= 0 {
+    true => line.slice(end: space).or(line),
+    false => line,
+  }
+}
+
+// The diagram's type: the header's first word.
+fn kind(header: Str) Str {
+  first_word(header)
+}
+
+// Reads source into its parts.
+fn read(source: Str) Source {
+  let lines = strings::Split(strings::ReplaceAll(source, "\r\n", "\n"), "\n")
+  mut index = 0
+  mut title = ""
+  mut failure = ""
+  mut blank = true
+  while blank {
+    blank = index < lines.size() and strings::TrimSpace(lines.at(index).or("")) == ""
+    if blank {
+      index =+ 1
+    }
+  }
+  // YAML frontmatter, of which only the title is used.
+  if strings::TrimSpace(lines.at(index).or("")) == "---" {
+    index =+ 1
+    mut closed = false
+    mut scanning = index < lines.size()
+    while scanning {
+      let line = strings::TrimSpace(lines.at(index).or(""))
+      if line == "---" {
+        closed = true
+      } else if strings::HasPrefix(lines.at(index).or(""), "title:") {
+        title = strings::Trim(strings::TrimSpace(strings::TrimPrefix(line, "title:")), "\"'")
+      }
+      index =+ 1
+      scanning = (not closed) and index < lines.size()
+    }
+    if not closed {
+      failure = "the frontmatter isn't closed"
+    }
+  }
+  // The header is the first statement; comments and directives come first.
+  mut header = ""
+  mut searching = index < lines.size()
+  while searching {
+    let line = strings::TrimSpace(lines.at(index).or(""))
+    if line != "" and not strings::HasPrefix(line, "%%") {
+      header = line
+    }
+    index =+ 1
+    searching = header == "" and index < lines.size()
+  }
+  let body = &mut List::new<Str>()
+  while index < lines.size() {
+    body.push(lines.at(index).or(""))
+    index =+ 1
+  }
+  Source{
+    title: title,
+    header: header,
+    body: body.*,
+    failure: failure,
+  }
+}

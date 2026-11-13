@@ -1,0 +1,7 @@
+0 0 16 2 box node 0 node A "Quoted [text]" (box)
+4 10 11 12 box node 2 node C "Done" (box)
+6 5 10 7 box node 1 node B (box)
+8 2 8 4 line edge 0 edge A --> B
+8 4 8 4 line edge 0 edge A --> B
+8 7 8 9 line edge 1 edge B --> C
+8 9 8 9 line edge 1 edge B --> C

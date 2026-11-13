@@ -1,0 +1,6 @@
+0 0 4 2 box participant 0 participant A
+17 0 21 2 box participant 1 participant B
+19 3 19 9 line participant 1 participant B
+2 3 2 9 line participant 0 participant A
+2 4 19 5 box message 0 message 1 of 2: A->>B: one two three
+2 7 19 8 box message 1 message 2 of 2: B-->>A: four five

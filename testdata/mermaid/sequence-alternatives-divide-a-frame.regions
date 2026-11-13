@@ -1,0 +1,14 @@
+0 0 4 2 box participant 0 participant A
+0 11 17 11 line block 1 block 1 of 1: alt ok
+0 15 17 15 line block 1 block 1 of 1: alt ok
+0 7 0 15 line block 1 block 1 of 1: alt ok
+0 7 17 7 line block 1 block 1 of 1: alt ok
+1 11 15 11 box block 1 block 1 of 1: alt ok
+1 7 10 7 box block 1 block 1 of 1: alt ok
+10 3 10 16 line participant 1 participant B
+17 7 17 15 line block 1 block 1 of 1: alt ok
+2 12 10 13 box message 4 message 3 of 3: B--xA: no
+2 3 2 16 line participant 0 participant A
+2 4 10 5 box message 0 message 1 of 3: A->>B: hi
+2 8 10 9 box message 2 message 2 of 3: B-->>A: yes
+8 0 12 2 box participant 1 participant B

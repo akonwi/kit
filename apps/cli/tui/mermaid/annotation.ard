@@ -1,0 +1,614 @@
+use ard/testing
+
+use kit/tui/mermaid/canvas
+use kit/tui/mermaid/flowchart
+use kit/tui/mermaid/layers
+use kit/tui/mermaid/sequence
+use kit/tui/mermaid/source
+use go:strings
+
+// Annotations on a drawn Mermaid diagram: the text the model gets for a
+// comment on one of its parts. Each annotation is a block appended to the
+// message: the person's comment, then what Kit read from the diagram, fenced
+// as untrusted with a nonce since the diagram's text came from a reply.
+// The diagram's source goes in the first block that annotates it; later
+// blocks on the same diagram point back to that one. The browser and Apple
+// clients write the same text, held to the fixtures in
+// `testdata/mermaid/annotations`.
+
+let open_tag = "<diagram-annotation n=\""
+let close_tag = "</diagram-annotation>"
+let fence_name = "UNTRUSTED_DIAGRAM_CONTENT"
+// The most edges, members, or statements listed for one target; the rest
+// are counted.
+let max_listed = 20
+// The largest source annotated, as the largest drawn.
+let max_source = 16384
+
+// One annotation in a message: its comment on the target index of a
+// diagram's source, and the nonce its fence is tagged with.
+struct Annotation {
+  comment: Str,
+  source: Str,
+  target: canvas::Target,
+  index: Int,
+  nonce: Str,
+}
+
+private fn quoted(text: Str) Str {
+  "\"" + strings::ReplaceAll(strings::ReplaceAll(text, "\\", "\\\\"), "\"", "\\\"") + "\""
+}
+
+// id with its label in quotes when the label says something else.
+private fn named(id: Str, label: Str) Str {
+  match label == "" or label == id {
+    true => id,
+    false => "{id} {quoted(label)}",
+  }
+}
+
+// items joined with "; ", the first max_listed of them, then how many more.
+private fn listed(items: [Str]) Str {
+  match items.size() == 0 {
+    true => "none",
+    false => {
+      let kept = &mut List::new<Str>()
+      for item in items {
+        if kept.size() < max_listed {
+          kept.push(item)
+        }
+      }
+      match items.size() > max_listed {
+        true => strings::Join(kept.*, "; ") + "; and {items.size() - max_listed} more",
+        false => strings::Join(kept.*, "; "),
+      }
+    },
+  }
+}
+
+private fn shape_name(shape: layers::Shape) Str {
+  match shape {
+    layers::Shape::box => "box",
+    layers::Shape::round => "rounded",
+    layers::Shape::stadium => "stadium",
+    layers::Shape::circle => "circle",
+    layers::Shape::database => "database",
+    layers::Shape::decision => "decision",
+    layers::Shape::elsewhere => "box",
+  }
+}
+
+// An edge's link as Mermaid writes it, with its text.
+private fn link(edge: layers::Edge) Str {
+  let head = match edge.head {
+    layers::Head::arrow => ">",
+    layers::Head::cross => "x",
+    layers::Head::circle => "o",
+    layers::Head::none => "",
+  }
+  let line = match edge.stroke {
+    layers::Stroke::solid => {
+      match head == "" {
+        true => "---",
+        false => "--{head}",
+      }
+    },
+    layers::Stroke::dotted => {
+      match head == "" {
+        true => "-.-",
+        false => "-.-{head}",
+      }
+    },
+    layers::Stroke::thick => {
+      match head == "" {
+        true => "===",
+        false => "=={head}",
+      }
+    },
+  }
+  match edge.label == "" {
+    true => line,
+    false => "{line}|{edge.label}|",
+  }
+}
+
+// The id an edge's end names: a node's, or a subgraph's when the node
+// stands for one.
+private fn end_id(chart: flowchart::Flowchart, node: Int) Str {
+  chart.nodes.at(node).expect("node").id
+}
+
+// A node or the subgraph it stands for, by id and label.
+private fn end_name(chart: flowchart::Flowchart, node: Int) Str {
+  let group = chart.alias.at(node).or(-1)
+  match group >= 0 {
+    true => {
+      let found = chart.groups.at(group).expect("group")
+      "subgraph " + named(found.id, flowchart::clean(found.title))
+    },
+    false => {
+      let found = chart.nodes.at(node).expect("node")
+      named(found.id, found.text)
+    },
+  }
+}
+
+private fn edge_text(chart: flowchart::Flowchart, edge: layers::Edge) Str {
+  "{end_id(chart, edge.from)} {link(edge)} {end_id(chart, edge.to)}"
+}
+
+private fn group_name(chart: flowchart::Flowchart, group: Int) Str {
+  let found = chart.groups.at(group).expect("group")
+  named(found.id, flowchart::clean(found.title))
+}
+
+// The lines describing a flowchart's target.
+private fn flowchart_lines(chart: flowchart::Flowchart, target: canvas::Target, index: Int) [Str] {
+  let lines = &mut List::new<Str>()
+  match target {
+    canvas::Target::node => {
+      let node = chart.nodes.at(index).expect("node")
+      lines.push("Target: node {named(node.id, node.text)} ({shape_name(node.shape)})")
+      let group = chart.member.at(index).or(-1)
+      if group >= 0 {
+        lines.push("In subgraph: {group_name(chart, group)}")
+      }
+      let into = &mut List::new<Str>()
+      let out = &mut List::new<Str>()
+      let neighbors = &mut List::new<Str>()
+      let seen = &mut List::new<Int>()
+      for edge in chart.edges {
+        if edge.to == index {
+          into.push(edge_text(chart, edge))
+        }
+      }
+      for edge in chart.edges {
+        if edge.from == index {
+          out.push(edge_text(chart, edge))
+        }
+      }
+      for edge in chart.edges {
+        if edge.to == index and edge.from != index and (not has(seen.*, edge.from)) {
+          seen.push(edge.from)
+          neighbors.push(end_name(chart, edge.from))
+        }
+      }
+      for edge in chart.edges {
+        if edge.from == index and edge.to != index and (not has(seen.*, edge.to)) {
+          seen.push(edge.to)
+          neighbors.push(end_name(chart, edge.to))
+        }
+      }
+      lines.push("Edges in: {listed(into.*)}")
+      lines.push("Edges out: {listed(out.*)}")
+      lines.push("Neighbors: {listed(neighbors.*)}")
+    },
+    canvas::Target::subgraph => {
+      let group = chart.groups.at(index).expect("subgraph")
+      lines.push("Target: subgraph {group_name(chart, index)}")
+      if group.parent >= 0 {
+        lines.push("In subgraph: {group_name(chart, group.parent)}")
+      }
+      let members = &mut List::new<Str>()
+      mut node = 0
+      for found in chart.nodes {
+        if chart.member.at(node).or(-1) == index and chart.alias.at(node).or(-1) < 0 {
+          members.push(named(found.id, found.text))
+        }
+        node =+ 1
+      }
+      mut inner = 0
+      for found in chart.groups {
+        if found.parent == index {
+          members.push("subgraph {group_name(chart, inner)}")
+        }
+        inner =+ 1
+      }
+      lines.push("Holds: {listed(members.*)}")
+      let into = &mut List::new<Str>()
+      let out = &mut List::new<Str>()
+      for edge in chart.edges {
+        if chart.alias.at(edge.to).or(-1) == index {
+          into.push(edge_text(chart, edge))
+        }
+        if chart.alias.at(edge.from).or(-1) == index {
+          out.push(edge_text(chart, edge))
+        }
+      }
+      if into.size() > 0 {
+        lines.push("Edges in: {listed(into.*)}")
+      }
+      if out.size() > 0 {
+        lines.push("Edges out: {listed(out.*)}")
+      }
+    },
+    canvas::Target::edge => {
+      let edge = chart.edges.at(index).expect("edge")
+      lines.push("Target: edge {edge_text(chart, edge)}")
+      lines.push("From: {end_name(chart, edge.from)}")
+      lines.push("To: {end_name(chart, edge.to)}")
+    },
+    _ => (),
+  }
+  lines.*
+}
+
+// Whether a flowchart has target index.
+private fn in_flowchart(chart: flowchart::Flowchart, target: canvas::Target, index: Int) Bool {
+  let has = match target {
+    canvas::Target::node => index < chart.nodes.size() and chart.alias.at(index).or(-1) < 0,
+    canvas::Target::subgraph => index < chart.groups.size(),
+    canvas::Target::edge => index < chart.edges.size(),
+    _ => false,
+  }
+  index >= 0 and has
+}
+
+// Whether a sequence diagram has target index.
+private fn in_sequence(diagram: sequence::Diagram, target: canvas::Target, index: Int) Bool {
+  let kind = match diagram.events.at(index) {
+    item => item.kind,
+    _ => sequence::Kind::close,
+  }
+  let has = match target {
+    canvas::Target::participant => index < diagram.participants.size(),
+    canvas::Target::message => kind == sequence::Kind::message,
+    canvas::Target::note => kind == sequence::Kind::note,
+    canvas::Target::block => kind == sequence::Kind::open,
+    _ => false,
+  }
+  index >= 0 and has
+}
+
+private fn has(values: [Int], value: Int) Bool {
+  mut found = false
+  for other in values {
+    if other == value {
+      found = true
+    }
+  }
+  found
+}
+
+private fn participant_name(diagram: sequence::Diagram, index: Int) Str {
+  let found = diagram.participants.at(index).expect("participant")
+  named(found.id, found.label)
+}
+
+private fn participant_id(diagram: sequence::Diagram, index: Int) Str {
+  diagram.participants.at(index).expect("participant").id
+}
+
+// A message as Mermaid writes it.
+private fn message_text(diagram: sequence::Diagram, item: sequence::Event) Str {
+  let statement = "{participant_id(diagram, item.from)}{sequence::arrow(item)}{participant_id(diagram, item.to)}"
+  match item.written == "" {
+    true => statement,
+    false => "{statement}: {item.written}",
+  }
+}
+
+// A note as Mermaid writes it.
+private fn note_text(diagram: sequence::Diagram, item: sequence::Event) Str {
+  let place = match item.placement {
+    sequence::Placement::left => "left of {participant_id(diagram, item.from)}",
+    sequence::Placement::right => "right of {participant_id(diagram, item.to)}",
+    sequence::Placement::over => {
+      match item.from == item.to {
+        true => "over {participant_id(diagram, item.from)}",
+        false => "over {participant_id(diagram, item.from)},{participant_id(diagram, item.to)}",
+      }
+    },
+  }
+  "Note {place}: {item.text}"
+}
+
+// A block's opening or divider statement.
+private fn block_text(item: sequence::Event) Str {
+  match item.text == "" {
+    true => item.keyword,
+    false => "{item.keyword} {item.text}",
+  }
+}
+
+// How many statements of kind come before event index, counting it.
+private fn ordinal(diagram: sequence::Diagram, kind: sequence::Kind, index: Int) Int {
+  mut count = 0
+  mut at = 0
+  for item in diagram.events {
+    if at <= index and item.kind == kind {
+      count =+ 1
+    }
+    at =+ 1
+  }
+  count
+}
+
+private fn total(diagram: sequence::Diagram, kind: sequence::Kind) Int {
+  mut count = 0
+  for item in diagram.events {
+    if item.kind == kind {
+      count =+ 1
+    }
+  }
+  count
+}
+
+// The blocks around event index, outermost first, each as its opening
+// statement and, past a divider, the divider's.
+private fn enclosing(diagram: sequence::Diagram, index: Int) Str {
+  // The blocks open so far, innermost at depth - 1; deeper entries are
+  // left from blocks already closed.
+  let opens = &mut List::new<Str>()
+  let sections = &mut List::new<Str>()
+  mut depth = 0
+  mut at = 0
+  for item in diagram.events {
+    if at < index {
+      match item.kind {
+        sequence::Kind::open => {
+          match depth < opens.size() {
+            true => {
+              let _ = opens.set(depth, block_text(item))
+              let _ = sections.set(depth, "")
+            },
+            false => {
+              let _ = opens.push(block_text(item))
+              let _ = sections.push("")
+            },
+          }
+          depth =+ 1
+        },
+        sequence::Kind::divider => {
+          if depth > 0 {
+            sections.set(depth - 1, block_text(item))
+          }
+        },
+        sequence::Kind::close => {
+          if depth > 0 {
+            depth =- 1
+          }
+        },
+        _ => (),
+      }
+    }
+    at =+ 1
+  }
+  let parts = &mut List::new<Str>()
+  mut level = 0
+  while level < depth {
+    let opened = opens.at(level).or("")
+    let section = sections.at(level).or("")
+    parts.push(
+      match section == "" {
+        true => opened,
+        false => "{opened} / {section}",
+      },
+    )
+    level =+ 1
+  }
+  strings::Join(parts.*, " > ")
+}
+
+// The lines describing a sequence diagram's target.
+private fn sequence_lines(diagram: sequence::Diagram, target: canvas::Target, index: Int) [Str] {
+  let lines = &mut List::new<Str>()
+  match target {
+    canvas::Target::participant => {
+      let found = diagram.participants.at(index).expect("participant")
+      let kind = match found.actor {
+        true => "actor",
+        false => "participant",
+      }
+      lines.push("Target: {kind} {participant_name(diagram, index)}")
+      let sent = &mut List::new<Str>()
+      mut at = 0
+      for item in diagram.events {
+        if item.kind == sequence::Kind::message and (item.from == index or item.to == index) {
+          sent.push(
+            "{ordinal(diagram, sequence::Kind::message, at)}. {message_text(diagram, item)}",
+          )
+        }
+        at =+ 1
+      }
+      lines.push("Messages: {listed(sent.*)}")
+    },
+    canvas::Target::message => {
+      let item = diagram.events.at(index).expect("message")
+      let number = ordinal(diagram, sequence::Kind::message, index)
+      let count = total(diagram, sequence::Kind::message)
+      let shown = match item.number == "" {
+        true => "",
+        false => ", numbered {item.number}",
+      }
+      lines.push("Target: message {number} of {count}{shown}: {message_text(diagram, item)}")
+      lines.push("From: {participant_name(diagram, item.from)}")
+      lines.push("To: {participant_name(diagram, item.to)}")
+      let around = enclosing(diagram, index)
+      if around != "" {
+        lines.push("Inside: {around}")
+      }
+    },
+    canvas::Target::note => {
+      let item = diagram.events.at(index).expect("note")
+      let number = ordinal(diagram, sequence::Kind::note, index)
+      let count = total(diagram, sequence::Kind::note)
+      lines.push("Target: note {number} of {count}: {note_text(diagram, item)}")
+      let around = enclosing(diagram, index)
+      if around != "" {
+        lines.push("Inside: {around}")
+      }
+    },
+    canvas::Target::block => {
+      let item = diagram.events.at(index).expect("block")
+      let number = ordinal(diagram, sequence::Kind::open, index)
+      let count = total(diagram, sequence::Kind::open)
+      lines.push("Target: block {number} of {count}: {block_text(item)}")
+      // The statements inside, up to the block's end.
+      let dividers = &mut List::new<Str>()
+      let held = &mut List::new<Str>()
+      mut depth = 0
+      mut at = 0
+      mut done = false
+      for inner in diagram.events {
+        if at > index and not done {
+          match inner.kind {
+            sequence::Kind::open => { depth =+ 1 },
+            sequence::Kind::close => {
+              match depth == 0 {
+                true => { done = true },
+                false => { depth =- 1 },
+              }
+            },
+            sequence::Kind::divider => {
+              if depth == 0 {
+                dividers.push(block_text(inner))
+              }
+            },
+            sequence::Kind::message => held.push("message {ordinal(diagram, sequence::Kind::message, at)}"),
+            sequence::Kind::note => held.push("note {ordinal(diagram, sequence::Kind::note, at)}"),
+          }
+        }
+        at =+ 1
+      }
+      if dividers.size() > 0 {
+        lines.push("Sections: {listed(dividers.*)}")
+      }
+      lines.push("Holds: {listed(held.*)}")
+      let around = enclosing(diagram, index)
+      if around != "" {
+        lines.push("Inside: {around}")
+      }
+    },
+    _ => (),
+  }
+  lines.*
+}
+
+// What Kit reads from text's diagram about a target: its type, title, and
+// the target with what it connects to.
+fn describe(text: Str, target: canvas::Target, index: Int) [Str]!Str {
+  try within(text.size() <= max_source, "the source is larger than {max_source / 1024} KiB")
+  let parts = source::read(text)
+  try within(parts.failure == "", parts.failure)
+  let kind = source::kind(parts.header)
+  let lines = &mut ["Diagram: {parts.header}"]
+  mut known = true
+  match kind {
+    "sequenceDiagram" => {
+      let diagram = try sequence::parse(parts.body, parts.title)
+      if not in_sequence(diagram, target, index) {
+        known = false
+      }
+      if diagram.title != "" {
+        lines.push("Title: {diagram.title}")
+      }
+      if known {
+        for line in sequence_lines(diagram, target, index) {
+          lines.push(line)
+        }
+      }
+    },
+    _ => {
+      let chart = try flowchart::parse(parts.header, parts.body)
+      if not in_flowchart(chart, target, index) {
+        known = false
+      }
+      let title = flowchart::clean(parts.title)
+      if title != "" {
+        lines.push("Title: {title}")
+      }
+      if known {
+        for line in flowchart_lines(chart, target, index) {
+          lines.push(line)
+        }
+      }
+    },
+  }
+  match known {
+    true => Result::ok(lines.*),
+    false => Result::err("the diagram has no such part"),
+  }
+}
+
+private fn within(ok: Bool, reason: Str) Void!Str {
+  match ok {
+    true => Result::ok(()),
+    false => Result::err(reason),
+  }
+}
+
+// The target, as its description's `Target:` line names it.
+fn summary(text: Str, target: canvas::Target, index: Int) Str!Str {
+  mut found = ""
+  let described = try describe(text, target, index)
+  for line in described {
+    if found == "" and strings::HasPrefix(line, "Target: ") {
+      found = strings::TrimPrefix(line, "Target: ")
+    }
+  }
+  Result::ok(found)
+}
+
+// The source as the model gets it: its lines without carriage returns or
+// the blank lines around them.
+private fn source_text(text: Str) Str {
+  strings::Trim(strings::ReplaceAll(text, "\r\n", "\n"), "\n")
+}
+
+// One annotation's block, numbered number. shared is the number of an
+// earlier block in the message with the same diagram's source, or 0.
+fn block(number: Int, item: Annotation, shared: Int) Str!Str {
+  // A comment's later lines are indented, so none can pass for a line of
+  // the block.
+  let comment = strings::Join(strings::Split(strings::TrimSpace(item.comment), "\n"), "\n  ")
+  let lines = &mut [
+    "{open_tag}{number}\">",
+    "Comment: {comment}",
+    "[{fence_name} nonce={item.nonce}]",
+  ]
+  let described = try describe(item.source, item.target, item.index)
+  for line in described {
+    lines.push(line)
+  }
+  match shared > 0 {
+    true => lines.push("Source: as in annotation {shared}"),
+    false => {
+      lines.push("Source:")
+      lines.push(source_text(item.source))
+    },
+  }
+  lines.push("[/{fence_name} nonce={item.nonce}]")
+  lines.push(close_tag)
+  Result::ok(strings::Join(lines.*, "\n"))
+}
+
+// The blocks for a message's annotations, numbered from 1, a blank line
+// apart.
+fn text(items: [Annotation]) Str!Str {
+  let blocks = &mut List::new<Str>()
+  let sources = &mut List::new<Str>()
+  mut number = 1
+  for item in items {
+    mut shared = 0
+    mut earlier = 1
+    for other in sources {
+      if shared == 0 and other == item.source {
+        shared = earlier
+      }
+      earlier =+ 1
+    }
+    sources.push(item.source)
+    blocks.push(try block(number, item, shared))
+    number =+ 1
+  }
+  Result::ok(strings::Join(blocks.*, "\n\n"))
+}
+
+test fn a_node_is_described_with_its_edges_and_neighbors() Void!Str {
+  let source = "flowchart TD\nA{{Valid?}} -- yes --> B[Save]\nA -- no --> C[Reject]\nB --> D[Done]\nC --> D"
+  let lines = try describe(source, canvas::Target::node, 0)
+  let got = strings::Join(lines, "\n")
+  let want = "Diagram: flowchart TD\nTarget: node A \"Valid?\" (decision)\nEdges in: none\nEdges out: A -->|yes| B; A -->|no| C\nNeighbors: B \"Save\"; C \"Reject\""
+  testing::assert(got == want, "got:\n{got}")
+}

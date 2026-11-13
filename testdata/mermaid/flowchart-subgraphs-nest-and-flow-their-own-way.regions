@@ -1,0 +1,32 @@
+0 0 7 2 box node 0 node U "User" (box)
+0 16 15 18 box subgraph 1 subgraph Cache "Edge cache"
+0 20 9 20 box subgraph 1 subgraph Cache "Edge cache"
+0 22 18 24 box node 3 node S "State" (box)
+0 4 6 4 box subgraph 0 subgraph Web "Web app"
+11 1 11 1 line edge 0 edge U --> Web
+11 11 19 13 box node 3 node S "State" (box)
+11 6 19 8 box node 2 node P "Pages" (box)
+12 0 24 2 box subgraph 0 subgraph Web "Web app"
+14 13 14 15 line edge 2 edge S --> K
+14 15 14 15 line edge 2 edge S --> K
+15 10 15 10 line edge 1 edge P --> S
+15 8 15 10 line edge 1 edge P --> S
+16 13 16 14 line edge 3 edge S -.-> API
+16 14 22 14 line edge 3 edge S -.-> API
+19 16 25 18 box node 5 node API (box)
+22 14 22 15 line edge 3 edge S -.-> API
+22 15 22 15 line edge 3 edge S -.-> API
+23 11 40 13 box subgraph 0 subgraph Web "Web app"
+24 1 28 1 line edge 3 edge S -.-> API
+28 1 28 1 line edge 3 edge S -.-> API
+28 6 35 8 box node 0 node U "User" (box)
+29 0 35 2 box node 5 node API (box)
+32 10 32 10 line edge 0 edge U --> Web
+32 8 32 10 line edge 0 edge U --> Web
+35 1 39 1 line edge 4 edge API --> DB
+39 1 39 1 line edge 4 edge API --> DB
+40 0 51 2 box node 6 node DB "Postgres" (database)
+5 27 12 29 box node 4 node K "Keys" (box)
+7 1 11 1 line edge 0 edge U --> Web
+9 24 9 26 line edge 2 edge S --> K
+9 26 9 26 line edge 2 edge S --> K

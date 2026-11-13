@@ -1,0 +1,7 @@
+0 5 9 7 box node 1 node B "Middle" (box)
+1 0 9 2 box node 0 node A "Start" (box)
+2 10 8 12 box node 2 node C "End" (box)
+5 2 5 4 line edge 0 edge A --> B
+5 4 5 4 line edge 0 edge A --> B
+5 7 5 9 line edge 1 edge B --> C
+5 9 5 9 line edge 1 edge B --> C

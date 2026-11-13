@@ -1,0 +1,15 @@
+0 7 9 9 box node 1 node B "Review" (box)
+1 12 9 14 box node 2 node C "Merge" (box)
+1 2 9 4 box node 0 node A "Draft" (box)
+11 0 11 10 line edge 1 edge B -->|changes| A
+12 5 20 5 box edge 1 edge B -->|changes| A
+5 0 11 0 line edge 1 edge B -->|changes| A
+5 0 5 1 line edge 1 edge B -->|changes| A
+5 1 5 1 line edge 1 edge B -->|changes| A
+5 10 11 10 line edge 1 edge B -->|changes| A
+5 10 5 11 line edge 2 edge B --> C
+5 11 5 11 line edge 2 edge B --> C
+5 4 5 6 line edge 0 edge A --> B
+5 6 5 6 line edge 0 edge A --> B
+5 9 5 10 line edge 1 edge B -->|changes| A
+5 9 5 10 line edge 2 edge B --> C

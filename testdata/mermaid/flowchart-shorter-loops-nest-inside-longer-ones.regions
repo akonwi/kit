@@ -1,0 +1,24 @@
+0 13 4 15 box node 2 node C (box)
+0 18 4 20 box node 3 node D (box)
+0 2 4 4 box node 0 node A (box)
+0 7 4 9 box node 1 node B (box)
+1 11 1 12 line edge 1 edge B --> C
+1 11 2 11 line edge 1 edge B --> C
+1 12 1 12 line edge 1 edge B --> C
+2 0 2 1 line edge 4 edge D --> A
+2 0 8 0 line edge 4 edge D --> A
+2 1 2 1 line edge 4 edge D --> A
+2 15 2 17 line edge 2 edge C --> D
+2 17 2 17 line edge 2 edge C --> D
+2 20 2 21 line edge 3 edge D --> C
+2 20 2 21 line edge 4 edge D --> A
+2 21 6 21 line edge 3 edge D --> C
+2 21 8 21 line edge 4 edge D --> A
+2 4 2 6 line edge 0 edge A --> B
+2 6 2 6 line edge 0 edge A --> B
+2 9 2 11 line edge 1 edge B --> C
+3 10 3 12 line edge 3 edge D --> C
+3 10 6 10 line edge 3 edge D --> C
+3 12 3 12 line edge 3 edge D --> C
+6 10 6 21 line edge 3 edge D --> C
+8 0 8 21 line edge 4 edge D --> A

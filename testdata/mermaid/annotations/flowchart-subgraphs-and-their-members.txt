@@ -1,0 +1,75 @@
+annotate flowchart-docs-subgraph-example.mmd subgraph 1 n0101
+Split these into separate deploys.
+annotate flowchart-docs-subgraph-example.mmd node 0 n0102
+Is this the SPA or the server-rendered app?
+annotate flowchart-edges-may-name-subgraphs.mmd subgraph 0 n0103
+What enters here?
+annotate flowchart-edges-may-name-subgraphs.mmd edge 2 n0104
+Name this transition.
+===
+<diagram-annotation n="1">
+Comment: Split these into separate deploys.
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0101]
+Diagram: flowchart LR
+Target: subgraph Services
+Holds: API "API gateway"; Auth "Auth service"
+Source:
+flowchart LR
+  subgraph Client
+    UI[Web app]
+    Cache[(Local cache)]
+  end
+  subgraph Services
+    API[API gateway]
+    Auth[Auth service]
+  end
+  UI --> API
+  UI --> Cache
+  API --> Auth
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0101]
+</diagram-annotation>
+
+<diagram-annotation n="2">
+Comment: Is this the SPA or the server-rendered app?
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0102]
+Diagram: flowchart LR
+Target: node UI "Web app" (box)
+In subgraph: Client
+Edges in: none
+Edges out: UI --> API; UI --> Cache
+Neighbors: API "API gateway"; Cache "Local cache"
+Source: as in annotation 1
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0102]
+</diagram-annotation>
+
+<diagram-annotation n="3">
+Comment: What enters here?
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0103]
+Diagram: flowchart TD
+Target: subgraph one
+Holds: B; C
+Edges in: A --> one
+Edges out: one --> two
+Source:
+flowchart TD
+A --> one
+subgraph one
+  B --> C
+end
+subgraph two
+  D
+end
+one --> two
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0103]
+</diagram-annotation>
+
+<diagram-annotation n="4">
+Comment: Name this transition.
+[UNTRUSTED_DIAGRAM_CONTENT nonce=n0104]
+Diagram: flowchart TD
+Target: edge one --> two
+From: subgraph one
+To: subgraph two
+Source: as in annotation 3
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=n0104]
+</diagram-annotation>

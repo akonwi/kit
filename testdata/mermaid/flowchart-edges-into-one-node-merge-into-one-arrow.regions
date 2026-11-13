@@ -1,0 +1,11 @@
+0 0 8 2 box node 0 node A "Parse" (box)
+11 3 11 4 line edge 0 edge A --> C
+11 3 11 4 line edge 1 edge B --> C
+11 3 17 3 line edge 1 edge B --> C
+11 4 11 4 line edge 0 edge A --> C
+11 4 11 4 line edge 1 edge B --> C
+12 0 21 2 box node 2 node B "Layout" (box)
+17 2 17 3 line edge 1 edge B --> C
+4 2 4 3 line edge 0 edge A --> C
+4 3 11 3 line edge 0 edge A --> C
+7 5 14 7 box node 1 node C "Draw" (box)

@@ -1,0 +1,5 @@
+0 4 6 6 box note 0 note 1 of 2: Note left of U: you
+4 0 11 2 box participant 0 actor U "User"
+4 12 11 14 box note 2 note 2 of 2: Note over U: idea
+8 3 8 15 line participant 0 actor U "User"
+8 8 17 10 box message 1 message 1 of 1: U->>U: think

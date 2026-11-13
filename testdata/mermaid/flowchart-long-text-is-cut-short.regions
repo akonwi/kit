@@ -1,0 +1,5 @@
+0 0 43 2 box node 0 node A "long long long long long long long long…" (box)
+43 1 90 1 line edge 0 edge A -->|label label label label label label lab…| B
+47 1 88 1 box edge 0 edge A -->|label label label label label label lab…| B
+90 1 90 1 line edge 0 edge A -->|label label label label label label lab…| B
+91 0 95 2 box node 1 node B (box)

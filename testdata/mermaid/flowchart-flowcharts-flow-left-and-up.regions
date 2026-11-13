@@ -1,0 +1,8 @@
+0 0 7 2 box node 2 node C "Save" (box)
+10 1 14 1 box edge 1 edge B -->|yes| C
+18 0 27 2 box node 1 node B "Valid?" (decision)
+28 1 28 1 line edge 0 edge A --> B
+28 1 32 1 line edge 0 edge A --> B
+32 0 40 2 box node 0 node A "Start" (box)
+8 1 18 1 line edge 1 edge B -->|yes| C
+8 1 8 1 line edge 1 edge B -->|yes| C

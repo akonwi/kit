@@ -1,0 +1,37 @@
+0 0 4 2 box node 0 node A (box)
+0 4 4 6 box node 4 node C (box)
+0 9 4 13 box node 2 node B (box)
+10 17 16 17 box edge 4 edge E ==>|again| E
+10 2 10 2 line edge 0 edge A --o E
+10 4 10 4 line edge 2 edge C --> E
+10 6 10 6 line edge 4 edge E ==>|again| E
+11 1 15 7 box node 1 node E (box)
+11 13 16 13 line edge 1 edge B -->|go| D
+11 15 16 15 line edge 3 edge B ==> D
+12 13 15 13 box edge 1 edge B -->|go| D
+15 4 20 4 line edge 4 edge E ==>|again| E
+16 13 18 13 line edge 1 edge B -->|go| D
+16 15 19 15 line edge 3 edge B ==> D
+18 10 18 13 line edge 1 edge B -->|go| D
+18 10 22 10 line edge 1 edge B -->|go| D
+19 12 19 15 line edge 3 edge B ==> D
+19 12 22 12 line edge 3 edge B ==> D
+20 4 20 17 line edge 4 edge E ==>|again| E
+22 10 22 10 line edge 1 edge B -->|go| D
+22 12 22 12 line edge 3 edge B ==> D
+23 9 27 13 box node 3 node D (box)
+4 1 8 1 line edge 0 edge A --o E
+4 10 8 10 line edge 1 edge B -->|go| D
+4 12 6 12 line edge 3 edge B ==> D
+4 5 8 5 line edge 2 edge C --> E
+6 12 6 15 line edge 3 edge B ==> D
+6 15 11 15 line edge 3 edge B ==> D
+7 17 20 17 line edge 4 edge E ==>|again| E
+7 6 10 6 line edge 4 edge E ==>|again| E
+7 6 7 17 line edge 4 edge E ==>|again| E
+8 1 8 2 line edge 0 edge A --o E
+8 10 8 13 line edge 1 edge B -->|go| D
+8 13 11 13 line edge 1 edge B -->|go| D
+8 2 10 2 line edge 0 edge A --o E
+8 4 10 4 line edge 2 edge C --> E
+8 4 8 5 line edge 2 edge C --> E

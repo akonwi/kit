@@ -225,6 +225,44 @@ square of its nodes and edges, since layout grows faster than a graph's
 size, and together they may cost no more than the largest flowchart without
 subgraphs.
 
+### Annotating a diagram
+
+A person can point at a part of a drawn diagram and comment on it, as on a
+file's or a diff's lines. The comment goes in the message being written,
+followed by what Kit read from the diagram about that part.
+
+- **Regions.** As it draws, the renderer records the cells where each part
+  a person can point at was drawn: flowchart nodes, edges, and subgraphs,
+  and sequence participants, messages, notes, and blocks. Each part is named
+  by its kind and its index in the parsed source. A box (a node, a
+  subgraph's box or section heading, a participant, a message with its
+  text, a note, a block's legend, or an edge's text) is recorded as a box.
+  Edge lines, lifelines, and block frames are recorded as lines. The box
+  standing for a subgraph, or for a node drawn in another section, names that
+  subgraph or node. Regions never change a cell.
+- **Hit-testing.** A cell points at the smallest box over it. Where there is
+  no box, it points at the one part whose lines run through it. Lines two
+  parts share, as where edges branch or merge, point at neither, so the
+  person picks the branch or its text instead. Each client maps a point to a
+  cell on the same grid the drawing uses.
+- **What the model gets.** Each annotation is a block appended to the
+  message: the person's comment, then the diagram's type and title, the part
+  with its edges and neighbors, the blocks around it, or what it holds, and
+  the diagram's source. Everything after the comment comes from a reply, so
+  it is fenced as untrusted with a nonce. A message's first block on a
+  diagram carries its source; later blocks on the same diagram point back to
+  it. The terminal and Apple clients write the same text, held to the
+  fixtures in `testdata/mermaid/annotations`.
+- **Shared fixtures.** Each drawn fixture's regions are recorded beside its
+  drawing in a `.regions` file, from the reference, so the port records the
+  same parts in the same cells.
+
+Annotations are drafts in one client's composer, like the in-app browser's
+element annotations. They aren't server annotation anchors
+([ADR 0022](./0022-model-draft-annotations-as-session-inputs.md)): a diagram lives
+in an immutable reply, so it can't go stale, and keeping drafts in the client
+needs no change to the session protocol.
+
 ## Consequences
 
 - Diagrams follow the theme and the client's selection and layout rules, and

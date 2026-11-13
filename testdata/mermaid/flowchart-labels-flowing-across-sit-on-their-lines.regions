@@ -1,0 +1,29 @@
+0 1 4 3 box node 0 node A (box)
+0 5 4 7 box node 3 node B (box)
+10 0 14 4 box node 1 node C (box)
+10 10 20 10 line edge 2 edge B --> D
+10 8 20 8 line edge 1 edge A -->|approve| D
+11 8 19 8 box edge 1 edge A -->|approve| D
+20 10 22 10 line edge 2 edge B --> D
+20 8 23 8 line edge 1 edge A -->|approve| D
+22 9 22 10 line edge 2 edge B --> D
+22 9 25 9 line edge 2 edge B --> D
+23 7 23 8 line edge 1 edge A -->|approve| D
+23 7 25 7 line edge 1 edge A -->|approve| D
+25 7 25 7 line edge 1 edge A -->|approve| D
+25 9 25 9 line edge 2 edge B --> D
+26 6 30 10 box node 2 node D (box)
+4 2 7 2 line edge 0 edge A --> C
+4 2 7 2 line edge 1 edge A -->|approve| D
+4 6 6 6 line edge 2 edge B --> D
+4 6 6 6 line edge 3 edge B --> C
+6 10 10 10 line edge 2 edge B --> D
+6 3 6 6 line edge 3 edge B --> C
+6 3 9 3 line edge 3 edge B --> C
+6 6 6 10 line edge 2 edge B --> D
+7 1 7 2 line edge 0 edge A --> C
+7 1 9 1 line edge 0 edge A --> C
+7 2 7 8 line edge 1 edge A -->|approve| D
+7 8 10 8 line edge 1 edge A -->|approve| D
+9 1 9 1 line edge 0 edge A --> C
+9 3 9 3 line edge 3 edge B --> C

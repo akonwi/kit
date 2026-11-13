@@ -1,0 +1,5 @@
+0 2 4 4 box participant 0 participant A
+10 5 10 8 line participant 1 participant B
+2 5 2 8 line participant 0 participant A
+2 6 10 7 box message 0 message 1 of 1: A->>B: hi
+8 2 12 4 box participant 1 participant B

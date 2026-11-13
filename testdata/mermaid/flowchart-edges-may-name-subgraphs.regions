@@ -1,0 +1,25 @@
+0 10 8 12 box subgraph 1 subgraph two
+0 14 2 14 box subgraph 0 subgraph one
+0 16 4 18 box node 2 node B (box)
+0 21 4 23 box node 3 node C (box)
+0 30 2 30 box subgraph 1 subgraph two
+0 32 4 34 box node 4 node D (box)
+0 5 8 7 box subgraph 0 subgraph one
+11 34 11 36 line edge 2 edge one --> two
+11 36 11 36 line edge 2 edge one --> two
+12 26 18 28 box subgraph 1 subgraph two
+13 16 17 18 box node 0 node A (box)
+15 18 15 20 line edge 0 edge A --> one
+15 20 15 20 line edge 0 edge A --> one
+15 23 15 25 line edge 2 edge one --> two
+15 25 15 25 line edge 2 edge one --> two
+2 0 6 2 box node 0 node A (box)
+2 18 2 20 line edge 1 edge B --> C
+2 20 2 20 line edge 1 edge B --> C
+4 2 4 4 line edge 0 edge A --> one
+4 37 17 39 box subgraph 1 subgraph two
+4 4 4 4 line edge 0 edge A --> one
+4 7 4 9 line edge 2 edge one --> two
+4 9 4 9 line edge 2 edge one --> two
+8 21 21 23 box subgraph 0 subgraph one
+8 32 14 34 box subgraph 0 subgraph one

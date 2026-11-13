@@ -1,0 +1,22 @@
+0 6 10 8 box node 1 node B "处理 🚀" (box)
+12 10 12 10 line edge 2 edge B --> D
+12 10 12 10 line edge 3 edge C --> D
+12 2 12 3 line edge 0 edge A -->|是| B
+12 2 12 3 line edge 1 edge A -->|否| C
+12 3 19 3 line edge 1 edge A -->|否| C
+12 9 12 10 line edge 2 edge B --> D
+12 9 12 10 line edge 3 edge C --> D
+12 9 19 9 line edge 3 edge C --> D
+14 6 24 8 box node 2 node C "café ✅" (box)
+17 4 20 4 box edge 1 edge A -->|否| C
+19 3 19 5 line edge 1 edge A -->|否| C
+19 5 19 5 line edge 1 edge A -->|否| C
+19 8 19 9 line edge 3 edge C --> D
+3 4 6 4 box edge 0 edge A -->|是| B
+5 3 12 3 line edge 0 edge A -->|是| B
+5 3 5 5 line edge 0 edge A -->|是| B
+5 5 5 5 line edge 0 edge A -->|是| B
+5 8 5 9 line edge 2 edge B --> D
+5 9 12 9 line edge 2 edge B --> D
+8 0 15 2 box node 0 node A "开始" (box)
+9 11 15 13 box node 3 node D "été" (circle)

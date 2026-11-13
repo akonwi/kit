@@ -1,0 +1,60 @@
+0 13 4 15 box node 4 node E (box)
+0 7 4 9 box node 1 node B (box)
+1 11 1 12 line edge 3 edge B --> E
+1 11 2 11 line edge 3 edge B --> E
+1 12 1 12 line edge 3 edge B --> E
+10 0 10 1 line edge 12 edge H -.-> A
+10 0 22 0 line edge 12 edge H -.-> A
+10 1 10 1 line edge 12 edge H -.-> A
+10 10 17 10 line edge 6 edge C --> G
+10 15 10 16 line edge 10 edge F --> H
+10 16 10 17 line edge 10 edge F --> H
+10 16 10 17 line edge 11 edge G --> H
+10 16 10 17 line edge 9 edge E --> H
+10 16 18 16 line edge 11 edge G --> H
+10 17 10 17 line edge 10 edge F --> H
+10 17 10 17 line edge 11 edge G --> H
+10 17 10 17 line edge 9 edge E --> H
+10 20 10 21 line edge 12 edge H -.-> A
+10 21 22 21 line edge 12 edge H -.-> A
+10 4 10 5 line edge 0 edge A --> B
+10 4 10 5 line edge 1 edge A --> C
+10 4 10 5 line edge 2 edge A --> D
+10 5 10 6 line edge 1 edge A --> C
+10 5 18 5 line edge 2 edge A --> D
+10 6 10 6 line edge 1 edge A --> C
+10 9 10 10 line edge 5 edge C --> E
+10 9 10 10 line edge 6 edge C --> G
+11 11 11 12 line edge 7 edge D --> F
+11 11 18 11 line edge 7 edge D --> F
+11 12 11 12 line edge 7 edge D --> F
+16 13 20 15 box node 6 node G (box)
+16 7 20 9 box node 3 node D (box)
+17 10 17 12 line edge 6 edge C --> G
+17 12 17 12 line edge 6 edge C --> G
+18 11 19 11 line edge 8 edge D --> G
+18 15 18 16 line edge 11 edge G --> H
+18 5 18 6 line edge 2 edge A --> D
+18 6 18 6 line edge 2 edge A --> D
+18 9 18 11 line edge 7 edge D --> F
+18 9 18 11 line edge 8 edge D --> G
+19 11 19 12 line edge 8 edge D --> G
+19 12 19 12 line edge 8 edge D --> G
+2 11 9 11 line edge 4 edge B --> F
+2 15 2 16 line edge 9 edge E --> H
+2 16 10 16 line edge 9 edge E --> H
+2 5 10 5 line edge 0 edge A --> B
+2 5 2 6 line edge 0 edge A --> B
+2 6 2 6 line edge 0 edge A --> B
+2 9 2 11 line edge 3 edge B --> E
+2 9 2 11 line edge 4 edge B --> F
+22 0 22 21 line edge 12 edge H -.-> A
+3 10 10 10 line edge 5 edge C --> E
+3 10 3 12 line edge 5 edge C --> E
+3 12 3 12 line edge 5 edge C --> E
+8 13 12 15 box node 5 node F (box)
+8 18 12 20 box node 7 node H (box)
+8 2 12 4 box node 0 node A (box)
+8 7 12 9 box node 2 node C (box)
+9 11 9 12 line edge 4 edge B --> F
+9 12 9 12 line edge 4 edge B --> F
