@@ -20,7 +20,9 @@ iOS app. It holds no AppKit or UIKit code.
   session's file paths for a search, and `MarkdownFilePaths` tells which
   files are Markdown. `FilePaths` reads the file and lines a link names
   (`a.go#L42-L50`); `testdata/file-links` holds the cases
-  every client's parser agrees on. Regenerate the transport after changing
+  every client's parser agrees on. `TextFind` finds a query in a file tab's
+  text for its find bar, by the rules and cases in `testdata/find`.
+  Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
   ```sh
