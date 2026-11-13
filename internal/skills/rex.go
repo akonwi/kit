@@ -16,14 +16,19 @@ const RexName = "rex"
 var rexDefinition string
 
 // rexAppCommand is where Rex.app installs the rex command, under the user's
-// home directory.
+// home directory on macOS.
 var rexAppCommand = filepath.Join("Library", "Application Support", "com.superlogical.rex", "RexServer", "Versions", "Current", "Rex Server.app", "Contents", "MacOS", "rex")
 
+// rexSystemCommands are where Rex's Linux package and its single-binary
+// install put the rex command, for a server whose PATH leaves them out, as a
+// service manager's may.
+var rexSystemCommands = []string{"/usr/local/bin/rex", "/usr/bin/rex"}
+
 // FindRex returns the path of the rex command on this machine, or empty: the
-// one in REX_BIN_DIR, then on PATH, then where Rex.app installs it. It only
-// looks for the file, and runs nothing.
+// one in REX_BIN_DIR, then on PATH, then where Rex.app installs it, then where
+// Rex installs it on Linux. It only looks for the file, and runs nothing.
 func FindRex(getenv func(string) string, lookPath func(string) (string, error), home string) string {
-	candidates := make([]string, 0, 3)
+	candidates := make([]string, 0, 3+len(rexSystemCommands))
 	if directory := getenv("REX_BIN_DIR"); filepath.IsAbs(directory) {
 		candidates = append(candidates, filepath.Join(directory, "rex"))
 	}
@@ -33,6 +38,7 @@ func FindRex(getenv func(string) string, lookPath func(string) (string, error), 
 	if filepath.IsAbs(home) {
 		candidates = append(candidates, filepath.Join(home, rexAppCommand))
 	}
+	candidates = append(candidates, rexSystemCommands...)
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
 			return filepath.Clean(candidate)

@@ -20,7 +20,8 @@ The first definition of a name wins. A project skill cannot override a global sk
 
 When the Kit server's machine has [Rex](https://www.superlogical.com/rex/docs),
 Kit also offers a built-in `rex` skill. Kit looks for the `rex` command in
-`REX_BIN_DIR`, then on `PATH`, then where Rex.app installs it, each time a
+`REX_BIN_DIR`, then on `PATH`, then where Rex.app installs it, then in
+`/usr/local/bin` and `/usr/bin`, where Rex installs it on Linux, each time a
 session loads or reloads, and runs nothing to do so.
 
 The skill tells the model where `rex` is and to follow the guide that

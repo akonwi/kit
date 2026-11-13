@@ -25,6 +25,7 @@ func writeExecutable(t *testing.T, path string, mode os.FileMode) string {
 
 func TestFindRexPrefersRexBinDirThenPathThenRexApp(t *testing.T) {
 	base := t.TempDir()
+	withSystemCommands(t, filepath.Join(base, "system", "rex"))
 	binDir := filepath.Join(base, "bin")
 	onPath := writeExecutable(t, filepath.Join(base, "path", "rex"), 0o755)
 	home := filepath.Join(base, "home")
@@ -119,5 +120,35 @@ func TestYourOwnRexSkillReplacesKits(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) || result.Diagnostics[0].Source.Path != own {
 		t.Fatalf("diagnostics = %#v", result.Diagnostics)
+	}
+}
+
+// withSystemCommands replaces where FindRex looks for a system-wide rex.
+func withSystemCommands(t *testing.T, commands ...string) {
+	t.Helper()
+	previous := rexSystemCommands
+	rexSystemCommands = commands
+	t.Cleanup(func() { rexSystemCommands = previous })
+}
+
+func TestFindRexFallsBackToTheLinuxInstallLocations(t *testing.T) {
+	base := t.TempDir()
+	local := filepath.Join(base, "usr", "local", "bin", "rex")
+	system := writeExecutable(t, filepath.Join(base, "usr", "bin", "rex"), 0o755)
+	withSystemCommands(t, local, system)
+	getenv := func(string) string { return "" }
+	noPath := func(string) (string, error) { return "", errors.New("not found") }
+	home := filepath.Join(base, "home")
+
+	if got := FindRex(getenv, noPath, home); got != system {
+		t.Errorf("FindRex() = %q, want the package's %q", got, system)
+	}
+	writeExecutable(t, local, 0o755)
+	if got := FindRex(getenv, noPath, home); got != local {
+		t.Errorf("FindRex() = %q, want the single-binary install's %q", got, local)
+	}
+	onPath := writeExecutable(t, filepath.Join(base, "path", "rex"), 0o755)
+	if got := FindRex(getenv, func(string) (string, error) { return onPath, nil }, home); got != onPath {
+		t.Errorf("FindRex() = %q, want PATH's %q before the install locations", got, onPath)
 	}
 }
