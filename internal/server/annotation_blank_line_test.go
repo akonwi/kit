@@ -118,6 +118,10 @@ func TestCreateWorkingTreeAnnotationRangesEndingOnBlankLines(t *testing.T) {
 	if err := os.WriteFile(readme, []byte(base), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Refresh the index as `git status` does, so README.md is clean again and
+	// leaves the changed set. Git also finds it clean without a refresh when
+	// the revert lands in the same second as the commit (CI's case).
+	annotationGit(t, dir, "update-index", "-q", "--refresh")
 	response := postAnnotation(t, mux, sessionID, anchor(5, 6))
 	wantStale := `{"error":{"code":"stale_file","message":"the file changed; refresh it and try again"}}`
 	if response.Code != http.StatusConflict || strings.TrimSpace(response.Body.String()) != wantStale {

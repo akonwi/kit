@@ -131,6 +131,27 @@ func (s *Service) get(rev, session string) (*observation, bool) {
 	o.touched = s.now()
 	return o, true
 }
+
+// latestWorkingTree returns the session's most recently made retained
+// observation of the working-tree target, or nil when none is retained.
+func (s *Service) latestWorkingTree(session, target string) *observation {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.evictLocked()
+	var latest *observation
+	for _, o := range s.observations {
+		if o.committed || o.SessionID != session || o.Target.ID != target {
+			continue
+		}
+		if latest == nil || o.expires.After(latest.expires) {
+			latest = o
+		}
+	}
+	if latest != nil {
+		latest.touched = s.now()
+	}
+	return latest
+}
 func (s *Service) listPage(o *observation, offset, size int, cursor string) protocol.WorkingTreePage {
 	end := min(len(o.files), offset+size)
 	p := protocol.WorkingTreePage{Observation: o.DiffObservation, Files: make([]protocol.DiffFileSummary, 0, end-offset)}
@@ -282,14 +303,14 @@ func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol
 	if in.ExpectedFileRevision != "" && in.ExpectedFileRevision != f.summary.FileRevision {
 		return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleFile, Message: "file revision does not match"}
 	}
-	rediscovered, e := s.discoverRepository(ctx, cwd)
-	if e != nil && ctx.Err() != nil {
-		return protocol.FileDiffPage{}, retainedFile{}, ctx.Err()
-	}
-	if e != nil || rediscovered.gitdirID != o.repo.gitdirID || rediscovered.commonID != o.repo.commonID || rediscovered.objectsID != o.repo.objectsID || o.committed && authorityToken(rediscovered) != authorityToken(o.repo) || !o.committed && rediscovered.authorityDigest != o.repo.authorityDigest {
-		return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "repository authority changed"}
-	}
 	if o.committed {
+		rediscovered, e := s.discoverRepository(ctx, cwd)
+		if e != nil && ctx.Err() != nil {
+			return protocol.FileDiffPage{}, retainedFile{}, ctx.Err()
+		}
+		if e != nil || rediscovered.gitdirID != o.repo.gitdirID || rediscovered.commonID != o.repo.commonID || rediscovered.objectsID != o.repo.objectsID || authorityToken(rediscovered) != authorityToken(o.repo) {
+			return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "repository authority changed"}
+		}
 		ref := targetReference{Kind: o.Target.Kind, Base: o.Target.Base, Head: o.Target.Head}
 		pinned, e := s.verifyPinnedTarget(ctx, rediscovered, ref)
 		if e != nil {
@@ -298,32 +319,8 @@ func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol
 		if e := s.revalidateCommittedFile(ctx, rediscovered, ref, pinned, f); e != nil {
 			return protocol.FileDiffPage{}, retainedFile{}, e
 		}
-	} else {
-		current, e := s.observeControl(ctx, o.repo)
-		if e != nil {
-			return protocol.FileDiffPage{}, retainedFile{}, e
-		}
-		if current.digest != o.control.digest {
-			return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "diff target changed"}
-		}
-		aggregate := int64(0)
-		snap, e := s.workspaces.ObserveDiffPaths(ctx, session, cwd, o.Target.WorkspaceID, o.control.candidates, protocol.MaxDiffFileBytes, &aggregate)
-		if e != nil {
-			return protocol.FileDiffPage{}, retainedFile{}, projectWorkspace(e)
-		}
-		if snap.RootIdentity != o.rootIdentity {
-			return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleWorkspace, Message: "workspace root changed"}
-		}
-		for _, entry := range snap.Entries {
-			old := o.allLive[entry.Path]
-			if entry.Path == in.Path {
-				if entry.Identity != old.Identity || entry.Digest != old.Digest || entry.Mode != old.Mode || entry.Kind != old.Kind {
-					return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleFile, Message: "requested file changed"}
-				}
-			} else if entry.Identity != old.Identity || entry.Mode != old.Mode || entry.Kind != old.Kind {
-				return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "another target file changed"}
-			}
-		}
+	} else if e := s.revalidateWorkingTree(ctx, session, cwd, o, in.Path); e != nil {
+		return protocol.FileDiffPage{}, retainedFile{}, e
 	}
 	result := protocol.FileDiffPage{Observation: o.DiffObservation, File: f.summary, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{}}
 	if f.summary.ContentState != "text" || f.summary.Change == "mode_changed" {
@@ -389,6 +386,48 @@ func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol
 	}
 	return result, f, nil
 }
+
+// revalidateWorkingTree checks that the working-tree observation o still
+// describes the live repository and workspace. Repository, control state, or
+// candidate metadata changes are stale_target; a change to path, which is also
+// compared by content digest, is stale_file. An empty path checks every
+// candidate by metadata, proving o current.
+func (s *Service) revalidateWorkingTree(ctx context.Context, session, cwd string, o *observation, path string) error {
+	rediscovered, e := s.discoverRepository(ctx, cwd)
+	if e != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if e != nil || rediscovered.gitdirID != o.repo.gitdirID || rediscovered.commonID != o.repo.commonID || rediscovered.objectsID != o.repo.objectsID || rediscovered.authorityDigest != o.repo.authorityDigest {
+		return &Error{Code: StaleTarget, Message: "repository authority changed"}
+	}
+	current, e := s.observeControl(ctx, o.repo)
+	if e != nil {
+		return e
+	}
+	if current.digest != o.control.digest {
+		return &Error{Code: StaleTarget, Message: "diff target changed"}
+	}
+	aggregate := int64(0)
+	snap, e := s.workspaces.ObserveDiffPaths(ctx, session, cwd, o.Target.WorkspaceID, o.control.candidates, protocol.MaxDiffFileBytes, &aggregate)
+	if e != nil {
+		return projectWorkspace(e)
+	}
+	if snap.RootIdentity != o.rootIdentity {
+		return &Error{Code: StaleWorkspace, Message: "workspace root changed"}
+	}
+	for _, entry := range snap.Entries {
+		old := o.allLive[entry.Path]
+		if entry.Path == path {
+			if entry.Identity != old.Identity || entry.Digest != old.Digest || entry.Mode != old.Mode || entry.Kind != old.Kind {
+				return &Error{Code: StaleFile, Message: "requested file changed"}
+			}
+		} else if entry.Identity != old.Identity || entry.Mode != old.Mode || entry.Kind != old.Kind {
+			return &Error{Code: StaleTarget, Message: "another target file changed"}
+		}
+	}
+	return nil
+}
+
 func projectWorkspace(err error) error {
 	var e *workspace.Error
 	if !errors.As(err, &e) {
