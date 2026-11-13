@@ -41,3 +41,32 @@ interactive client for up to five minutes and then fails the tool call. See
 
 Prefix option-like prompt text with `--`, for example
 `kit print -- "--summarize this"`.
+
+## Calling back into a session
+
+Commands that the agent's `bash` tool runs, and that you run with `!` in the
+composer, see their session's ID in `KIT_SESSION_ID`. A long job the agent
+starts in the background can use it to wake the agent when it ends, for
+example a job in a [Rex](workspace-views.md#in-rex) pane:
+
+```bash
+rex run --focus=false --label tests -- sh -c '
+  go test ./... > /tmp/tests.log 2>&1
+  status=$?
+  # Retry while the session is busy: a turn is running or your messages are queued.
+  for _ in $(seq 60); do
+    kit print --session "$KIT_SESSION_ID" -- "Tests exited with status $status; see /tmp/tests.log" \
+      > /dev/null 2> /tmp/notify.err && exit
+    grep -q "^kit: start prompt:" /tmp/notify.err || exit
+    sleep 10
+  done'
+```
+
+- `kit print` can't start a turn while the session is busy. It exits with
+  status 1 and `kit: start prompt:` on standard error, so a job waits and
+  tries again; your own queued messages always go first.
+- The message appears in the session as a prompt from you.
+- `kit print` waits until the turn it started ends, and interrupting it
+  aborts that turn.
+- The command runs with the Kit server's environment, so `kit` reaches that
+  server when it uses the same Kit home.

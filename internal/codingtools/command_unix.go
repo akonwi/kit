@@ -145,7 +145,10 @@ wait "$watcher" 2>/dev/null
 exit "$status"
 `
 
-func RunCommand(ctx context.Context, shell, command, cwd string, timeout time.Duration, outputLimit int) (CommandExecution, error) {
+// RunCommand runs command with shell in cwd, bounded by timeout and
+// outputLimit. It inherits the process environment, except that sessionID,
+// when set, replaces KIT_SESSION_ID, which is otherwise removed.
+func RunCommand(ctx context.Context, shell, command, cwd, sessionID string, timeout time.Duration, outputLimit int) (CommandExecution, error) {
 	maybeCleanOldCommandCaptures()
 	if err := ctx.Err(); err != nil {
 		return CommandExecution{}, err
@@ -157,6 +160,7 @@ func RunCommand(ctx context.Context, shell, command, cwd string, timeout time.Du
 	}
 	cmd := exec.Command("/bin/sh", "-c", commandLifetimeWrapper, "kit-command", shell, command)
 	cmd.Dir = cwd
+	cmd.Env = commandEnvironment(cmd.Environ(), sessionID) // Environ sets PWD to Dir
 	cmd.ExtraFiles = []*os.File{lifetimeRead}
 	cmd.Stdout = capture
 	cmd.Stderr = capture
@@ -213,6 +217,27 @@ func RunCommand(ctx context.Context, shell, command, cwd string, timeout time.Du
 		return execution, fmt.Errorf("wait for command: %w", waitErr)
 	}
 	return execution, nil
+}
+
+// SessionIDVariable names the environment variable that gives a command
+// the ID of the Kit session that ran it, so it can call back into that
+// session, for example with `kit print --session "$KIT_SESSION_ID"`.
+const SessionIDVariable = "KIT_SESSION_ID"
+
+// commandEnvironment is environment with SessionIDVariable set to sessionID,
+// or removed when sessionID is empty, so a command never sees another
+// session's ID that the server process inherited.
+func commandEnvironment(environment []string, sessionID string) []string {
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, SessionIDVariable+"=") {
+			result = append(result, entry)
+		}
+	}
+	if sessionID != "" {
+		result = append(result, SessionIDVariable+"="+sessionID)
+	}
+	return result
 }
 
 // RemoveCommandOutput removes a spooled output file and its private directory.

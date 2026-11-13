@@ -179,7 +179,7 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 func (m *Manager) executeBash(ctx context.Context, execution BashExecution, active *activeBashExecution) {
 	defer m.bashRuns.Done()
 	defer close(active.done)
-	result, runErr := codingtools.RunDirectBash(ctx, execution.Command, execution.CWD)
+	result, runErr := codingtools.RunDirectBash(ctx, execution.Command, execution.CWD, execution.SessionID)
 	codingtools.RemoveCommandOutput(result.OutputPath)
 	<-m.bashSlots
 	completedAt := time.Now().UTC()
