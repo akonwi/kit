@@ -363,6 +363,7 @@ struct SessionScreen: View {
             }
             .environment(\.agentLinks, AgentLinks(names: Set(agents.strip.agents.map(\.name))) { agents.show($0) })
             .environment(\.sessionLinks, SessionLinks(
+                current: feed.identity.session,
                 title: { [sessions, server = feed.identity.server] in
                     sessions.title(of: SessionIdentity(server: server, session: $0))
                 },

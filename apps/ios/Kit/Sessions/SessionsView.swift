@@ -93,7 +93,9 @@ struct SessionsView: View {
         }
         // Set on the stack so pushed sessions see it.
         .environment(\.openSession, OpenSessionAction { path = [$0] } push: { id in
-            if path.last != id { path.append(id) }
+            // A session already open goes back to it rather than open twice.
+            if let open = path.lastIndex(of: id) { path.removeSubrange(path.index(after: open)...) }
+            else { path.append(id) }
         })
     }
 

@@ -150,7 +150,11 @@ final class SessionsStore {
 
     private struct Listing {
         var server: SavedServer
-        var sessions: [SessionExcerpt] = []
+        var sessions: [SessionExcerpt] = [] {
+            didSet { titles = Dictionary(sessions.map { ($0.id, $0.title) }) { first, _ in first } }
+        }
+        /// Each session's title by its ID, for links that name sessions.
+        private(set) var titles: [String: String] = [:]
         var activity: [String: SessionTabStatus] = [:]
         var waitingSince: [String: Date] = [:]
         var listedAt: Date?
@@ -246,7 +250,7 @@ final class SessionsStore {
 
     /// The title of a session its server lists, or nil for one it doesn't.
     func title(of id: SessionIdentity) -> String? {
-        listings[id.server]?.sessions.first { $0.id == id.session }?.title
+        listings[id.server]?.titles[id.session]
     }
 
     // MARK: Loading

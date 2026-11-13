@@ -83,7 +83,7 @@ private struct UserMessage: View {
                     .padding(.bottom, -4)
             }
             if !message.text.isEmpty {
-                Prose(text: SessionMentions.linked(AttributedString(message.text)), lineHeight: 23)
+                Prose(text: SessionMentions.linked(plain: message.text), lineHeight: 23)
             }
             TranscriptAttachments(attachments: message.attachments ?? [])
             if let notes = message.annotations, !notes.isEmpty {
@@ -205,9 +205,10 @@ private struct ToolRow: View {
     }
 
     /// The session the call names, such as one it created or consulted,
-    /// which its chip opens, with its title when it's listed.
+    /// which its chip opens, with its title when it's listed. The
+    /// transcript's own session opens nothing.
     private func linkedSession(_ presentation: ToolPresentation) -> (id: String, title: String?)? {
-        guard case .session(let id)? = presentation.link, let links = sessionLinks else { return nil }
+        guard case .session(let id)? = presentation.link, let links = sessionLinks, id != links.current else { return nil }
         return (id, links.title(id))
     }
 
@@ -237,6 +238,7 @@ private struct ToolRow: View {
 
     var body: some View {
         let presentation = ToolPresentation(tool)
+        let agent = linkedAgent(presentation), session = linkedSession(presentation)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 icon(presentation).frame(width: 16)
@@ -247,11 +249,11 @@ private struct ToolRow: View {
                     .layoutPriority(1)
                 // The chip and the facts share one line that never outgrows the row.
                 ToolRowDetails(spacing: 8) {
-                    if let agent = linkedAgent(presentation), let links = agentLinks {
+                    if let agent, let links = agentLinks {
                         linkChip(presentation.chip ?? agent, label: "Open \(agent)", identifier: "open-agent-\(agent)") {
                             links.open(agent)
                         }
-                    } else if let session = linkedSession(presentation), let links = sessionLinks {
+                    } else if let session, let links = sessionLinks {
                         linkChip(presentation.chip ?? SessionMentions.label(title: session.title),
                                  label: "Open \(session.title ?? "session")",
                                  identifier: "open-session-\(session.id)") {
@@ -270,8 +272,7 @@ private struct ToolRow: View {
             .contentShape(Rectangle())
             .onTapGesture { if presentation.expandable { toggle() } }
             // A row that opens an agent keeps the link its own element.
-            .accessibilityElement(children: linkedAgent(presentation) == nil && linkedSession(presentation) == nil
-                                  ? .combine : .contain)
+            .accessibilityElement(children: agent == nil && session == nil ? .combine : .contain)
             .accessibilityAddTraits(presentation.expandable ? .isButton : [])
             if open && presentation.expandable {
                 ToolDetail(tool: tool, presentation: presentation)

@@ -7,7 +7,7 @@ import Testing
 @MainActor struct SessionLinksTests {
     static let message = SessionMentions.linked(AttributedString("Ask #[session:s2] and #[session:gone] first."))
 
-    static let links = SessionLinks(title: { $0 == "s2" ? "Fix SSE reconnect" : nil }, open: { _ in })
+    static let links = SessionLinks(current: "s1", title: { ["s1": "This session", "s2": "Fix SSE reconnect"][$0] }, open: { _ in })
 
     /// The runs of `text` that are links, with what they read.
     static func linked(_ text: AttributedString) -> [(String, URL)] {
@@ -41,5 +41,19 @@ import Testing
         let shown = SessionMentions.presented(SessionMentions.linked(code), links: Self.links)
         #expect(String(shown.characters) == "#[session:s2]")
         #expect(Self.linked(shown).isEmpty)
+    }
+
+    @Test func theTranscriptsOwnSessionReadsAsItsTitleWithoutALink() {
+        let shown = SessionMentions.presented(SessionMentions.linked(AttributedString("See #[session:s1].")), links: Self.links)
+        #expect(String(shown.characters) == "See #This session.")
+        #expect(Self.linked(shown).isEmpty)
+    }
+
+    @Test func aUserMessageLinksMentionsOutsideItsCode() {
+        let text = "Ask #[session:s2], not `#[session:s2]`, nor\n```\n#[session:s2]\n```"
+        let links = Self.linked(SessionMentions.linked(plain: text))
+        #expect(links.map(\.0) == ["#[session:s2]"])
+        let shown = SessionMentions.presented(SessionMentions.linked(plain: text), links: Self.links)
+        #expect(String(shown.characters) == "Ask #Fix SSE reconnect, not `#[session:s2]`, nor\n```\n#[session:s2]\n```")
     }
 }
