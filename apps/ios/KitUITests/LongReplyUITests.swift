@@ -3,7 +3,8 @@ import XCTest
 /// Sends two messages in a session on the paired server of an isolated Kit
 /// home whose model is the stand-in in script/fixtures/long_reply_model.py.
 /// The first one's reply is several screens long and shows from its top; the
-/// second one's fits, so the transcript follows it to the end. Each message
+/// second one's fits, so the transcript follows it to the end. Opened again
+/// between them, the session starts at the long reply's top. Each message
 /// carries a #tag that the model repeats, so the session can be reused. Run by
 /// script/test_long_reply.sh, which names the session.
 final class LongReplyUITests: XCTestCase {
@@ -36,6 +37,17 @@ final class LongReplyUITests: XCTestCase {
         sleep(2)
         XCTAssertGreaterThanOrEqual(top.frame.minY, header - 1, "The reply's top scrolled away")
         XCTAssertLessThan(top.frame.minY, app.frame.height * 0.4)
+
+        // Opened again, now idle, the session starts at that reply's top too.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 10))
+        row.tap()
+        XCTAssertTrue(top.waitForExistence(timeout: 15), "Expected the long reply on opening")
+        let opened = waitFor(timeout: 5) { top.frame.minY >= header - 1 && top.frame.minY < app.frame.height * 0.4 }
+        attach(app, "Reopened")
+        XCTAssertTrue(opened, "Expected the reply's top in view on opening; it's at \(top.frame.minY)")
+        sleep(2)
+        XCTAssertGreaterThanOrEqual(top.frame.minY, header - 1, "The reply's top scrolled away")
 
         // A reply that fits follows on to the end, as before.
         send(app, "Thanks, ship it #\(run)")

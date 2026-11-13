@@ -53,4 +53,17 @@ struct TranscriptTailTests {
         #expect(Self.arrived([], reply) == nil)
         #expect(Self.arrived([Self.message("a0", "assistant")], reply, active: (false, false)) == nil)
     }
+
+    @Test func anIdleTranscriptOpensAtItsLastReply() {
+        let replied = Self.asked + [Self.message("a1", "assistant")]
+        #expect(TranscriptTail.openingReply(TranscriptTail.of(replied, active: false)) == "a1")
+    }
+
+    @Test func aRunningOrUnansweredTranscriptOpensAtItsEnd() {
+        let replied = Self.asked + [Self.message("a1", "assistant")]
+        #expect(TranscriptTail.openingReply(TranscriptTail.of(replied, active: true)) == nil)
+        #expect(TranscriptTail.openingReply(TranscriptTail.of(replied + [Self.message("u2", "user")], active: false)) == nil)
+        #expect(TranscriptTail.openingReply(TranscriptTail.of(Self.asked + [Self.message("a1", "assistant", "")], active: false)) == nil)
+        #expect(TranscriptTail.openingReply(TranscriptTail.of([], active: false)) == nil)
+    }
 }

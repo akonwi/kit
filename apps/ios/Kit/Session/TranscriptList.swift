@@ -3,8 +3,9 @@ import KitTranscript
 import SwiftUI
 
 /// A transcript that opens at its end and follows new output while the
-/// reader is there: Main's, or a subagent's. A reply that arrives while it
-/// follows and is too tall to see whole shows from its top, as on the Mac.
+/// reader is there: Main's, or a subagent's. A reply too tall to see whole
+/// shows from its top: one that arrives while it follows, as on the Mac, and
+/// an idle transcript's last one when it opens.
 struct TranscriptList<Header: View>: View {
     let messages: [TranscriptMessage]
     /// Whether a run is in progress, so its tool batches show as live.
@@ -21,6 +22,11 @@ struct TranscriptList<Header: View>: View {
     /// The reply just shown from its top, held there until the reader
     /// scrolls or sends.
     @State private var reading: String?
+    /// Whether the end was in view at the last layout.
+    @State private var atEnd = true
+    /// Whether the transcript has been shown, so returning to it from
+    /// another screen doesn't count as opening it.
+    @State private var opened = false
 
     var body: some View {
         let live = ToolGroupActivity.liveGroups(in: messages, active: active)
@@ -44,8 +50,15 @@ struct TranscriptList<Header: View>: View {
             // A button in a row takes only its own taps.
             .buttonStyle(.borderless)
             .contentMargins(.top, 8, for: .scrollContent)
-            // Open at the end.
-            .onAppear { scrollToEnd(proxy) }
+            // Open at the end, or at the top of the last reply when idle.
+            .onAppear {
+                if !opened, let reply = TranscriptTail.openingReply(TranscriptTail.of(messages, active: active)) {
+                    following = false
+                    reading = reply
+                }
+                opened = true
+                if let reading { proxy.scrollTo(reading, anchor: .top) } else { scrollToEnd(proxy) }
+            }
             // Only the reader's own scrolling stops or resumes following. The
             // screen's own scrolls aren't animated, so any scroll phase,
             // including a tap on the status bar, is the reader's.
@@ -60,15 +73,15 @@ struct TranscriptList<Header: View>: View {
                 EndGeometry(height: geometry.contentSize.height, inset: geometry.contentInsets.bottom,
                             atEnd: Self.atEnd(geometry))
             } action: { old, new in
+                atEnd = new.atEnd
                 if scrolling {
                     following = new.atEnd
                 } else if let reading {
-                    if new.atEnd {
-                        // The reply fits after all: follow on from its end.
-                        self.reading = nil
-                        following = true
-                    } else if new.height != old.height {
-                        // Rows settling their heights move it; keep its top.
+                    // Rows settling their heights, or a taller bar, move it;
+                    // keep its top. One that fits stays at the end. While
+                    // rows settle the end can seem in view, so this doesn't
+                    // decide that it fits.
+                    if new.height != old.height || new.inset != old.inset {
                         proxy.scrollTo(reading, anchor: .top)
                     }
                 } else if following, !new.atEnd, new.height > old.height || new.inset > old.inset {
@@ -84,11 +97,15 @@ struct TranscriptList<Header: View>: View {
                     // reconnect: follow the end again.
                     reading = nil
                     following = true
+                } else if reading != nil, atEnd {
+                    // The held reply fits, so what follows it shows as usual.
+                    reading = nil
+                    following = true
                 }
                 guard following else { return }
                 if let reply = TranscriptTail.arrivedReply(after: old, in: new) {
-                    // Shown from its top; it follows on from its end only
-                    // if it fits.
+                    // Shown from its top; what comes after it follows on
+                    // only if it fits.
                     following = false
                     reading = reply
                     proxy.scrollTo(reply, anchor: .top)
@@ -162,6 +179,13 @@ struct TranscriptTail: Equatable {
     static func arrivedReply(after old: TranscriptTail, in new: TranscriptTail) -> String? {
         guard old.last != nil, old.active || new.active,
               let reply = new.reply, new.last == reply, reply != old.reply else { return nil }
+        return reply
+    }
+
+    /// The reply an idle transcript opens at: its last message, when that's
+    /// a reply.
+    static func openingReply(_ tail: TranscriptTail) -> String? {
+        guard !tail.active, let reply = tail.reply, tail.last == reply else { return nil }
         return reply
     }
 
