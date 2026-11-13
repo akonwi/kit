@@ -45,6 +45,15 @@ past the last match wraps to the first. Every client matches the same way;
   selected; ⌘G then reopens it at the next match. A browser without the
   CSS Custom Highlight API counts and scrolls to matches without tinting
   them.
+- **iPhone and iPad:** the magnifier in a file's bar, or ⌘F on a hardware
+  keyboard, puts the find bar where the composer sits, above the keyboard.
+  The arrows, Return, and ⌘G go to the next match; Shift-Return and ⇧⌘G to
+  the previous one. **Aa** holds **Match Case** and **Whole Words**.
+  Matches are tinted, the current one filled with the accent and scrolled
+  into view, sideways too; in a rendered Markdown file a bar in the margin
+  marks its block. A diff fence shows as code here, so it is searched.
+  **Done** or Esc brings the composer back and leaves the current match
+  marked.
 - **Terminal:** Ctrl+F on a File tab, or **find** in the command palette,
   opens a row under the tab's header and gives it the keyboard; on a File
   tab, Ctrl+F no longer moves the composer's cursor right. Return or ↓ go

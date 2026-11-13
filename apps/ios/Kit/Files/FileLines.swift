@@ -10,6 +10,9 @@ import UIKit
 /// A tap on a number selects its line for a comment, and the handle under
 /// the selection drags it longer. What `below` gives for a line sits under
 /// it at the screen's width; `below(0)` leads the file.
+///
+/// Find matches draw over the text, and a find reveal scrolls its match
+/// into view, sideways too, unless it's on screen.
 struct FileLines<Below: View>: View {
     let lines: [String]
     /// Each line colored by syntax, once highlighting finishes.
@@ -21,13 +24,19 @@ struct FileLines<Below: View>: View {
     var selected: ClosedRange<Int>?
     /// The line the selection handle hangs under, when it can be dragged.
     var handle: Int?
+    /// The find marks in each line, by its index.
+    var findMarks: (Int) -> [FindMark] = { _ in [] }
+    /// The find match to bring into view.
+    var reveal: FindReveal?
+    /// Where find reads and writes the scroll.
+    var viewport: FindViewport?
     var tap: (Int) -> Void
     var drag: (Int) -> Void
     var drop: () -> Void
     @ViewBuilder var below: (Int) -> Below
     /// How far the code has scrolled sideways, so the numbers stay put.
     @State private var offset: CGFloat = 0
-    @State private var viewport: CGFloat = 0
+    @State private var screenWidth: CGFloat = 0
     /// Where each line drawn ends, for the handle and what it's dragged over.
     @State private var bottoms: [Int: CGFloat] = [:]
 
@@ -40,21 +49,55 @@ struct FileLines<Below: View>: View {
 
     var body: some View {
         let gutter = FileLineMetrics.gutterWidth(lines.count)
-        Group {
-            if wrap {
-                ScrollView(.vertical) { stack(gutter: gutter, width: nil) }
-            } else {
-                let width = max(viewport, gutter + CGFloat(FileLineMetrics.longest(lines)) * Self.advance + 16)
-                ScrollView([.horizontal, .vertical]) { stack(gutter: gutter, width: width) }
-                    .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x + $0.contentInsets.leading } action: { _, x in
-                        offset = max(0, x)
-                    }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewport = $0 }
+        let width = wrap ? nil : max(screenWidth, gutter + CGFloat(FileLineMetrics.longest(lines)) * Self.advance + 16)
+        ScrollViewReader { proxy in
+            Group {
+                if let width {
+                    ScrollView([.horizontal, .vertical]) { stack(gutter: gutter, width: width) }
+                        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x + $0.contentInsets.leading } action: { _, x in
+                            offset = max(0, x)
+                        }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { screenWidth = $0 }
+                } else {
+                    ScrollView(.vertical) { stack(gutter: gutter, width: nil) }
+                }
+            }
+            .onScrollGeometryChange(for: CGRect.self) { $0.visibleRect } action: { _, visible in
+                viewport?.visible = visible
+                viewport?.topLine = line(at: visible.minY - Self.inset + 1)
+            }
+            .onChange(of: reveal) { _, reveal in
+                guard let reveal else { return }
+                show(reveal, gutter: gutter, width: width, proxy: proxy)
             }
         }
         .font(Self.font)
         .foregroundStyle(Theme.text)
         .accessibilityIdentifier("file-lines")
+    }
+
+    /// The stack's padding above its first line.
+    private static var inset: CGFloat { 8 }
+
+    /// Scrolls a find match into view, its line two fifths down the screen
+    /// and its text a third across, unless it's on screen already.
+    private func show(_ reveal: FindReveal, gutter: CGFloat, width: CGFloat?, proxy: ScrollViewProxy) {
+        let visible = viewport?.visible ?? .zero
+        let shownDown = bottoms[reveal.line].map { bottom in
+            bottom - Self.rowHeight + Self.inset >= visible.minY && bottom + Self.inset <= visible.maxY
+        } ?? false
+        var across: CGFloat = 0
+        var shownAcross = true
+        if let width, width > screenWidth {
+            let start = CGFloat(reveal.start) * Self.advance, end = CGFloat(reveal.end) * Self.advance
+            shownAcross = start >= offset && gutter + end <= offset + screenWidth
+            let wanted = min(max(0, start - (screenWidth - gutter) / 3), width - screenWidth)
+            across = shownAcross ? offset / (width - screenWidth) : wanted / (width - screenWidth)
+        }
+        guard !(shownDown && shownAcross) else { return }
+        withAnimation(.snappy(duration: 0.25)) {
+            proxy.scrollTo(reveal.line, anchor: UnitPoint(x: across, y: 0.4))
+        }
     }
 
     /// The lines, each with what sits under it. `width` is the code's
@@ -85,7 +128,7 @@ struct FileLines<Below: View>: View {
             }
         }
         .coordinateSpace(.named(Self.space))
-        .padding(.vertical, 8)
+        .padding(.vertical, Self.inset)
     }
 
     /// What sits under a line, held at the screen's width while the code
@@ -96,7 +139,7 @@ struct FileLines<Below: View>: View {
             content
         } else {
             content
-                .frame(width: viewport, alignment: .leading)
+                .frame(width: screenWidth, alignment: .leading)
                 .offset(x: offset)
         }
     }
@@ -163,10 +206,11 @@ struct FileLines<Below: View>: View {
         if chosen(index) { Theme.accent } else if marked?.contains(index + 1) == true { wash(index) } else { Theme.surface }
     }
 
-    /// A line's text, colored once highlighting finishes.
+    /// A line's text, colored once highlighting finishes, with its find
+    /// marks.
     private func text(_ index: Int) -> AttributedString {
-        if let colored, colored.count == lines.count { return colored[index] }
-        return AttributedString(lines[index])
+        let text = if let colored, colored.count == lines.count { colored[index] } else { AttributedString(lines[index]) }
+        return FindMarks.apply(findMarks(index), to: text)
     }
 
     /// The line under a point in the stack: the first drawn line ending at

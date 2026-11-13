@@ -47,6 +47,11 @@ struct CommentableFile: View {
     var colored: [AttributedString]?
     let wrap: Bool
     var marked: ClosedRange<Int>?
+    /// Find's marks in each line, the match to bring into view, and where
+    /// find reads the scroll.
+    var findMarks: (Int) -> [FindMark] = { _ in [] }
+    var reveal: FindReveal?
+    var viewport: FindViewport?
     let annotations: AnnotationState
     let save: (WireAnnotationAnchor, AnnotationState.Editor) -> Void
     let remove: (FileAnnotation) -> Void
@@ -70,6 +75,7 @@ struct CommentableFile: View {
                                             except: editor?.editing)
         FileLines(lines: lines, colored: colored, wrap: wrap, marked: marked, selected: selected,
                   handle: annotations.pending || editor == nil ? nil : selected?.upperBound,
+                  findMarks: findMarks, reveal: reveal, viewport: viewport,
                   tap: select, drag: drag, drop: drop) { line in
             // While the handle moves, nothing sits under the selection.
             if dragged == nil || line < (selected?.lowerBound ?? 0) {

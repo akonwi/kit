@@ -30,7 +30,8 @@ extension EnvironmentValues {
     @Entry var markdownDocument = false
 }
 
-private struct MarkdownBlockView: View {
+/// One Markdown block, as a message or a Markdown file shows it.
+struct MarkdownBlockView: View {
     let block: MarkdownContent.Block
     @Environment(\.markdownDocument) private var document
 

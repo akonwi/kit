@@ -28,11 +28,14 @@ struct CodeBlock: View {
     var tone: Color = Theme.text
     /// The colored lines and the code they were colored for.
     @State private var colored: (request: CodeHighlightRequest, lines: [AttributedString])?
+    /// A file's find marks, by the source of the code they're in.
+    @Environment(\.findCodeMarks) private var findMarks
 
     private var request: CodeHighlightRequest { .init(source: source, language: syntax ?? language) }
 
     private var lines: [CodeLine] {
-        let texts = colored?.request == request ? colored!.lines : CodeColoring.lines(source, spans: [])
+        let colored = colored?.request == request ? colored!.lines : CodeColoring.lines(source, spans: [])
+        let texts = FindMarks.apply(findMarks[source] ?? [], toLines: colored)
         return texts.map { text in
             CodeLine(text: text, fill: language == "diff" ? CodeColoring.fill(String(text.characters)) : .none)
         }

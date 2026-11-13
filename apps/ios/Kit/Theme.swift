@@ -14,6 +14,8 @@ enum Theme {
     static let accent = dynamic(light: 0x2965E9, dark: 0x5596FF)
     /// The fill behind the user's messages.
     static let userWash = dynamic(light: 0xE5ECFC, dark: 0x172235)
+    /// The tint behind a find match that isn't current.
+    static let findMatch = dynamic(light: 0xD4E0FA, dark: 0x1C2E4C)
     static let success = dynamic(light: 0x006915, dark: 0x65DA84)
     static let warning = dynamic(light: 0xB54A00, dark: 0xFF9A59)
     static let danger = dynamic(light: 0x98181F, dark: 0xFF9088)
