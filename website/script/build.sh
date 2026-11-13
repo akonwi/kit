@@ -3,9 +3,10 @@
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 out=${1:?Usage: website/script/build.sh OUTPUT_DIRECTORY}
-mkdir -p "$out/assets/kit/fonts"
-cp "$root/website/index.html" "$root/website/style.css" "$out/"
-for asset in logo-light.svg logo-dark.svg app-icon.svg; do
-  cp "$root/assets/kit/$asset" "$out/assets/kit/"
+mkdir -p "$out/assets/kit/fonts" "$out/images"
+for file in index.html theme.css kit-window.css style.css site.js backdrop.js demo.js chapters.js; do
+  cp "$root/website/$file" "$out/"
 done
+cp "$root/website/images/"*.png "$root/website/images/"*.webp "$out/images/"
+cp "$root/assets/kit/app-icon.svg" "$out/assets/kit/"
 cp "$root/assets/kit/fonts/"*.ttf "$root/assets/kit/fonts/OFL.txt" "$out/assets/kit/fonts/"

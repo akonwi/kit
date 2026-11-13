@@ -1,906 +1,1063 @@
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("./assets/kit/fonts/JetBrainsMono-Regular.ttf") format("truetype");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("./assets/kit/fonts/JetBrainsMono-Medium.ttf") format("truetype");
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("./assets/kit/fonts/JetBrainsMono-Bold.ttf") format("truetype");
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-}
-
-/* Kit's product theme on top of Mica. */
-:root {
-  --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-html {
-  scroll-behavior: smooth;
-  scroll-padding-block-start: 5rem;
-}
+/* The Kit website: full-screen chapters over a dithered glyph backdrop. */
 
 body {
+  font-size: 17px;
+  overflow-x: hidden;
   background: var(--color-surface);
 }
 
-a {
-  text-underline-offset: 0.2em;
+#horizon {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  will-change: transform;
 }
+
+/* A soft scrim so chapter text reads over the field. */
+
+#scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--color-surface) 35%, transparent);
+}
+
+.nav,
+main {
+  position: relative;
+  z-index: 1;
+}
+
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--color-text-muted); }
+.accent { color: var(--color-accent); }
+.ok { color: var(--color-success-text); }
+.warn { color: var(--color-warn-text); }
 
 code {
-  font-family: var(--font-mono);
-  font-size: 0.88em;
+  font: 0.92em var(--font-mono);
+  color: var(--color-text);
 }
 
-.site-shell {
-  --max: 76rem;
-  --gutter: clamp(var(--space-md), 4vw, var(--space-xl));
+/* Shadows under the dark mocks, per theme. */
+
+:root {
+  --shadow-mock: 0 24px 48px -28px oklch(0% 0 0 / 0.28), 0 0 0 1px oklch(0% 0 0 / 0.08);
 }
 
-/* --- Header and footer ------------------------------------------------ */
+:root[data-theme="dark"] {
+  --shadow-mock: 0 50px 100px -40px oklch(0% 0 0 / 0.55), 0 0 0 1px oklch(100% 0 0 / 0.08);
+}
 
-.site-header {
-  padding-block: var(--space-md);
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --shadow-mock: 0 50px 100px -40px oklch(0% 0 0 / 0.55), 0 0 0 1px oklch(100% 0 0 / 0.08);
+  }
+}
+
+/* --- Nav ---------------------------------------------------------------- */
+
+.nav {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-start: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  block-size: 64px;
+  padding: 0 clamp(20px, 4vw, 48px);
+  background: var(--color-surface);
   border-block-end: 1px solid var(--color-border);
 }
 
-.site-header > m-hstack {
+.mark {
+  display: flex;
+  color: var(--color-text);
+}
+
+.nav nav {
+  display: flex;
   align-items: center;
-  min-block-size: 2.5rem;
+  gap: 22px;
+  font: 13px var(--font-body);
 }
 
-.wordmark {
-  display: inline-flex;
-}
-
-.brand-logo {
-  display: block;
-  inline-size: 4.5rem;
-  block-size: 3.375rem;
-}
-
-.brand-logo img {
-  display: block;
-  inline-size: 100%;
-  block-size: 100%;
-}
-
-.footer-credit .brand-logo {
-  inline-size: 3rem;
-  block-size: 2.25rem;
-}
-
-.site-header nav a,
-.site-footer a {
+.nav nav a {
   color: var(--color-text-muted);
-  font-size: 0.9rem;
   text-decoration: none;
 }
 
-.site-header nav a:hover,
-.site-footer a:hover {
+.nav nav a:hover {
   color: var(--color-text);
 }
 
-.site-footer {
-  padding-block: var(--space-lg) var(--space-2xl);
-  border-block-start: 1px solid var(--color-border);
-}
-
-.site-footer p {
+.theme-toggle {
+  inline-size: 32px;
+  block-size: 32px;
+  border: 0;
+  background: transparent;
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font: 15px var(--font-body);
+  cursor: pointer;
+  border-radius: var(--radius-control);
 }
 
-.footer-credit {
-  display: flex;
+.theme-toggle:hover {
+  background: var(--color-fill-hover);
+  color: var(--color-text);
+}
+
+.btn {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 8px;
+  padding: 10px 18px;
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text);
+  font: 500 14px var(--font-body);
+  text-decoration: none;
+  transition: background 150ms ease, border-color 150ms ease;
+  border-radius: var(--radius-control);
 }
 
-/* --- Type ---------------------------------------------------------------- */
+.btn:hover {
+  background: var(--color-fill-hover);
+  border-color: var(--color-text);
+}
 
-h1,
-h2,
-h3,
-p {
+.btn-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-primary);
+}
+
+.btn-primary:hover {
+  background: color-mix(in oklab, var(--color-accent) 85%, var(--color-text));
+  border-color: transparent;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+
+.btn-ghost:hover {
+  background: var(--color-fill-hover);
+  border-color: transparent;
+  color: var(--color-text);
+}
+
+/* --- Chapters ----------------------------------------------------------- */
+
+.chapter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(24px, 4vh, 44px);
+  min-block-size: 100vh;
+  padding: 96px clamp(20px, 6vw, 96px) 96px;
+}
+
+.ch-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-inline-size: 760px;
+  text-align: center;
+  transition: opacity 600ms ease, transform 600ms ease;
+}
+
+/* Chapters settle in as they're reached; without scripts they're just there. */
+.js .chapter[id]:not(.is-seen) .ch-head {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+.ch-head h2 {
+  display: flex;
+  flex-direction: column;
+  font-size: clamp(30px, 3.6vw, 48px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.ch-head h2 code {
+  font-size: 0.9em;
+  color: inherit;
+}
+
+.ch-head p {
+  max-inline-size: 60ch;
+  color: var(--color-text-muted);
+  font-size: 17px;
+  line-height: 1.55;
   text-wrap: pretty;
 }
 
-h1 {
-  max-inline-size: 17ch;
-  margin: 0;
-  font-size: clamp(2.6rem, 6.5vw, 5rem);
-  font-weight: 500;
-  letter-spacing: -0.05em;
-  line-height: 0.98;
+.scene {
+  position: relative;
+  inline-size: min(1040px, 100%);
+  transition: opacity 700ms ease 120ms, transform 700ms ease 120ms;
 }
 
-h2 {
-  max-inline-size: 18ch;
-  margin: 0;
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  font-weight: 500;
-  letter-spacing: -0.045em;
-  line-height: 1.04;
+.js .chapter[id]:not(.is-seen) .scene {
+  opacity: 0;
+  transform: translateY(24px);
 }
 
-h3 {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 500;
-}
-
-.lede,
-.section-intro {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: clamp(1.05rem, 2vw, 1.2rem);
-  line-height: 1.7;
-}
-
-.lede {
-  max-inline-size: 60ch;
-}
-
-.section-intro {
-  max-inline-size: 52ch;
-}
-
-.requirement,
-.fine-print {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-}
-
-.fine-print {
-  line-height: 1.6;
-}
-
-/* --- Layout -------------------------------------------------------------- */
+/* --- Hero --------------------------------------------------------------- */
 
 .hero {
-  padding-block: clamp(3.5rem, 9vw, 7rem) clamp(4rem, 9vw, 7rem);
-}
-
-.hero-copy {
-  max-inline-size: 48rem;
-}
-
-.hero-actions .btn {
-  min-inline-size: 8.5rem;
-  justify-content: center;
-}
-
-.section {
-  padding-block: clamp(4rem, 9vw, 7rem);
-  border-block-start: 1px solid var(--color-border);
-}
-
-.section-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
-  gap: var(--space-md) var(--space-xl);
-}
-
-.split,
-.install-split,
-.mac-app > m-switcher {
-  align-items: center;
-  --threshold: 60rem;
-}
-
-.split > *,
-.install-split > *,
-.mac-app > m-switcher > * {
-  min-inline-size: 0;
-}
-
-.install-split {
-  align-items: start;
-}
-
-/* --- Workspace mockups ----------------------------------------------------
-   Illustrations of Kit's session shell: session name top-left, model and
-   context top-right, workspace tabs, composer, and cwd/VCS bottom-right. */
-
-.mock {
-  margin: 0;
-  min-inline-size: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: clamp(0.7rem, 1.2vw, 0.8rem);
-  font-variant-ligatures: none;
-  line-height: 1.55;
-}
-
-.mock-bar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.25rem 1rem;
-  padding: 0.5rem 0.8rem;
-  border-block-end: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-}
-
-.mock-session {
-  color: var(--color-text);
-}
-
-.mock-progress {
-  color: var(--color-success-text);
-}
-
-.mock-dim {
-  color: var(--color-text-muted);
-}
-
-.mock-tabs {
-  display: flex;
-  overflow: hidden;
-  border-block-end: 1px solid var(--color-border);
-  white-space: nowrap;
-}
-
-.mock-tabs span {
-  padding: 0.4rem 0.9rem;
-  border-inline-end: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-}
-
-.mock-tabs .is-active {
-  background: var(--color-surface);
-  box-shadow: inset 0 -2px 0 var(--color-accent);
-  color: var(--color-text);
-}
-
-.mock-diff {
-  padding-block: 0.25rem 0.75rem;
-  background: var(--color-surface);
-  overflow-x: auto;
-}
-
-.diff-file {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.4rem 0.8rem;
-  border-block-end: 1px solid var(--color-border);
-  font-weight: 500;
-}
-
-.diff-add-count {
-  color: var(--color-success-text);
-}
-
-.diff-del-count {
-  color: var(--color-danger-text);
-}
-
-.diff-hunk {
-  padding: 0.3rem 0.8rem;
-  color: var(--color-accent);
-  white-space: pre;
-}
-
-.diff-line {
-  display: flex;
-  white-space: pre;
-}
-
-.diff-line .ln {
-  flex: none;
-  inline-size: 3.2rem;
-  padding-inline-end: 0.8rem;
-  color: var(--color-text-muted);
-  text-align: end;
-  user-select: none;
-}
-
-.diff-line .code {
-  flex: 1;
-  padding-inline-end: 0.8rem;
-  tab-size: 4;
-}
-
-.diff-line.add {
-  background: var(--color-success-surface);
-}
-
-.diff-line.add .code {
-  color: var(--color-success-text);
-}
-
-.diff-line.del {
-  background: var(--color-danger-surface);
-}
-
-.diff-line.del .code {
-  color: var(--color-danger-text);
-}
-
-.diff-line.is-selected .ln {
-  box-shadow: inset 3px 0 0 var(--color-accent);
-  color: var(--color-text);
-}
-
-.diff-note {
-  display: flex;
-  gap: 0.6rem;
-  margin: 0.35rem 0.8rem 0.35rem 3.2rem;
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--color-accent);
-  background: var(--color-surface-raised);
-  font-family: var(--font-body);
-  font-size: 0.85rem;
-  line-height: 1.45;
-}
-
-.diff-note strong {
-  margin-inline-end: 0.35rem;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  font-weight: 500;
-}
-
-.note-glyph {
-  color: var(--color-accent);
-}
-
-.mock-pending {
-  padding: 0.4rem 0.8rem;
-  border-block-start: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-}
-
-.mock-x {
-  margin-inline-start: 0.5rem;
-}
-
-.mock-composer {
-  display: flex;
-  align-items: center;
-  min-block-size: 2.75rem;
-  padding: 0.5rem 0.8rem;
-  border-block-start: 1px solid var(--color-border);
-}
-
-.mock-cursor {
-  inline-size: 0.5em;
-  block-size: 1.15em;
-  margin-inline: 0.1rem 0.3rem;
-  background: var(--color-text);
-}
-
-.mock-status {
-  border-block: 1px solid var(--color-border) 0;
-}
-
-.mock-transcript {
-  display: grid;
-  gap: 1.1rem;
-  padding: 1.1rem 0.8rem;
-  background: var(--color-surface);
-}
-
-.mock-user {
-  padding: 0.55rem 0.75rem;
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-}
-
-.mock-user-notes {
-  display: grid;
-  gap: 0.15rem;
-  margin-block-start: 0.45rem;
-  color: var(--color-text-muted);
-}
-
-.mock-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  padding: 0.3rem 0.55rem;
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
-}
-
-.mock-assistant strong {
-  display: block;
-  margin-block-end: 0.35rem;
-  color: var(--color-accent);
-  font-weight: 500;
-}
-
-.mock-assistant p {
-  margin: 0;
-}
-
-.mock-assistant code {
-  color: var(--color-success-text);
-  font-size: 1em;
-}
-
-/* --- Review steps ------------------------------------------------------ */
-
-.steps {
-  display: grid;
-  gap: var(--space-lg);
-  margin: var(--space-sm) 0 0;
-  padding: 0;
-  list-style: none;
-  counter-reset: step;
-}
-
-.steps li {
-  position: relative;
-  padding-inline-start: 3rem;
-  counter-increment: step;
-}
-
-.steps li::before {
-  position: absolute;
-  inset-inline-start: 0;
-  inset-block-start: 0.05rem;
-  color: var(--color-accent);
-  content: counter(step, decimal-leading-zero);
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
-}
-
-.steps p {
-  margin: var(--space-2xs) 0 0;
-  color: var(--color-text-muted);
-  line-height: 1.6;
-}
-
-/* --- Cards -------------------------------------------------------------- */
-
-.feature-grid {
-  --min: 18rem;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.feature-card {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  grid-column: span 2;
-  min-block-size: 12rem;
-  padding: var(--space-lg);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-raised);
-}
-
-.feature-card:hover {
-  border-color: var(--color-border-strong);
-}
-
-.feature-grid:not(.extend-grid) > .feature-card:nth-last-child(-n+2) {
-  grid-column: span 3;
-}
-
-.feature-card p {
-  margin: var(--space-sm) 0 0;
-  color: var(--color-text-muted);
-  line-height: 1.6;
-}
-
-.feature-card.flat {
-  min-block-size: 0;
-}
-
-.check-list {
-  display: grid;
-  gap: var(--space-sm);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.check-list li {
-  position: relative;
-  padding-inline-start: 1.6rem;
-  color: var(--color-text);
-}
-
-.check-list li::before {
-  position: absolute;
-  inset-inline-start: 0;
-  color: var(--color-success-text);
-  content: "✓";
-  font-family: var(--font-mono);
-}
-
-/* --- Session topology -------------------------------------------------- */
-
-.topology {
-  display: grid;
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-}
-
-.topology-clients {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-sm);
-}
-
-.topology-clients span {
-  padding: 0.6rem;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface-raised);
+  gap: 24px;
+  padding-block-start: 64px;
   text-align: center;
 }
 
-.topology-link {
-  block-size: 2.25rem;
-  margin-inline: auto;
-  border-inline-start: 1px dashed var(--color-border-strong);
+.hero h1 {
+  display: flex;
+  flex-direction: column;
+  font-size: clamp(40px, 8.4vw, 120px);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.96;
 }
 
-.topology-server {
-  display: grid;
-  border: 1px solid var(--color-accent);
-  background: var(--color-surface-raised);
+.hero h1 .l1 { color: var(--color-accent); }
+.hero h1 .l2 { color: var(--color-text-muted); }
+.hero h1 .l3 { color: var(--color-text); }
+
+.hero .lede {
+  max-inline-size: 58ch;
+  color: var(--color-text-muted);
+  font-size: clamp(16px, 1.5vw, 19px);
+  line-height: 1.5;
+  text-wrap: pretty;
 }
 
-.topology-title {
-  padding: 0.6rem 0.8rem;
-  border-block-end: 1px solid var(--color-border);
+.ctas {
+  display: flex;
+  gap: 10px;
 }
 
-.topology-session {
+.ctas .btn {
+  padding: 12px 22px;
+  font-size: 15px;
+}
+
+/* --- 01 Review ---------------------------------------------------------- */
+
+.scene-review .kit {
+  margin: 0 auto;
+  block-size: 560px;
+  inline-size: min(1040px, 100%);
+}
+
+#hint b {
+  color: var(--k-accent);
+  font-weight: 500;
+}
+
+/* --- Cards: the page's own surface -------------------------------------- */
+
+.card {
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--color-surface) 94%, transparent);
+  color: var(--color-text);
+  font-size: 14px;
+  border-radius: var(--radius-tile);
+}
+
+.card-head {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.5rem 0.8rem;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
   border-block-end: 1px solid var(--color-border);
+  font-size: 13px;
 }
 
-.topology-session:last-child {
-  border-block-end: 0;
-}
-
-.topology-session.sub {
-  padding-inline-start: 1.6rem;
-  color: var(--color-text-muted);
-}
-
-.state {
-  color: var(--color-text-muted);
-}
-
-.state.running {
-  color: var(--color-success-text);
-}
-
-.state.waiting {
-  color: var(--color-warn-text);
-}
-
-/* --- Code file ----------------------------------------------------------- */
-
-.code-file {
+.card ul {
   margin: 0;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface-raised);
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
+  padding: 0 6px;
+  list-style: none;
 }
 
-.code-file figcaption {
-  padding: 0.5rem 0.9rem;
-  border-block-end: 1px solid var(--color-border);
-  color: var(--color-text-muted);
+.card .mono {
+  font-size: 12px;
 }
 
-.code-file pre {
-  margin: 0;
-  font-variant-ligatures: none;
-  padding: 1rem 0.9rem;
-  overflow-x: auto;
-  background: var(--color-surface);
-  line-height: 1.6;
+.card .spin {
+  inline-size: 10px;
+  block-size: 10px;
+  border: 1.5px solid var(--color-border-strong);
+  border-block-start-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
 }
 
-.code-file code {
-  font-size: 1em;
+/* --- 03 Server: Kit for Mac · Settings · Servers, with Pair a Device ---- */
+
+.scene-settings {
+  inline-size: min(880px, 100%);
 }
 
-.tok-dim {
-  color: var(--color-text-muted);
-}
-
-.tok-key {
-  color: var(--color-accent);
-}
-
-/* --- Get Kit ----------------------------------------------------------- */
-
-.client-title {
-  font-size: 1.35rem;
-}
-
-.client-copy {
-  margin: 0;
-  color: var(--color-text-muted);
-  line-height: 1.65;
-}
-
-.command-block {
-  display: flex;
-  gap: var(--space-md);
-  inline-size: 100%;
-  box-sizing: border-box;
-  padding: 0.9rem 1.1rem;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface-raised);
-  overflow-x: auto;
-  white-space: nowrap;
-}
-
-.command-text {
-  color: var(--color-success-text);
-  font-family: var(--font-mono);
-}
-
-.prompt {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-}
-
-.command-list {
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-raised);
-}
-
-.command-row {
+.mac-settings {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(15rem, 0.8fr) 1fr;
-  align-items: baseline;
-  gap: var(--space-lg);
-  padding: var(--space-md);
-  border-block-end: 1px solid var(--color-border);
+  grid-template-columns: 170px 1fr;
+  min-block-size: 560px;
+  border: 1px solid var(--k-border-strong);
+  border-radius: var(--radius-window);
+  background: var(--k-bg);
+  color: var(--k-text);
+  font: 13px/1.45 var(--font-body);
+  text-align: left;
+  overflow: hidden;
+  box-shadow: var(--shadow-mock);
 }
 
-.install-split .command-row {
-  grid-template-columns: 1fr;
-  gap: var(--space-2xs);
+.mac-settings::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 14px;
+  inset-inline-start: 16px;
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 50%;
+  background: var(--k-border-strong);
+  box-shadow: 16px 0 0 var(--k-border-strong), 32px 0 0 var(--k-border-strong);
 }
 
-.command-row:last-child {
-  border-block-end: 0;
-}
-
-.command-invocation {
+.st-side {
   display: flex;
-  gap: var(--space-sm);
+  flex-direction: column;
+  gap: 2px;
+  padding: 48px 12px 12px;
+  border-inline-end: 1px solid var(--k-border);
+  background: var(--k-frame);
+}
+
+.st-side span {
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  color: var(--k-text);
+}
+
+.st-side .is-active { background: var(--k-hover); }
+
+.st-main { padding: 30px 28px; }
+
+.st-main h3 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.st-sub {
+  margin: 0;
+  color: var(--k-muted);
+}
+
+.mac-settings code {
+  font: 12px var(--font-mono);
+  color: inherit;
+  background: none;
+  padding: 0;
+}
+
+.st-servers {
+  margin: 18px 0 14px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--k-border);
+  border-radius: var(--radius-tile);
+  background: var(--k-raised);
+}
+
+.st-servers li {
+  display: grid;
+  grid-template-columns: 1fr 150px auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border-block-start: 1px solid var(--k-border);
+}
+
+.st-servers li:first-child { border-block-start: 0; }
+
+.st-servers li > span:first-child { display: flex; flex-direction: column; }
+.st-servers b { font-weight: 500; }
+.st-servers i { font-style: normal; color: var(--k-muted); font-size: 12px; }
+
+.st-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--k-text);
+  font-size: 13px;
+}
+
+.st-status.warn { color: var(--k-warn); }
+.st-status.muted { color: var(--k-muted); }
+
+.st-status em {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--k-muted);
+}
+
+.st-status em.ok { background: var(--k-ok); border-color: transparent; }
+.st-status em.warn { background: var(--k-warn); border-color: transparent; }
+
+.st-more {
+  justify-self: end;
+  min-inline-size: 56px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-control);
+  color: var(--k-muted);
+  letter-spacing: 0.05em;
+}
+
+.st-more.is-open { background: var(--k-hover); color: var(--k-text); }
+
+.st-btn {
+  justify-self: end;
+  padding: 4px 10px;
+  border: 1px solid var(--k-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--k-hover);
+  color: var(--k-text);
+  font-size: 12px;
   white-space: nowrap;
 }
 
-.command-description {
-  color: var(--color-text-muted);
+.st-add { display: inline-block; }
+
+/* Pair sheet, floating over the list */
+
+.st-sheet {
+  position: absolute;
+  inset-block-end: 24px;
+  inset-inline-end: 24px;
+  inline-size: 440px;
+  padding: 22px 24px 20px;
+  border: 1px solid var(--k-border-strong);
+  border-radius: var(--radius-tile);
+  background: var(--k-raised);
+  box-shadow: 0 30px 60px -20px oklch(0% 0 0 / 0.7);
 }
 
-.mac-app {
-  padding: clamp(var(--space-lg), 4vw, var(--space-2xl));
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-raised);
+.st-sheet h4 {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
-.mac-copy {
-  max-inline-size: 34rem;
+.st-pair {
+  display: grid;
+  grid-template-columns: 144px 1fr;
+  gap: 18px;
+  align-items: center;
+  margin-block: 16px;
 }
 
-.mac-copy .command-block {
-  background: var(--color-surface);
+.st-qr {
+  padding: 10px;
+  background: #fff;
+  border-radius: var(--radius-nested);
 }
 
-/* Illustration slot for the Mac app; replace with a screenshot later. */
-.mac-window {
+.st-qr svg { display: block; inline-size: 100%; fill: #000; }
+
+.st-pair-text b { display: block; font-weight: 600; margin-block-end: 4px; }
+.st-pair-text p { margin: 0 0 8px; color: var(--k-muted); }
+
+.st-link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.st-link .mono {
+  padding: 6px 10px;
+  border: 1px solid var(--k-border);
+  border-radius: var(--radius-control);
+  background: var(--k-bg);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-block-start: 18px;
+  padding-block-start: 14px;
+  border-block-start: 1px solid var(--k-border);
+}
+
+/* --- 03 Everywhere: fanned devices ------------------------------------- */
+
+.scene-devices {
+  position: relative;
+  block-size: 500px;
+  inline-size: min(1040px, 100%);
+}
+
+.scene-devices .shot {
+  position: absolute;
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: 0 1.5rem 3rem -1.5rem color-mix(in srgb, black 35%, transparent);
-  font-size: 0.78rem;
+  background: oklch(11% 0 0);
+  box-shadow: var(--shadow-mock);
 }
 
-.mac-titlebar {
+.scene-devices .shot picture {
+  display: contents;
+}
+
+.scene-devices .shot img {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+
+.scene-devices .shot-bar {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.45rem 0.7rem;
-  border-block-end: 1px solid var(--color-border);
-  background: var(--color-surface-raised);
+  flex-shrink: 0;
+  block-size: 32px;
+  padding: 0 12px 0 64px;
+  border-block-end: 1px solid oklch(30% 0 0);
+  background: oklch(17% 0 0);
+  color: oklch(71% 0 0);
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.mac-lights {
-  display: flex;
-  gap: 0.4rem;
-  margin-inline-end: 0.6rem;
-}
-
-.mac-lights i {
-  inline-size: 0.7rem;
-  block-size: 0.7rem;
+.scene-devices .shot-bar::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 12px;
+  inset-block-start: 10px;
+  inline-size: 9px;
+  block-size: 9px;
   border-radius: 50%;
-  background: #ff5f57;
+  background: oklch(46% 0 0);
+  box-shadow: 14px 0 0 oklch(46% 0 0), 28px 0 0 oklch(46% 0 0);
 }
 
-.mac-lights i:nth-child(2) {
-  background: #febc2e;
+.scene-devices .dev-web {
+  inset-inline-start: 40px;
+  inset-block-start: 10px;
+  inline-size: 300px;
+  block-size: 490px;
+  border-radius: var(--radius-window);
+  z-index: 1;
 }
 
-.mac-lights i:nth-child(3) {
-  background: #28c840;
+.scene-devices .dev-mac {
+  inset-inline-start: 50%;
+  inset-block-end: 0;
+  inline-size: 680px;
+  border-radius: var(--radius-window);
+  transform: translateX(-50%);
+  z-index: 2;
 }
 
-.mac-tab {
-  padding: 0.2rem 0.8rem;
-  border-radius: var(--radius-sm);
+.scene-devices .dev-term {
+  border-radius: var(--radius-window);
+  inset-inline-start: 0;
+  inset-block-end: 0;
+  inline-size: 420px;
+  z-index: 3;
+}
+
+.scene-devices .dev-phone {
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  inline-size: 216px;
+  border-radius: 34px;
+  z-index: 3;
+  box-shadow: 0 0 0 6px oklch(8% 0 0), 0 0 0 7px oklch(30% 0 0), var(--shadow-mock);
+}
+
+.device-labels {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline: 0;
+  display: flex;
+  justify-content: center;
+  gap: 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   color: var(--color-text-muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.mac-tab.is-active {
-  background: var(--color-surface);
+/* --- 04 Diagrams -------------------------------------------------------- */
+
+.scene-diagrams {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  inline-size: min(1040px, 100%);
+}
+
+.scene-diagrams pre {
+  margin: 0;
+  padding: 18px 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--color-text);
 }
 
-.mac-body {
-  display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  min-block-size: 15rem;
+.seq {
+  display: block;
+  inline-size: 100%;
+  padding: 12px 16px 0;
+  font: 12px var(--font-body);
 }
 
-.mac-pane {
+.seq .box rect { fill: var(--color-surface-raised); stroke: var(--color-border-strong); }
+.seq .box text { fill: var(--color-text); text-anchor: middle; font-weight: 500; }
+.seq .life { stroke: var(--color-border); stroke-dasharray: 3 3; }
+.seq .arrow line { stroke: var(--color-accent); stroke-width: 1.5; stroke-linecap: square; marker-end: url(#arr); }
+.seq .arrow.back line { stroke: var(--color-text-muted); }
+.seq .arrow text { fill: var(--color-text-muted); text-anchor: middle; font-size: 11px; font-family: var(--font-body); }
+
+.fig {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  padding: 0.8rem;
-  min-inline-size: 0;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-block-start: 1px solid var(--color-border);
 }
 
-.mac-pane .mock-tools {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
+.fig-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 56px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
 }
 
-.mac-text {
+.fig-row .mono:last-child {
+  text-align: end;
+}
+
+.bar {
+  display: block;
+  block-size: 8px;
+  background: var(--color-border);
+  border-radius: 1px;
+}
+
+.bar i {
+  display: block;
+  inline-size: var(--w);
+  block-size: 100%;
+  background: var(--color-accent);
+  transition: inline-size 900ms ease 300ms;
+  border-radius: 1px;
+}
+
+.js .chapter:not(.is-seen) .bar i {
+  inline-size: 0;
+}
+
+/* The terminal card is always dark, like every other terminal on the page. */
+
+.card.diag-term {
+  display: flex;
+  flex-direction: column;
+  border-color: var(--k-border-strong);
+  background: var(--k-bg);
+  color: var(--k-text);
+  box-shadow: var(--shadow-mock);
+}
+
+.card.diag-term .card-head {
+  border-color: var(--k-border);
+}
+
+.card.diag-term .muted {
+  color: var(--k-muted);
+}
+
+.card.diag-term pre {
+  color: var(--k-text);
+}
+
+.card.diag-term pre:first-of-type {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fig-tui {
+  border-block-start: 1px solid var(--k-border);
+}
+
+.fig-tui i {
+  font-style: normal;
+  color: var(--k-accent);
+}
+
+/* --- 05 Subagents ------------------------------------------------------- */
+
+.scene-agents {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: auto 120px auto;
+  gap: 0 16px;
+  inline-size: min(880px, 100%);
+}
+
+.scene-agents .parent {
+  grid-column: 1 / -1;
+  inline-size: min(560px, 100%);
+  margin: 0 auto;
+}
+
+.mail li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  font-size: 13px;
+}
+
+.mail li + li {
+  border-block-start: 1px solid var(--color-border);
+}
+
+.wires {
+  grid-column: 1 / -1;
+  inline-size: 100%;
+  block-size: 120px;
+}
+
+.wires path {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 4 6;
+  animation: flow 1.2s linear infinite;
+}
+
+@keyframes flow {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+.card.child {
+  padding-block-end: 4px;
+}
+
+.card.child p {
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.card.child .card-head span:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* --- 06 One ------------------------------------------------------------- */
+
+/* Fact grids: the sub-features under a scene. */
+
+.facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
   margin: 0;
-  line-height: 1.5;
-}
-
-.mac-composer {
-  margin-block-start: auto;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-}
-
-.mac-diff {
-  gap: 0;
   padding: 0;
-  border-inline-start: 1px solid var(--color-border);
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-border);
+  inline-size: min(1040px, 100%);
+  border-radius: var(--radius-tile);
   overflow: hidden;
 }
 
-.mac-diff .diff-line .code {
-  padding-inline: 0.8rem;
+.facts.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
 }
 
-/* --- Responsive ---------------------------------------------------------- */
-
-@media (max-width: 64rem) {
-  .feature-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .feature-grid > .feature-card,
-  .feature-grid:not(.extend-grid) > .feature-card:nth-last-child(-n+2) {
-    grid-column: auto;
-    min-block-size: auto;
-  }
-
-  .feature-grid:not(.extend-grid) > .feature-card:last-child {
-    grid-column: 1 / -1;
-  }
+.facts .span-2 {
+  grid-column: span 2;
 }
 
-@media (max-width: 48rem) {
-  .site-shell {
-    --gutter: var(--space-md);
-  }
-
-  .site-header > m-hstack {
-    align-items: flex-start;
-  }
-
-  .site-header nav m-hstack {
-    gap: var(--space-md);
-  }
-
-  .site-header nav a {
-    font-size: 0.82rem;
-  }
-
-  .site-header .nav-section {
-    display: none;
-  }
-
-  .feature-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .feature-grid > .feature-card,
-  .feature-grid:not(.extend-grid) > .feature-card:last-child {
-    grid-column: auto;
-  }
-
-  .mock-pending,
-  .mock-user-notes {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .mac-body {
-    grid-template-columns: 1fr;
-  }
-
-  .mac-diff {
-    border-inline-start: 0;
-    border-block-start: 1px solid var(--color-border);
-  }
+.facts.cols-4 {
+  grid-template-columns: repeat(4, 1fr);
+  inline-size: min(1040px, 100%);
 }
 
-@media (max-width: 36rem) {
-  .command-row {
-    grid-template-columns: 1fr;
-    gap: var(--space-xs);
-  }
+.facts.cols-2 {
+  inline-size: min(880px, 100%);
+}
 
-  .diff-line .ln {
-    inline-size: 2.2rem;
-    padding-inline-end: 0.5rem;
-  }
+.facts li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  background: color-mix(in oklab, var(--color-surface) 94%, transparent);
+}
 
-  .diff-note {
-    margin-inline-start: 0.8rem;
-  }
+.facts b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.facts b code {
+  font-size: 14px;
+}
+
+.facts span {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.facts span code {
+  color: var(--color-text-muted);
+}
+
+.tabstrip + .facts {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}
+
+.scene + .facts {
+  margin-block-start: calc(20px - clamp(24px, 4vh, 44px));
+}
+
+/* Workspace: a tab strip over the grid. */
+
+.scene-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  align-items: center;
+}
+
+.tabstrip {
+  display: flex;
+  inline-size: min(1040px, 100%);
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--color-surface-raised) 88%, transparent);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  overflow-x: auto;
+  border-block-end: 0;
+  border-radius: var(--radius-tile) var(--radius-tile) 0 0;
+}
+
+.tabstrip span {
+  padding: 8px 14px;
+  border-inline-end: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.tabstrip .is-active {
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+/* Extend */
+
+.scene-extend {
+  display: flex;
+  justify-content: center;
+}
+
+/* Commands */
+
+.commands {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 20px;
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+
+.commands dt {
+  color: var(--color-text);
+}
+
+
+.commands dd {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+/* --- 07 Get ------------------------------------------------------------- */
+
+.scene-get {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  inline-size: min(640px, 100%);
+}
+
+/* Fence card, as the Mac app draws fenced code: label and Copy above a rule. */
+
+.fence {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-tile);
+  overflow: hidden;
+}
+
+.fence-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 4px 4px 14px;
+  border-block-end: 1px solid var(--color-border);
+}
+
+.fence-label {
+  color: var(--color-text-muted);
+  font: 12px var(--font-body);
+}
+
+.fence .copy {
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: 12px var(--font-body);
+  cursor: pointer;
+  border-radius: var(--radius-control);
+}
+
+.fence .copy:hover {
+  background: var(--color-fill-hover);
+  color: var(--color-text);
+}
+
+.fence pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 14px;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.more {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.more a {
+  color: var(--color-text);
+}
+
+.credit {
+  margin-block-start: 24px;
+  font: 12px var(--font-mono);
+}
+
+/* --- Responsive --------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .facts.cols-4 { grid-template-columns: 1fr 1fr; }
+  .facts .span-2 { grid-column: auto; }
+  .scene-devices .dev-web { display: none; }
+  .scene-devices .dev-term { inline-size: 340px; }
+  .scene-devices .dev-mac { inline-size: 560px; }
+}
+
+@media (max-width: 860px) {
+  .chapter { min-block-size: 0; padding-block: 80px 48px; }
+  .nav nav a { display: none; }
+  .scene-review .kit { block-size: auto; }
+  .kit-tiles { grid-template-columns: 1fr; }
+  .kit .tile:first-child { block-size: 400px; }
+  .kit .tile:last-child { block-size: 280px; }
+  .scene-diagrams { grid-template-columns: minmax(0, 1fr); }
+  .scene-diagrams pre { overflow-x: auto; }
+  .mac-settings { grid-template-columns: 1fr; }
+  .st-side { display: none; }
+  .st-sheet { position: static; inline-size: auto; }
+  .scene-devices { block-size: auto; display: flex; flex-direction: column; gap: 16px; }
+  .scene-devices .shot { position: static; transform: none; inline-size: 100%; block-size: auto; }
+  .scene-devices .dev-web { display: none; }
+  .scene-devices .dev-phone { inline-size: 216px; margin-inline: auto; }
+  .mac-settings { grid-template-columns: minmax(0, 1fr); }
+  .st-link { grid-template-columns: minmax(0, 1fr) auto; }
+  .st-pair { grid-template-columns: 112px minmax(0, 1fr); }
+  .st-servers li { grid-template-columns: minmax(0, 1fr) auto; }
+  .st-more { display: none; }
+  .st-main { padding: 48px 20px 20px; }
+  .st-sheet { margin: 0 20px 20px; }
+  .scene-agents { grid-template-columns: 1fr; grid-template-rows: auto; }
+  .scene-agents .child { grid-column: 1; }
+  .scene-agents .wires { display: none; }
+  .kit-tab:not(.is-active) { display: none; }
+  .kit-foot { flex-wrap: wrap; }
+  .kit-foot > :last-child { display: none; }
+  .nav nav a:first-child { display: inline; }
+  .hero h1 .l1 { text-wrap: balance; }
+  .scene-devices .dev-phone { inline-size: 216px; margin: 0 auto; }
+  .device-labels { position: static; flex-wrap: wrap; }
+  .scene-agents { grid-template-rows: auto auto; gap: 12px; }
+  .wires { display: none; }
+  .facts, .facts.cols-3, .facts.cols-4 { grid-template-columns: 1fr; }
+  .facts .span-2 { grid-column: auto; }
+  .commands { grid-template-columns: 1fr; gap: 2px 0; }
+  .commands dd { margin-block-end: 8px; }
+}
+
+html:not(.js) .copy,
+html:not(.js) .theme-toggle,
+html:not(.js) .kit-away,
+html:not(.js) .suggest,
+html:not(.js) .composer {
+  display: none;
+}
+
+@media (max-width: 440px) {
+  .st-pair { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  .st-qr { inline-size: 112px; }
+  .fence pre { font-size: 13px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
+  .ch-head, .scene, .wires path, .bar i { transition: none; animation: none; }
 }

@@ -1,0 +1,267 @@
+/* Kit theme for the website. Values are the Mica "Kit" preset, inlined: neutral scale
+   with zero chroma, one accent at hue 263, the apps' small corner radii. Light by default,
+   dark when the OS asks for it, either forced with data-theme. */
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./assets/kit/fonts/JetBrainsMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./assets/kit/fonts/JetBrainsMono-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./assets/kit/fonts/JetBrainsMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  /* Corners, as in Kit's apps: controls, boxes, dialogs, windows. */
+  --radius-nested: 2px;
+  --radius-control: 3px;
+  --radius-tile: 4px;
+  --radius-dialog: 8px;
+  --radius-window: 14px;
+
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+  --space-2xl: 64px;
+  --space-3xl: 96px;
+
+  color-scheme: light dark;
+}
+
+:root,
+[data-theme="light"] {
+  --color-surface: oklch(100% 0 0);
+  --color-surface-raised: oklch(97.3% 0 0);
+  --color-fill-hover: oklch(95.2% 0 0);
+  --color-frame: oklch(93% 0 0);
+  --color-border: oklch(89% 0 0);
+  --color-border-strong: oklch(74% 0 0);
+  --color-text: oklch(18% 0 0);
+  --color-text-muted: oklch(44% 0 0);
+  --color-text-placeholder: oklch(60% 0 0);
+  --color-primary: oklch(18% 0 0);
+  --color-on-primary: oklch(100% 0 0);
+  --color-accent: oklch(55% 0.21 263);
+  --color-accent-wash: oklch(95% 0.053 263);
+  --color-success-text: oklch(44% 0.162 150);
+  --color-success-surface: oklch(95% 0.045 150);
+  --color-danger-text: oklch(44% 0.162 25);
+  --color-danger-surface: oklch(95% 0.045 25);
+  --color-warn-text: oklch(42% 0.162 48);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-surface: oklch(14% 0 0);
+    --color-surface-raised: oklch(17% 0 0);
+    --color-fill-hover: oklch(20% 0 0);
+    --color-frame: oklch(11% 0 0);
+    --color-border: oklch(30% 0 0);
+    --color-border-strong: oklch(46% 0 0);
+    --color-text: oklch(96% 0 0);
+    --color-text-muted: oklch(71% 0 0);
+    --color-text-placeholder: oklch(55% 0 0);
+    --color-primary: oklch(96% 0 0);
+    --color-on-primary: oklch(14% 0 0);
+    --color-accent: oklch(70% 0.21 263);
+    --color-accent-wash: oklch(27% 0.074 263);
+    --color-success-text: oklch(80% 0.162 150);
+    --color-success-surface: oklch(27% 0.063 150);
+    --color-danger-text: oklch(80% 0.162 25);
+    --color-danger-surface: oklch(27% 0.063 25);
+    --color-warn-text: oklch(80% 0.162 48);
+  }
+}
+
+[data-theme="dark"] {
+  --color-surface: oklch(14% 0 0);
+  --color-surface-raised: oklch(17% 0 0);
+  --color-fill-hover: oklch(20% 0 0);
+  --color-frame: oklch(11% 0 0);
+  --color-border: oklch(30% 0 0);
+  --color-border-strong: oklch(46% 0 0);
+  --color-text: oklch(96% 0 0);
+  --color-text-muted: oklch(71% 0 0);
+  --color-text-placeholder: oklch(55% 0 0);
+  --color-primary: oklch(96% 0 0);
+  --color-on-primary: oklch(14% 0 0);
+  --color-accent: oklch(70% 0.21 263);
+  --color-accent-wash: oklch(27% 0.074 263);
+  --color-success-text: oklch(80% 0.162 150);
+  --color-success-surface: oklch(27% 0.063 150);
+  --color-danger-text: oklch(80% 0.162 25);
+  --color-danger-surface: oklch(27% 0.063 25);
+  --color-warn-text: oklch(80% 0.162 48);
+}
+
+/* --- Base --------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+figure {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 0.2em;
+}
+
+code,
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.ok {
+  color: var(--color-success-text);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 20px;
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  color: var(--color-text);
+  font: 500 15px/1 var(--font-body);
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: var(--radius-control);
+}
+
+.btn:hover {
+  background: var(--color-fill-hover);
+}
+
+.btn.primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.btn.primary:hover {
+  background: color-mix(in oklab, var(--color-primary) 90%, var(--color-surface));
+}
+
+/* --- Theme toggle ------------------------------------------------------- */
+
+[hidden] {
+  display: none !important;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: 12px var(--font-mono);
+  cursor: pointer;
+  border-radius: var(--radius-control);
+}
+
+.theme-toggle:hover {
+  background: var(--color-fill-hover);
+  color: var(--color-text);
+}
+
+/* --- Product shots ----------------------------------------------------- */
+
+.shot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-dialog);
+  background: oklch(14% 0 0);
+}
+
+.shot img {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+
+/* --- Copy buttons ------------------------------------------------------ */
+
+.copy.is-pulsing {
+  animation: pulse 450ms ease-out;
+}
+
+@keyframes pulse {
+  from {
+    background: var(--color-accent-wash);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .copy.is-pulsing {
+    animation: none;
+  }
+}
