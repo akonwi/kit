@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Speak completed assistant responses on macOS."""
+"""Speak completed assistant responses on macOS.
+
+The toggle-speech command is registered on every platform; off macOS it
+explains that speech needs macOS and never enables speech.
+"""
 
 import json
 import platform
@@ -12,6 +16,7 @@ import threading
 MAX_FRAME_BYTES = 16 * 1024 * 1024
 MAX_CHARS = 220
 VOICE = None
+SUPPORTED = platform.system() == "Darwin"
 
 
 class Endpoint:
@@ -121,7 +126,7 @@ class Endpoint:
             self.children.discard(child)
 
     def completed(self, params):
-        if platform.system() != "Darwin":
+        if not SUPPORTED:
             return
         turn_id = params.get("turn", {}).get("id")
         if not isinstance(turn_id, str) or not turn_id:
@@ -180,7 +185,9 @@ class Endpoint:
             print(f"Could not launch macOS speech: {error}", file=sys.stderr)
 
     def bootstrap(self):
-        self.render(False)
+        # The footer shows whether speech is on, which off macOS it never is.
+        if SUPPORTED:
+            self.render(False)
         self.request(
             "kit/commands/register",
             {
@@ -212,11 +219,14 @@ class Endpoint:
                 if params.get("protocolVersion") != 2:
                     raise ValueError("Unsupported protocol version")
                 result = {"protocolVersion": 2}
-                bootstrap = platform.system() == "Darwin"
+                bootstrap = True
             elif method == "shutdown":
                 self.stop_speaking()
                 result = None
                 self.stopping.set()
+            elif method == "kit/commands/execute" and params.get("id") == "toggle-speech" and not SUPPORTED:
+                self.notify("kit/ui/toast", {"title": "Speech needs macOS", "variant": "warning"})
+                result = None
             elif method == "kit/commands/execute" and params.get("id") == "toggle-speech":
                 enabled = self.toggle()
                 self.notify(
