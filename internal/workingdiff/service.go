@@ -178,21 +178,29 @@ func (s *Service) Observe(ctx context.Context, session, cwd string, in protocol.
 	if in.Cursor != "" {
 		return s.listCursor(session, in)
 	}
+	held, err := s.observeWorkingTree(ctx, session, cwd, in.WorkspaceID)
+	if err != nil {
+		return protocol.WorkingTreePage{}, err
+	}
+	return s.listPage(held, 0, pageSize(in.PageSize), ""), nil
+}
+
+// observeWorkingTree observes and retains the working tree under the
+// service's observation budget, retrying an attempt that races a change.
+// The caller holds a diff slot for the session.
+func (s *Service) observeWorkingTree(ctx context.Context, session, cwd, workspaceID string) (*observation, error) {
 	ctx, cancel := s.boundedContext(ctx)
 	defer cancel()
-	var last error
 	for attempt := 0; attempt < 3; attempt++ {
-		page, e := s.observeAttempt(ctx, session, cwd, in)
+		held, e := s.observeAttempt(ctx, session, cwd, workspaceID)
 		if e == nil {
-			return page, nil
+			return held, nil
 		}
 		if !errors.Is(e, errRaced) {
-			return protocol.WorkingTreePage{}, e
+			return nil, e
 		}
-		last = e
 	}
-	_ = last
-	return protocol.WorkingTreePage{}, &Error{Code: StaleTarget, Message: "repository changed while it was observed"}
+	return nil, &Error{Code: StaleTarget, Message: "repository changed while it was observed"}
 }
 
 var errRaced = errors.New("observation raced")
@@ -222,75 +230,75 @@ func projectDeadline(caller context.Context, err *error) {
 	*err = &Error{Code: LimitExceeded, Message: "the diff took longer than the server allows", Details: map[string]string{"limit": "deadline"}}
 }
 
-func (s *Service) observeAttempt(ctx context.Context, session, cwd string, in protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+func (s *Service) observeAttempt(ctx context.Context, session, cwd, workspaceID string) (*observation, error) {
 	ref := s.workspaces.Ref(session, cwd)
-	if ref.WorkspaceID != in.WorkspaceID {
-		return protocol.WorkingTreePage{}, &Error{Code: StaleWorkspace, Message: "the session workspace changed", Details: map[string]string{"currentWorkspaceId": ref.WorkspaceID}}
+	if ref.WorkspaceID != workspaceID {
+		return nil, &Error{Code: StaleWorkspace, Message: "the session workspace changed", Details: map[string]string{"currentWorkspaceId": ref.WorkspaceID}}
 	}
 	if ref.State != protocol.WorkspaceReady {
-		return protocol.WorkingTreePage{}, &Error{Code: Unavailable, Message: "workspace is unavailable"}
+		return nil, &Error{Code: Unavailable, Message: "workspace is unavailable"}
 	}
 	repo, err := s.discoverRepository(ctx, cwd)
 	if err != nil {
-		return protocol.WorkingTreePage{}, err
+		return nil, err
 	}
 	if err = s.verifyRepository(ctx, repo); err != nil {
-		return protocol.WorkingTreePage{}, err
+		return nil, err
 	}
 	c0, err := s.observeControl(ctx, repo)
 	if err != nil {
-		return protocol.WorkingTreePage{}, err
+		return nil, err
 	}
 	c1, err := s.observeControl(ctx, repo)
 	if err != nil {
-		return protocol.WorkingTreePage{}, err
+		return nil, err
 	}
 	if c0.digest != c1.digest {
-		return protocol.WorkingTreePage{}, errRaced
+		return nil, errRaced
 	}
 	aggregate := int64(0)
-	live, err := s.workspaces.ObserveDiffPaths(ctx, session, cwd, in.WorkspaceID, c0.candidates, protocol.MaxDiffFileBytes, &aggregate)
+	live, err := s.workspaces.ObserveDiffPaths(ctx, session, cwd, workspaceID, c0.candidates, protocol.MaxDiffFileBytes, &aggregate)
 	if err != nil {
 		var we *workspace.Error
 		if errors.As(err, &we) && we.Code == workspace.StaleFile {
-			return protocol.WorkingTreePage{}, errRaced
+			return nil, errRaced
 		}
-		return protocol.WorkingTreePage{}, projectWorkspace(err)
+		return nil, projectWorkspace(err)
 	}
 	blobs, err := s.readBlobs(ctx, repo, c0.tree)
 	if err != nil {
-		return protocol.WorkingTreePage{}, err
+		return nil, err
 	}
 	c2, err := s.observeControl(ctx, repo)
 	if err != nil {
-		return protocol.WorkingTreePage{}, err
+		return nil, err
 	}
 	if c0.digest != c2.digest {
-		return protocol.WorkingTreePage{}, errRaced
+		return nil, errRaced
 	}
 	checkAggregate := int64(0)
-	post, err := s.workspaces.ObserveDiffPaths(ctx, session, cwd, in.WorkspaceID, c0.candidates, protocol.MaxDiffFileBytes, &checkAggregate)
+	post, err := s.workspaces.ObserveDiffPaths(ctx, session, cwd, workspaceID, c0.candidates, protocol.MaxDiffFileBytes, &checkAggregate)
 	if err != nil && ctx.Err() != nil {
-		return protocol.WorkingTreePage{}, ctx.Err()
+		return nil, ctx.Err()
 	}
 	if err != nil || post.RootIdentity != live.RootIdentity || !sameLiveEntries(live.Entries, post.Entries) {
-		return protocol.WorkingTreePage{}, errRaced
+		return nil, errRaced
 	}
 	files, all, size, complete, trunc, omissions := s.classify(c0, live, blobs)
-	targetID := targetID(session, in.WorkspaceID, repo, protocol.DiffTargetWorkingTree, protocol.DiffEndpoint{}, protocol.DiffEndpoint{})
-	manifest := manifestBytes(session, in.WorkspaceID, targetID, c0, files, live.RootIdentity, complete, trunc, omissions)
+	targetID := targetID(session, workspaceID, repo, protocol.DiffTargetWorkingTree, protocol.DiffEndpoint{}, protocol.DiffEndpoint{})
+	manifest := manifestBytes(session, workspaceID, targetID, c0, files, live.RootIdentity, complete, trunc, omissions)
 	revision := token("diffrev_", string(manifest))
 	head := protocol.DiffHead{State: "commit", OID: c0.head}
 	if c0.unborn {
 		head = protocol.DiffHead{State: "unborn"}
 	}
-	obs := protocol.DiffObservation{SessionID: session, Target: protocol.DiffTarget{ID: targetID, WorkspaceID: in.WorkspaceID, Kind: "working_tree", RepositoryPath: ""}, Revision: revision, Head: head, IndexSummary: c0.indexSummary, Complete: complete, Truncation: trunc, Omissions: omissions}
+	obs := protocol.DiffObservation{SessionID: session, Target: protocol.DiffTarget{ID: targetID, WorkspaceID: workspaceID, Kind: "working_tree", RepositoryPath: ""}, Revision: revision, Head: head, IndexSummary: c0.indexSummary, Complete: complete, Truncation: trunc, Omissions: omissions}
 	held := &observation{DiffObservation: obs, repo: repo, cwd: cwd, rootIdentity: live.RootIdentity, control: c0, files: files, allLive: all, touched: s.now(), expires: s.now().Add(observationTTL), size: estimateRetained(size, manifest, c0)}
 	if held.size > 64<<20 {
-		return protocol.WorkingTreePage{}, &Error{Code: CapacityExceeded, Message: "diff observation exceeds cache capacity", Details: map[string]string{"scope": "session"}}
+		return nil, &Error{Code: CapacityExceeded, Message: "diff observation exceeds cache capacity", Details: map[string]string{"scope": "session"}}
 	}
 	s.store(held)
-	return s.listPage(held, 0, pageSize(in.PageSize), ""), nil
+	return held, nil
 }
 func (s *Service) verifyRepository(ctx context.Context, r *repository) error {
 	out, e := s.runner.run(ctx, r, nil, 4096, "rev-parse", "--show-toplevel", "--absolute-git-dir", "--git-common-dir", "--is-bare-repository")

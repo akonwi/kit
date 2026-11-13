@@ -196,6 +196,13 @@ a composer chip, and retains its frozen preview. It cannot be submitted.
 The server checks freshness during bounded listing or explicit refresh, before
 an update, and atomically during prompt acceptance. For a workspace-file anchor,
 validation performs a read guarded by both workspace ID and file revision.
+A working-tree diff anchor belongs to its file, not to the whole observation
+that named it: validation uses that observation while it is retained and still
+current, and otherwise a current observation of the same working-tree target.
+The anchor is stale (`stale_file`) only when its file's revision changed or the
+file no longer differs; changes elsewhere in the working tree, or eviction of
+the named observation, do not make it stale. A different target identity, as
+after a repository change, is `stale_target`.
 Revision mismatch never silently relocates the range onto current content.
 
 To recover, the user deletes the stale annotation and creates a new annotation
