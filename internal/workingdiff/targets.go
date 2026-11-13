@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os/exec"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,7 +38,31 @@ type commitInfo struct {
 	committedAt                int64
 }
 
-type branchInfo struct{ name, oid string }
+// branchInfo is one local branch. upstream is its configured upstream when
+// that is a remote-tracking ref (refs/remotes/...), and remote names the
+// upstream's remote.
+type branchInfo struct{ name, oid, upstream, remote string }
+
+// remoteRef is one remote-tracking ref, named without its refs/remotes/ prefix
+// (for example "origin/main").
+type remoteRef struct{ name, oid string }
+
+// baseChoice is one branch a branch target may compare against: a local branch
+// with its remote-tracking counterpart when one is fetched, or a remote-only
+// default base. name is empty for a remote-only base.
+type baseChoice struct {
+	name, oid string
+	remote    remoteRef
+}
+
+// refSnapshot is the ref state one catalog is built from. Listing it twice and
+// comparing detects a ref update (such as a fetch) while the catalog was built.
+type refSnapshot struct {
+	branches []branchInfo
+	current  string
+	choices  []baseChoice
+	omitted  int
+}
 
 func authorityToken(repo *repository) string {
 	h := sha256.New()
@@ -166,12 +191,12 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 	}
 	add(protocol.DiffTargetWorkingTree, endpoint, endpoint, protocol.DiffTargetMetadata{Label: "Working tree"})
 	if unborn {
-		if err := s.verifyCatalogSnapshot(ctx, repo, headOID, unborn, nil, ""); err != nil {
+		if err := s.verifyCatalogSnapshot(ctx, repo, headOID, unborn, refSnapshot{}); err != nil {
 			return protocol.DiffTargetCatalog{}, err
 		}
 		return catalog, nil
 	}
-	branches, current, diagnostics, err := s.listBranches(ctx, repo)
+	refs, diagnostics, err := s.listRefs(ctx, repo)
 	if err != nil {
 		return protocol.DiffTargetCatalog{}, err
 	}
@@ -180,42 +205,29 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 		return protocol.DiffTargetCatalog{}, err
 	}
 	catalog.Diagnostics = append(catalog.Diagnostics, diagnostics...)
-	baseName := chooseBaseBranch(branches, current)
+	catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "branch_limit", refs.omitted)
 	currentOID := ""
-	baseChoices := make([]branchInfo, 0, len(branches))
-	for _, branch := range branches {
-		if branch.name == current {
+	for _, branch := range refs.branches {
+		if branch.name == refs.current {
 			currentOID = branch.oid
-			continue
 		}
-		baseChoices = append(baseChoices, branch)
-	}
-	sort.SliceStable(baseChoices, func(i, j int) bool {
-		if baseChoices[i].name == baseName {
-			return true
-		}
-		if baseChoices[j].name == baseName {
-			return false
-		}
-		return baseChoices[i].name < baseChoices[j].name
-	})
-	if len(baseChoices) > 20 {
-		catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "branch_limit", len(baseChoices)-20)
-		baseChoices = baseChoices[:20]
 	}
 	if currentOID != "" && currentOID == headOID {
-		for _, baseChoice := range baseChoices {
-			if baseChoice.oid == currentOID {
+		for _, choice := range refs.choices {
+			baseName, baseOID, mergeBase, err := s.resolveBaseChoice(ctx, repo, choice, currentOID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return protocol.DiffTargetCatalog{}, ctxErr
+				}
+				catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "missing_object", 1)
 				continue
 			}
-			mergeBase, err := s.resolveMergeBase(ctx, repo, baseChoice.oid, currentOID)
-			if err != nil {
-				catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "missing_object", 1)
+			if baseOID == currentOID {
 				continue
 			}
 			base := protocol.DiffEndpoint{Kind: "commit", OID: mergeBase}
 			head := protocol.DiffEndpoint{Kind: "commit", OID: currentOID}
-			add(protocol.DiffTargetBranch, base, head, protocol.DiffTargetMetadata{Label: branchTargetLabel(current, baseChoice.name), RefName: current, BaseRefName: baseChoice.name, Abbreviated: abbreviate(currentOID)})
+			add(protocol.DiffTargetBranch, base, head, protocol.DiffTargetMetadata{Label: branchTargetLabel(refs.current, baseName), RefName: refs.current, BaseRefName: baseName, Abbreviated: abbreviate(currentOID)})
 		}
 	}
 	commits, err := s.recentCommits(ctx, repo, headOID)
@@ -230,7 +242,7 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 		head := protocol.DiffEndpoint{Kind: "commit", OID: commit.oid}
 		add(protocol.DiffTargetCommit, base, head, protocol.DiffTargetMetadata{Label: truncateTargetLabel(abbreviate(commit.oid)+"  "+commit.subject, protocol.MaxDiffTargetLabelBytes), Subject: commit.subject, Abbreviated: abbreviate(commit.oid), CommittedAt: commit.committedAt})
 	}
-	if err := s.verifyCatalogSnapshot(ctx, repo, headOID, unborn, branches, current); err != nil {
+	if err := s.verifyCatalogSnapshot(ctx, repo, headOID, unborn, refs); err != nil {
 		return protocol.DiffTargetCatalog{}, err
 	}
 	catalogStorageAfter, err := validateObjectStoreAuthority(repo)
@@ -243,7 +255,7 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 	return catalog, nil
 }
 
-func (s *Service) verifyCatalogSnapshot(ctx context.Context, repo *repository, head string, unborn bool, branches []branchInfo, current string) error {
+func (s *Service) verifyCatalogSnapshot(ctx context.Context, repo *repository, head string, unborn bool, refs refSnapshot) error {
 	checkHead, checkUnborn, err := s.resolveHead(ctx, repo)
 	if err != nil {
 		return err
@@ -254,17 +266,12 @@ func (s *Service) verifyCatalogSnapshot(ctx context.Context, repo *repository, h
 	if unborn {
 		return nil
 	}
-	checkBranches, checkCurrent, _, err := s.listBranches(ctx, repo)
+	check, _, err := s.listRefs(ctx, repo)
 	if err != nil {
 		return err
 	}
-	if checkCurrent != current || len(checkBranches) != len(branches) {
+	if !reflect.DeepEqual(check, refs) {
 		return &Error{Code: StaleTarget, Message: "repository changed while targets were listed"}
-	}
-	for i := range branches {
-		if branches[i] != checkBranches[i] {
-			return &Error{Code: StaleTarget, Message: "repository changed while targets were listed"}
-		}
 	}
 	return nil
 }
@@ -301,22 +308,135 @@ func (s *Service) resolveHead(ctx context.Context, repo *repository) (string, bo
 	return oid, false, nil
 }
 
+// maxBaseChoices bounds the branches a catalog compares the current branch against.
+const maxBaseChoices = 20
+
+// listRefs snapshots the local branches, the current branch, and the bounded
+// base choices with their already-fetched remote-tracking counterparts. It
+// reads refs/heads and refs/remotes only and never contacts a remote.
+func (s *Service) listRefs(ctx context.Context, repo *repository) (refSnapshot, []protocol.DiffTargetDiagnostic, error) {
+	branches, current, diagnostics, err := s.listBranches(ctx, repo)
+	if err != nil {
+		return refSnapshot{}, nil, err
+	}
+	defaultRemote := ""
+	for _, branch := range branches {
+		if branch.name == current && branch.upstream != "" {
+			defaultRemote = branch.remote
+		}
+	}
+	heads, defaults, err := s.listRemoteDefaults(ctx, repo, defaultRemote, &diagnostics)
+	if err != nil {
+		return refSnapshot{}, nil, err
+	}
+	if defaultRemote == "" {
+		if _, ok := heads["origin"]; ok {
+			defaultRemote = "origin"
+		} else if len(heads) == 1 {
+			for remote := range heads {
+				defaultRemote = remote
+			}
+		}
+	}
+
+	baseName, remoteOnly := chooseBaseBranch(branches, current, defaultRemote, heads, defaults)
+	choices := make([]baseChoice, 0, len(branches))
+	if remoteOnly.name != "" {
+		choices = append(choices, baseChoice{remote: remoteOnly})
+	}
+	locals := make([]branchInfo, 0, len(branches))
+	for _, branch := range branches {
+		if branch.name != current {
+			locals = append(locals, branch)
+		}
+	}
+	sort.SliceStable(locals, func(i, j int) bool {
+		if locals[i].name == baseName {
+			return true
+		}
+		if locals[j].name == baseName {
+			return false
+		}
+		return locals[i].name < locals[j].name
+	})
+	for _, branch := range locals {
+		choices = append(choices, baseChoice{name: branch.name, oid: branch.oid})
+	}
+	omitted := 0
+	if len(choices) > maxBaseChoices {
+		omitted = len(choices) - maxBaseChoices
+		choices = choices[:maxBaseChoices]
+	}
+
+	// Look up the remote-tracking counterpart of each retained local base: its
+	// configured upstream, otherwise the same name on the default remote.
+	wanted := make([]string, len(choices))
+	upstreams := map[string]string{}
+	for _, branch := range branches {
+		upstreams[branch.name] = branch.upstream
+	}
+	patterns := make([]string, 0, 2*len(choices))
+	for i, choice := range choices {
+		if choice.name == "" {
+			continue
+		}
+		if upstream := upstreams[choice.name]; upstream != "" {
+			wanted[i] = upstream
+			patterns = append(patterns, upstream)
+		}
+		if defaultRemote != "" {
+			fallback := "refs/remotes/" + defaultRemote + "/" + choice.name
+			if wanted[i] == "" {
+				wanted[i] = fallback
+			}
+			patterns = append(patterns, fallback)
+		}
+	}
+	if len(patterns) > 0 {
+		found, err := s.listRemoteRefs(ctx, repo, patterns, &diagnostics)
+		if err != nil {
+			return refSnapshot{}, nil, err
+		}
+		for i, choice := range choices {
+			if choice.name == "" {
+				continue
+			}
+			ref, ok := found[wanted[i]]
+			if !ok && defaultRemote != "" {
+				// A configured upstream that was never fetched falls back to the
+				// default remote's branch of the same name.
+				ref, ok = found["refs/remotes/"+defaultRemote+"/"+choice.name]
+			}
+			if ok {
+				choices[i].remote = ref
+			}
+		}
+	}
+	return refSnapshot{branches: branches, current: current, choices: choices, omitted: omitted}, diagnostics, nil
+}
+
 func (s *Service) listBranches(ctx context.Context, repo *repository) ([]branchInfo, string, []protocol.DiffTargetDiagnostic, error) {
-	out, err := s.runner.run(ctx, repo, nil, 1<<20, "for-each-ref", "--format=%(refname)%00%(objectname)%00", "refs/heads/")
+	out, err := s.runner.run(ctx, repo, nil, 1<<20, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)%00%(upstream:remotename)%00", "refs/heads/")
 	if err != nil {
 		return nil, "", nil, commandFailure(ctx)
 	}
 	parts := bytes.Split(out, []byte{0})
 	branches := make([]branchInfo, 0)
 	diagnostics := []protocol.DiffTargetDiagnostic{}
-	for i := 0; i+1 < len(parts); i += 2 {
+	for i := 0; i+3 < len(parts); i += 4 {
 		refname, oid := strings.TrimSpace(string(parts[i])), strings.TrimSpace(string(parts[i+1]))
+		upstream, remote := strings.TrimSpace(string(parts[i+2])), strings.TrimSpace(string(parts[i+3]))
 		name := strings.TrimPrefix(refname, "refs/heads/")
-		if refname == name || protocol.ValidateWorkspacePath(name, false) != nil || !safeDisplayText(name) || !validOID(oid) {
+		if refname == name || !validRefName(name) || !validOID(oid) {
 			diagnostics = appendDiagnostic(diagnostics, "invalid_ref", 1)
 			continue
 		}
-		branches = append(branches, branchInfo{name: name, oid: oid})
+		// Only an upstream on a named remote is a remote-tracking ref; a
+		// branch tracking another local branch has no remote counterpart.
+		if !strings.HasPrefix(upstream, "refs/remotes/"+remote+"/") || remote == "" || remote == "." || !validRefName(strings.TrimPrefix(upstream, "refs/remotes/")) {
+			upstream, remote = "", ""
+		}
+		branches = append(branches, branchInfo{name: name, oid: oid, upstream: upstream, remote: remote})
 	}
 	sort.Slice(branches, func(i, j int) bool { return branches[i].name < branches[j].name })
 	current := ""
@@ -332,20 +452,187 @@ func (s *Service) listBranches(ctx context.Context, repo *repository) ([]branchI
 	return branches, current, diagnostics, nil
 }
 
-func chooseBaseBranch(branches []branchInfo, current string) string {
-	for _, preferred := range []string{"main", "master"} {
+// listRemoteDefaults reads each remote's HEAD and its main and master
+// remote-tracking refs. heads maps a remote to the branch its HEAD names;
+// defaults holds the refs by full refname. A ref glob's * does not match "/",
+// so tracked, the current branch's upstream remote, is also read by exact
+// name when its name contains a slash.
+func (s *Service) listRemoteDefaults(ctx context.Context, repo *repository, tracked string, diagnostics *[]protocol.DiffTargetDiagnostic) (map[string]string, map[string]remoteRef, error) {
+	args := []string{"for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)%00", "refs/remotes/*/HEAD", "refs/remotes/*/main", "refs/remotes/*/master"}
+	exact := map[string]bool{}
+	if strings.Contains(tracked, "/") {
+		for _, branch := range []string{"HEAD", "main", "master"} {
+			refname := "refs/remotes/" + tracked + "/" + branch
+			exact[refname] = true
+			args = append(args, refname)
+		}
+	}
+	out, err := s.runner.run(ctx, repo, nil, 1<<20, args...)
+	if err != nil {
+		return nil, nil, commandFailure(ctx)
+	}
+	parts := bytes.Split(out, []byte{0})
+	heads := map[string]string{}
+	defaults := map[string]remoteRef{}
+	for i := 0; i+2 < len(parts); i += 3 {
+		refname, oid, symref := strings.TrimSpace(string(parts[i])), strings.TrimSpace(string(parts[i+1])), strings.TrimSpace(string(parts[i+2]))
+		name := strings.TrimPrefix(refname, "refs/remotes/")
+		// An exact name also matches refs below it; keep only the named refs.
+		if strings.Count(name, "/") > 1 && !exact[refname] {
+			continue
+		}
+		if remote, ok := strings.CutSuffix(name, "/HEAD"); ok && refname != name {
+			target, isRemote := strings.CutPrefix(symref, "refs/remotes/"+remote+"/")
+			if remote == "" || !isRemote || !validRefName(target) || !validRefName(remote+"/"+target) {
+				*diagnostics = appendDiagnostic(*diagnostics, "invalid_ref", 1)
+				continue
+			}
+			heads[remote] = target
+			if validOID(oid) {
+				defaults[symref] = remoteRef{name: remote + "/" + target, oid: oid}
+			}
+			continue
+		}
+		if refname == name || symref != "" || !validRefName(name) || !validOID(oid) {
+			*diagnostics = appendDiagnostic(*diagnostics, "invalid_ref", 1)
+			continue
+		}
+		defaults[refname] = remoteRef{name: name, oid: oid}
+	}
+	return heads, defaults, nil
+}
+
+// listRemoteRefs reads the named remote-tracking refs that exist, by full refname.
+func (s *Service) listRemoteRefs(ctx context.Context, repo *repository, refnames []string, diagnostics *[]protocol.DiffTargetDiagnostic) (map[string]remoteRef, error) {
+	want := map[string]bool{}
+	for _, refname := range refnames {
+		want[refname] = true
+	}
+	args := append([]string{"for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)%00"}, refnames...)
+	out, err := s.runner.run(ctx, repo, nil, 1<<20, args...)
+	if err != nil {
+		return nil, commandFailure(ctx)
+	}
+	parts := bytes.Split(out, []byte{0})
+	found := map[string]remoteRef{}
+	for i := 0; i+2 < len(parts); i += 3 {
+		refname, oid, symref := strings.TrimSpace(string(parts[i])), strings.TrimSpace(string(parts[i+1])), strings.TrimSpace(string(parts[i+2]))
+		// for-each-ref also matches refs below a pattern; keep exact names.
+		if !want[refname] {
+			continue
+		}
+		name := strings.TrimPrefix(refname, "refs/remotes/")
+		if refname == name || symref != "" || !validRefName(name) || !validOID(oid) {
+			*diagnostics = appendDiagnostic(*diagnostics, "invalid_ref", 1)
+			continue
+		}
+		found[refname] = remoteRef{name: name, oid: oid}
+	}
+	return found, nil
+}
+
+func validRefName(name string) bool {
+	return protocol.ValidateWorkspacePath(name, false) == nil && safeDisplayText(name)
+}
+
+// chooseBaseBranch picks the default base: main, then master, then the branch
+// the default remote's HEAD names, then the first other local branch. A local
+// branch wins over the remote-tracking ref of the same name; when only the
+// remote-tracking ref exists it is returned as remoteOnly.
+func chooseBaseBranch(branches []branchInfo, current, defaultRemote string, heads map[string]string, defaults map[string]remoteRef) (string, remoteRef) {
+	preferred := []string{"main", "master"}
+	if target := heads[defaultRemote]; target != "" {
+		preferred = append(preferred, target)
+	}
+	for _, name := range preferred {
+		if name == current {
+			continue
+		}
 		for _, branch := range branches {
-			if branch.name == preferred && branch.name != current {
-				return branch.name
+			if branch.name == name {
+				return branch.name, remoteRef{}
+			}
+		}
+		if defaultRemote != "" {
+			if ref, ok := defaults["refs/remotes/"+defaultRemote+"/"+name]; ok {
+				return "", ref
 			}
 		}
 	}
 	for _, branch := range branches {
 		if branch.name != current {
-			return branch.name
+			return branch.name, remoteRef{}
 		}
 	}
-	return ""
+	return "", remoteRef{}
+}
+
+// resolveBaseChoice picks which ref a base choice compares against and
+// returns that ref's display name and OID with its merge base with head.
+// When a local branch and its remote-tracking ref differ, the ref whose merge
+// base is closer to head wins, so the comparison holds only the current
+// branch's own changes; when both give the same merge base, the newer ref wins.
+func (s *Service) resolveBaseChoice(ctx context.Context, repo *repository, choice baseChoice, head string) (string, string, string, error) {
+	if choice.name == "" || choice.remote.name == "" || choice.remote.oid == choice.oid {
+		name, oid := choice.name, choice.oid
+		if choice.name == "" {
+			name, oid = choice.remote.name, choice.remote.oid
+		}
+		mergeBase, err := s.resolveMergeBase(ctx, repo, oid, head)
+		return name, oid, mergeBase, err
+	}
+	localBase, localErr := s.resolveMergeBase(ctx, repo, choice.oid, head)
+	remoteBase, remoteErr := s.resolveMergeBase(ctx, repo, choice.remote.oid, head)
+	switch {
+	case localErr != nil && remoteErr != nil:
+		return "", "", "", localErr
+	case remoteErr != nil:
+		return choice.name, choice.oid, localBase, nil
+	case localErr != nil:
+		return choice.remote.name, choice.remote.oid, remoteBase, nil
+	}
+	useRemote := false
+	if localBase != remoteBase {
+		remoteCloser, err := s.isAncestor(ctx, repo, localBase, remoteBase)
+		if err != nil {
+			return "", "", "", err
+		}
+		localCloser := false
+		if !remoteCloser {
+			if localCloser, err = s.isAncestor(ctx, repo, remoteBase, localBase); err != nil {
+				return "", "", "", err
+			}
+		}
+		useRemote = remoteCloser
+		if !remoteCloser && !localCloser {
+			// Unrelated merge bases: fall back to the newer ref.
+			if useRemote, err = s.isAncestor(ctx, repo, choice.oid, choice.remote.oid); err != nil {
+				return "", "", "", err
+			}
+		}
+	} else {
+		var err error
+		if useRemote, err = s.isAncestor(ctx, repo, choice.oid, choice.remote.oid); err != nil {
+			return "", "", "", err
+		}
+	}
+	if useRemote {
+		return choice.remote.name, choice.remote.oid, remoteBase, nil
+	}
+	return choice.name, choice.oid, localBase, nil
+}
+
+// isAncestor reports whether commit a is an ancestor of (or equal to) commit b.
+func (s *Service) isAncestor(ctx context.Context, repo *repository, a, b string) (bool, error) {
+	_, err := s.runner.run(ctx, repo, nil, 256, "merge-base", "--is-ancestor", a, b)
+	if err == nil {
+		return true, nil
+	}
+	var exit *exec.ExitError
+	if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, commandFailure(ctx)
 }
 
 func (s *Service) loadCommitExact(ctx context.Context, repo *repository, oid string) (commitInfo, error) {

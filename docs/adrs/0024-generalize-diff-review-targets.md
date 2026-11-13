@@ -27,8 +27,8 @@ Kit supports these diff targets:
   filesystem, as defined by ADR 0023;
 - `commit`: the selected commit's first parent versus that commit, or the empty
   tree versus a root commit; and
-- `branch`: the merge base selected for a local branch comparison versus the
-  branch head pinned when the target is selected.
+- `branch`: the merge base of the current branch with a base branch versus the
+  current branch head pinned when the target is selected.
 
 A target specification contains canonical full object IDs. Branch names,
 subjects, abbreviated IDs, and relative times are display metadata and never
@@ -50,9 +50,44 @@ endpoints and are immutable.
 The session-client contract exposes a bounded target catalog. It returns:
 
 1. the working tree;
-2. the current branch versus its resolved default/local base when meaningful;
-3. bounded local branch-base choices; and
+2. the current branch versus its resolved default base when meaningful;
+3. at most 20 branch-base choices in total, the default first; and
 4. at most 20 recent commits, newest first.
+
+### Branch bases
+
+A base is the latest version of a branch already present in the repository.
+Each local branch other than the current one is a base choice. When it has a
+fetched remote-tracking counterpart (its configured upstream under
+`refs/remotes/`, otherwise the same name on the default remote), the server
+compares the current branch against whichever of the two gives the closer
+merge base, so a stale local base does not attribute already-merged commits
+to the current branch:
+
+- when the local branch and its counterpart are the same commit, the local
+  branch is used;
+- when one merge base descends from the other, the ref with the descendant
+  merge base is used;
+- when both merge bases are the same commit, or are unrelated, the newer ref
+  is used: the remote-tracking ref when the local branch is its ancestor, and
+  the local branch otherwise.
+
+The default remote is the remote of the current branch's upstream, otherwise
+`origin` when it has a remote `HEAD`, otherwise the only remote with a remote
+`HEAD`; a remote whose name contains `/` can be the default remote only as
+the current branch's upstream remote. The default base is `main`, then
+`master`, then the branch the default remote's `HEAD` names, then the first
+other local branch by name. When the preferred base exists only as a
+remote-tracking ref on the default remote (for example a clone without a
+local `main`), that ref is offered as the default base. Other remote-only
+branches are not offered.
+
+Branch-target metadata names the ref the merge base came from: `baseRefName`
+is a local branch name (`main`) or a remote-tracking name (`origin/main`), and
+the label reads `feature vs origin/main`. Base resolution uses only refs
+already fetched; listing never fetches. A fetch while a catalog is built fails
+that catalog as stale; a fetch after a catalog does not change a listed
+target, whose endpoints are pinned.
 
 Catalog entries contain an authenticated opaque target reference plus target
 kind, full pinned endpoints, bounded display metadata, and optional target
@@ -157,9 +192,9 @@ unsupported, truncated, and error states remain explicit.
 ### Non-goals
 
 This feature is not a history browser. It does not provide arbitrary revision
-ranges, commit graphs, remote branch discovery, fetching, more than 20 recent
-commits, multi-parent merge review, rename/copy pairing, or silent draft
-coordinate reconciliation.
+ranges, commit graphs, remote branch discovery beyond the default base,
+fetching, more than 20 recent commits, multi-parent merge review, rename/copy
+pairing, or silent draft coordinate reconciliation.
 
 ## Required properties and verification
 
@@ -167,6 +202,8 @@ Tests must establish:
 
 - exact target identity and endpoint validation across local and daemon clients;
 - root-commit, first-parent commit, branch merge-base, and moving-ref semantics;
+- remote-tracking base selection for behind, ahead, diverged, remote-only, and
+  non-`origin` upstream bases, and stale detection of a fetch while listing;
 - no remote, helper, filter, textconv, hook, pager, credential, or lazy-fetch
   execution while listing or observing targets;
 - immutable committed evidence sourced from objects rather than the worktree;

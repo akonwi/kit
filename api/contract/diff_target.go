@@ -12,7 +12,7 @@ const (
 	DiffTargetCommit      = "commit"
 	DiffTargetBranch      = "branch"
 
-	MaxDiffTargets           = 42 // working tree, current branch, 20 local choices, and 20 commits.
+	MaxDiffTargets           = 42 // working tree, current branch, 20 branch-base choices, and 20 commits.
 	MaxDiffTargetDiagnostics = 20
 	MaxDiffTargetReference   = 2048
 	MaxDiffTargetLabelBytes  = 160
