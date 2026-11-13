@@ -372,6 +372,10 @@ public enum DiagramAnnotationText {
         public let diagram: String
         /// The part, as its `Target:` line names it.
         public let target: String
+
+        public init(number: Int, comment: String, diagram: String, target: String) {
+            self.number = number; self.comment = comment; self.diagram = diagram; self.target = target
+        }
     }
 
     /// Splits a message into its own text and the diagram annotation blocks

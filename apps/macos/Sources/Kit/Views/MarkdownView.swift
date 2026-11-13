@@ -810,6 +810,8 @@ struct FenceCard<Content: View>: View {
     var pasteboard: NSPasteboard = .general
     /// Opens the content on its own, offered beside Copy when set.
     var open: (@MainActor () -> Void)? = nil
+    /// A control of the content's own, before Open and Copy.
+    var accessory: AnyView? = nil
     @ViewBuilder let content: Content
     @State private var copied = false
 
@@ -823,6 +825,7 @@ struct FenceCard<Content: View>: View {
             HStack(spacing: 0) {
                 MetaLabel(text: label)
                 Spacer()
+                if let accessory { accessory }
                 if let open {
                     Button("Open", icon: .arrowsOutSimple, size: 10, margin: Self.copyMargin, action: open)
                         .buttonStyle(HoverFillButtonStyle(margin: Self.copyMargin))

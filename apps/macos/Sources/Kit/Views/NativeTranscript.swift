@@ -1,4 +1,5 @@
 import AppKit
+import KitMermaid
 import KitTranscript
 import SwiftUI
 
@@ -196,6 +197,7 @@ struct NativeTranscript: NSViewRepresentable {
             .environment(\.openMermaidDiagram, { [workspace = input.workspace, pane = input.pane] source in
                 workspace.openDiagram(source, beside: pane)
             })
+            .environment(\.diagramAnnotations, DiagramAnnotationContext(draft: input.workspace.diagramAnnotations))
             .environment(\.transcriptSessionLink, input.sessionLink)
             .environment(\.transcriptToolContext, input.toolContext)
             .environment(\.openURL, .transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink))
@@ -770,10 +772,15 @@ private struct NativeMessageRow: View {
                                     }
                                     let parts = message.role == "user" ? BrowserAnnotationText.split(message.text)
                                         : (text: message.text, annotations: [BrowserAnnotationText.Sent]())
-                                    if !parts.text.isEmpty { MarkdownView(source: parts.text, onSections: message.role == "assistant" ? onSections : nil) }
+                                    let diagramParts = message.role == "user" ? DiagramAnnotationText.split(parts.text)
+                                        : (text: parts.text, annotations: [DiagramAnnotationText.Sent]())
+                                    if !diagramParts.text.isEmpty { MarkdownView(source: diagramParts.text, onSections: message.role == "assistant" ? onSections : nil) }
                                     TranscriptAnnotations(annotations: message.annotations ?? [])
                                     TranscriptBrowserAnnotations(annotations: parts.annotations,
                                                                  state: presentation.drawer(for: TranscriptPresentationState.browserAnnotationsKey(message.id)),
+                                                                 onExpand: onExpand)
+                                    TranscriptDiagramAnnotations(annotations: diagramParts.annotations,
+                                                                 state: presentation.drawer(for: TranscriptPresentationState.diagramAnnotationsKey(message.id)),
                                                                  onExpand: onExpand)
                                     TranscriptAttachments(attachments: message.attachments ?? [])
                                 }

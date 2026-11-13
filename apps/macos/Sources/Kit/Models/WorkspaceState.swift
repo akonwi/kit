@@ -893,6 +893,7 @@ final class WorkspaceState {
     var notes: [String: String] = [:]
     /// Browser element annotations waiting in the composer.
     let browserAnnotations = BrowserAnnotationDraft()
+    let diagramAnnotations = DiagramAnnotationDraft()
     var editingLine: Int?
     var noteDraft = ""
 

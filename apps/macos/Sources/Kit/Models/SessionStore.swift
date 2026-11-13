@@ -14,6 +14,9 @@ final class SessionStore {
     /// Each session's browser annotations in the message being sent,
     /// removed from its composer once the server has it.
     @ObservationIgnored private var browserAnnotationsSent: [String: [UUID]] = [:]
+    /// Each session's diagram annotations in the message being sent,
+    /// removed from its composer once the server has it.
+    @ObservationIgnored private var diagramAnnotationsSent: [String: [UUID]] = [:]
     var pluginCommandUnavailableReason: String? {
         if !(catalogClient is any PluginCommandClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
@@ -803,14 +806,18 @@ final class SessionStore {
         if !isDemo, shellMode != nil { sendBash(); return }
         guard let demo else { submitLive(); return }
         let browser = ui.workspace.browserAnnotations
+        let diagrams = ui.workspace.diagramAnnotations
         guard !ui.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !ui.workspace.notes.isEmpty || !ui.attachments.isEmpty
-            || !browser.isEmpty else { return }
+            || !browser.isEmpty || !diagrams.isEmpty else { return }
         stop()
         let suffix = ui.attachments.isEmpty ? "" : "\n\nAttachments: " + ui.attachments.joined(separator: ", ")
         let review = ui.workspace.notes.isEmpty ? "" : "\n\nReview notes:\n" + ui.workspace.notes.sorted(by: { $0.key < $1.key }).map { "- \($0.key): \($0.value)" }.joined(separator: "\n")
         demo.append(TranscriptMessage(id: UUID().uuidString, role: "user",
-                                      text: Self.joinBrowserAnnotations(ui.draft + suffix + review, browser.messageText()), tools: []))
+                                      text: Self.joinBrowserAnnotations(
+                                        Self.joinBrowserAnnotations(ui.draft + suffix + review, browser.messageText()),
+                                        diagrams.messageText()), tools: []))
         browser.acknowledge(browser.items.map(\.id))
+        diagrams.acknowledge(diagrams.items.map(\.id))
         demo.append(TranscriptMessage(id: UUID().uuidString, role: "preview", text: "Prompt added to this preview. No model request was sent.", tools: []))
         ui.draft = ""
         ui.attachments = []
@@ -878,7 +885,9 @@ final class SessionStore {
         guard annotations.count <= 64 else { operations.reject("A message can contain up to 64 annotations."); return }
         guard !annotations.contains(where: \.stale) else { operations.reject("Source changed. Replace or delete stale annotations before sending."); return }
         let annotationIDs = annotations.map(\.id)
-        let text = Self.joinBrowserAnnotations(ui.draft + review, browser.messageText())
+        let diagrams = ui.workspace.diagramAnnotations
+        let text = Self.joinBrowserAnnotations(Self.joinBrowserAnnotations(ui.draft + review, browser.messageText()),
+                                               diagrams.messageText())
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, attachmentIDs.isEmpty, annotationIDs.isEmpty {
             // As in the TUI, Return in an empty composer sends the queue to the running turn.
             if running, (operations.queue?.count ?? 0) > 0 { changeQueue(.promote) }
@@ -889,7 +898,7 @@ final class SessionStore {
             guard (selected?.promptCommands ?? []).contains(where: { $0.name == command.name }) else {
                 operations.reject("Unknown prompt command: /" + command.name); return
             }
-            guard attachmentIDs.isEmpty, notes.isEmpty, annotationIDs.isEmpty, browser.isEmpty else {
+            guard attachmentIDs.isEmpty, notes.isEmpty, annotationIDs.isEmpty, browser.isEmpty, diagrams.isEmpty else {
                 operations.reject("Prompt commands do not accept attachments or annotations."); return
             }
             guard let commandClient = catalogClient as? any PromptCommandClient else {
@@ -908,6 +917,7 @@ final class SessionStore {
             return
         }
         browserAnnotationsSent[id] = browser.items.map(\.id)
+        diagramAnnotationsSent[id] = diagrams.items.map(\.id)
         operations.submit(client: client, session: id,
             input: WirePromptInput(text: text, attachmentIds: attachmentIDs, annotationIds: annotationIDs),
             draft: .init(text: ui.draft, notes: notes, attachmentIDs: attachmentIDs),
@@ -943,10 +953,12 @@ final class SessionStore {
         ui.serverAttachmentIDs.removeAll { draft.attachmentIDs.contains($0) }
         ui.uploads.acknowledge(draft.attachmentIDs)
         ui.workspace.browserAnnotations.acknowledge(browserAnnotationsSent.removeValue(forKey: selectedID) ?? [])
+        ui.workspace.diagramAnnotations.acknowledge(diagramAnnotationsSent.removeValue(forKey: selectedID) ?? [])
         operations.consumeAcknowledgedDraft()
     }
 
-    /// The message's text, then its browser annotations' blocks.
+    /// The message's text, then its browser annotations' blocks; again
+    /// for its diagram annotations' blocks.
     static func joinBrowserAnnotations(_ text: String, _ blocks: String) -> String {
         guard !blocks.isEmpty else { return text }
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? blocks : text + "\n\n" + blocks

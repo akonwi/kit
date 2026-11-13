@@ -123,6 +123,7 @@ struct WorkspaceLayout: View {
         case .diagram:
             if let source = state.ui.workspace.diagram(pane) {
                 DiagramPane(workspace: state.ui.workspace, pane: pane, source: source)
+                    .environment(\.diagramAnnotations, DiagramAnnotationContext(draft: state.ui.workspace.diagramAnnotations))
             }
         }
     }

@@ -18,6 +18,8 @@ struct DiagramPane: View {
     @State private var zoom = ImageZoom()
     @State private var image: CGImage?
     @State private var error: String?
+    @State private var annotator = DiagramAnnotator()
+    @Environment(\.diagramAnnotations) private var annotations
 
     /// Zoom shortcuts apply only to the diagram in the focused tile.
     private var focused: Bool { workspace.selected == pane && workspace.isVisible(pane) }
@@ -38,7 +40,8 @@ struct DiagramPane: View {
                     theme.raised
                     if let image {
                         ImageCanvas(image: image, size: picture.size, zoom: zoom, checker: (theme.raised, theme.raised),
-                                    smoothsEnlarged: true)
+                                    smoothsEnlarged: true, overlay: annotationLayer(picture),
+                                    overlayTakesPointer: { [annotator] in annotator.annotating })
                     }
                 }
                 .accessibilityElement(children: .ignore)
@@ -65,6 +68,7 @@ struct DiagramPane: View {
         HStack(spacing: 12) {
             Text(picture.description).font(.kit(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
+            if annotations != nil { DiagramAnnotateButton(annotator: annotator) }
             ZoomControls(zoom: zoom)
             Button { copy(picture) } label: { IconView(.copy, size: 12) }
                 .buttonStyle(.plain).foregroundStyle(theme.muted)
@@ -73,6 +77,15 @@ struct DiagramPane: View {
         }
         .foregroundStyle(theme.text)
         .padding(.horizontal, 20).frame(height: 38)
+    }
+
+    /// Annotate mode and waiting annotations' marks, over the diagram.
+    private func annotationLayer(_ picture: DiagramPicture) -> AnyView? {
+        guard let annotations else { return nil }
+        let metrics = MermaidPicture.metrics(for: Typography.shared.font(size: 12, mono: true), scale: displayScale)
+        return AnyView(DiagramAnnotationLayer(source: source, drawing: picture.drawing, metrics: metrics, size: picture.size,
+                                              annotator: annotator, draft: annotations.draft)
+            .environment(\.mica, theme))
     }
 
     private func copy(_ picture: DiagramPicture) {

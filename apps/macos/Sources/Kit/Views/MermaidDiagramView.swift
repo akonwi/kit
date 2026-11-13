@@ -165,7 +165,10 @@ struct MermaidBlock: View {
     @Environment(\.mica) private var theme
     @Environment(\.compactCodeBlocks) private var compact
     @Environment(\.openMermaidDiagram) private var openDiagram
+    @Environment(\.diagramAnnotations) private var annotations
+    @Environment(\.displayScale) private var displayScale
     let diagram: MermaidDiagram
+    @State private var annotator = DiagramAnnotator()
 
     var body: some View {
         switch diagram.drawing {
@@ -175,9 +178,14 @@ struct MermaidBlock: View {
                     .compactFence()
             } else {
                 FenceCard(label: "MERMAID", copy: diagram.source,
-                          open: openDiagram.map { open in { [source = diagram.source] in open(source) } }) {
+                          open: openDiagram.map { open in { [source = diagram.source] in open(source) } },
+                          accessory: annotations.map { _ in
+                              AnyView(DiagramAnnotateButton(annotator: annotator, margin: FenceCard<EmptyView>.copyMargin))
+                          }) {
                     ScrollView(.horizontal) {
-                        MermaidPicture(diagram: diagram, drawing: drawing).padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                        MermaidPicture(diagram: diagram, drawing: drawing)
+                            .overlay(alignment: .topLeading) { annotationLayer(drawing) }
+                            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -187,6 +195,16 @@ struct MermaidBlock: View {
                 Text("Diagram not drawn: \(notDrawn.reason)")
                     .font(.kit(size: 12)).italic().foregroundStyle(theme.muted)
             }
+        }
+    }
+
+    /// Annotate mode and waiting annotations' marks, over the picture.
+    @ViewBuilder private func annotationLayer(_ drawing: KitMermaid.Canvas) -> some View {
+        if let annotations {
+            let metrics = MermaidPicture.metrics(for: Typography.shared.font(size: 12, mono: true), scale: displayScale)
+            let scene = MermaidSceneCache.shared.scene(for: diagram.source, drawing: drawing, metrics: metrics)
+            DiagramAnnotationLayer(source: diagram.source, drawing: drawing, metrics: metrics, size: scene.size,
+                                   annotator: annotator, draft: annotations.draft)
         }
     }
 }

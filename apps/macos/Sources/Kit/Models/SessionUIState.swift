@@ -106,10 +106,13 @@ final class SessionUIState {
     /// Where a user message's browser annotations keep whether they're open.
     static func browserAnnotationsKey(_ messageID: String) -> String { "browser-annotations:" + messageID }
 
+    /// Where a user message's diagram annotations keep whether they're open.
+    static func diagramAnnotationsKey(_ messageID: String) -> String { "diagram-annotations:" + messageID }
+
     /// Forgets interaction state for rows no longer in the transcript.
     func retainDrawers(for messages: [TranscriptMessage]) {
         let keys = Set(messages.map(\.id) + messages.compactMap { $0.plugin.map { "plugin:" + $0.turnID } }
-            + messages.map { Self.browserAnnotationsKey($0.id) })
+            + messages.map { Self.browserAnnotationsKey($0.id) } + messages.map { Self.diagramAnnotationsKey($0.id) })
         drawers = drawers.filter { keys.contains($0.key) }
     }
 }

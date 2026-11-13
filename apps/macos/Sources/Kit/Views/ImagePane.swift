@@ -256,6 +256,11 @@ struct ImageCanvas: NSViewRepresentable {
     /// Whether enlarged pixels are smoothed, as a drawing's should be,
     /// rather than kept sharp, as a photo's or screenshot's are.
     var smoothsEnlarged = false
+    /// Drawn over the image in its own points, zooming and panning with it.
+    var overlay: AnyView? = nil
+    /// Whether the overlay takes the pointer; otherwise clicks and drags
+    /// reach the image beneath it.
+    var overlayTakesPointer: @MainActor () -> Bool = { false }
 
     func makeCoordinator() -> Coordinator { Coordinator(zoom: zoom) }
 
@@ -287,6 +292,19 @@ struct ImageCanvas: NSViewRepresentable {
         if document.frame.size != size {
             document.setFrameSize(size)
             context.coordinator.refit()
+        }
+        if let overlay {
+            let host = document.subviews.compactMap { $0 as? ImageOverlayHost }.first ?? {
+                let host = ImageOverlayHost(rootView: overlay)
+                host.autoresizingMask = [.width, .height]
+                document.addSubview(host)
+                return host
+            }()
+            host.rootView = overlay
+            host.takesPointer = overlayTakesPointer
+            host.frame = document.bounds
+        } else {
+            document.subviews.compactMap { $0 as? ImageOverlayHost }.forEach { $0.removeFromSuperview() }
         }
         let coordinator = context.coordinator
         if coordinator.request != zoom.request {
@@ -320,6 +338,16 @@ struct ImageCanvas: NSViewRepresentable {
             guard let scroll else { return }
             zoom.pinched(to: scroll.magnification)
         }
+    }
+}
+
+/// An image's overlay, which lets the pointer through to the image unless
+/// it takes it.
+final class ImageOverlayHost: NSHostingView<AnyView> {
+    var takesPointer: @MainActor () -> Bool = { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        takesPointer() ? super.hitTest(point) : nil
     }
 }
 

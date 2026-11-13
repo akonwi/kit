@@ -233,6 +233,10 @@ Mermaid diagrams are drawn by `KitMermaid`, a Swift port of the terminal
 client's renderer. `MermaidFixtureTests` holds it to the reference's drawings in
 `testdata/mermaid`; see the terminal client's README for regenerating them
 after a renderer change.
+A diagram's Annotate button, on its transcript card or in its Diagram tab,
+outlines the part under the pointer; a click opens a comment box, and the
+comment waits in the composer as a chip until the message is sent with its
+text block (`DiagramAnnotationText`, held to `testdata/mermaid/annotations`).
 
 Other opt-in integration checks are documented at their test declarations;
 some create temporary sessions and invoke model or shell work. Ordinary tests

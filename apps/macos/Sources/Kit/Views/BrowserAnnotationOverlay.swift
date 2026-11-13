@@ -192,17 +192,16 @@ struct BrowserAnnotationCommentBox: View {
     let add: () -> Void
     let cancel: () -> Void
     @FocusState private var focused: Bool
-    @State private var selection: TextSelection?
-    @State private var caretToEnd = false
-    /// The field's height before the strip took its place, which the strip keeps.
-    @State private var fieldHeight: CGFloat?
     @State private var ownDictation = DictationSlot()
     @Environment(\.dictationSlot) private var givenDictation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             crumbs.disabled(dictating)
-            field
+            DictatedCommentField(text: $session.comment, focused: $focused, prompt: "Comment on this element…",
+                                 accessibilityLabel: "Comment on the selected element", submit: add, cancel: cancel,
+                                 up: { stepIfEmpty(.parent) }, down: { stepIfEmpty(.child) })
+                .environment(\.dictationSlot, dictationSlot)
             if #available(macOS 26, *), dictation.hasNotice { DictationNotice(dictation: dictation) }
             if let error = session.error {
                 Text(error).font(.kit(size: 11)).foregroundStyle(theme.danger)
@@ -237,51 +236,6 @@ struct BrowserAnnotationCommentBox: View {
             dictationSlot.reset()
             if session.page.selected != nil { focused = true }
         }
-        .onChange(of: focused) {
-            guard focused, caretToEnd else { return }
-            caretToEnd = false
-            selection = TextSelection(insertionPoint: session.comment.endIndex)
-        }
-        .onChange(of: session.comment) {
-            if #available(macOS 26, *) { dictation.dismissProblem() }
-        }
-    }
-
-    /// The comment, or the recording strip in its place while dictating.
-    private var field: some View {
-        HStack(alignment: .top, spacing: 4) {
-            if #available(macOS 26, *), dictation.listening {
-                DictationStrip(dictation: dictation, done: finishDictation, cancelled: focusAtEnd, size: 13)
-                DictationSquare(dictation: dictation, size: 20, done: finishDictation)
-            } else {
-                TextField("", text: $session.comment, selection: $selection,
-                          prompt: Text("Comment on this element…").foregroundStyle(theme.muted), axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.kit(size: 13))
-                    .foregroundStyle(theme.text)
-                    .lineLimit(2...8)
-                    .focused($focused)
-                    .onSubmit { if !dictating { add() } }
-                    .onExitCommand { if dictating { dictationSlot.reset() } else { cancel() } }
-                    // An empty comment has no lines to move through, so the
-                    // arrows step out to the parent and back in.
-                    .onKeyPress(.upArrow) { stepIfEmpty(.parent) }
-                    .onKeyPress(.downArrow) { stepIfEmpty(.child) }
-                    .padding(.vertical, 2)
-                    .accessibilityLabel("Comment on the selected element")
-                if #available(macOS 26, *) {
-                    DictationMic(dictation: dictation, size: 20, iconSize: 13)
-                }
-            }
-        }
-        .frame(height: dictationListening ? fieldHeight : nil, alignment: .top)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-            if !dictationListening { fieldHeight = height }
-        }
-        .padding(.leading, 10).padding(.trailing, DictationSupport.available ? 4 : 10).padding(.vertical, 6)
-        .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4)
-            .strokeBorder(focused || dictating ? theme.accent.opacity(0.6) : theme.border, lineWidth: 1))
     }
 
     // MARK: Dictation
@@ -294,32 +248,6 @@ struct BrowserAnnotationCommentBox: View {
     private var dictating: Bool {
         if #available(macOS 26, *) { return dictation.isActive }
         return false
-    }
-
-    /// Whether the recording strip stands in the comment's place.
-    private var dictationListening: Bool {
-        if #available(macOS 26, *) { return dictation.listening }
-        return false
-    }
-
-    /// Stops recording and puts the words after the comment, with the
-    /// field focused and the caret after them.
-    private func finishDictation() {
-        guard #available(macOS 26, *) else { return }
-        let session = session
-        dictation.finish { text in
-            let current = session.comment
-            session.comment = DictationText.join(
-                current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : current, text)
-            focusAtEnd()
-        }
-    }
-
-    /// Back to the comment with the caret at its end, as the strip goes.
-    /// Focus selects the whole comment, so the caret moves once it has.
-    private func focusAtEnd() {
-        caretToEnd = true
-        focused = true
     }
 
     private func stepIfEmpty(_ step: BrowserAnnotationSession.Step) -> KeyPress.Result {
