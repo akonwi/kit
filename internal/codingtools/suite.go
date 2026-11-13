@@ -39,11 +39,17 @@ func New(cwd string) []droids.AnyTool {
 // NewDynamic returns the ordered base coding tool set rooted at the cwd read at
 // the start of each tool execution.
 func NewDynamic(cwd CWDProvider) []droids.AnyTool {
+	return NewSession("", cwd)
+}
+
+// NewSession returns the tool set of NewDynamic for the session sessionID:
+// its bash commands see the ID in KIT_SESSION_ID.
+func NewSession(sessionID string, cwd CWDProvider) []droids.AnyTool {
 	if cwd == nil {
 		panic("codingtools: cwd provider is required")
 	}
 	return []droids.AnyTool{
-		droids.MustTool(newBashToolWithCWD(cwd)),
+		droids.MustTool(newBashToolWithCWD(cwd, sessionID)),
 		droids.MustTool(newReadToolWithCWD(cwd)),
 		droids.MustTool(newWriteToolWithCWD(cwd)),
 		droids.MustTool(newEditToolWithCWD(cwd)),

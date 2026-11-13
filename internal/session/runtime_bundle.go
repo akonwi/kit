@@ -227,7 +227,7 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 			return RuntimeBundle{}, err
 		}
 	}
-	tools := codingtools.NewDynamic(currentCWD)
+	tools := codingtools.NewSession(record.ID, currentCWD)
 	if b.attachmentStore != nil && b.presentImageEnabled(record) {
 		tool, toolErr := showimage.New(showimage.Options{SessionID: record.ID, CWD: showimage.CWDProvider(currentCWD), Store: b.attachmentStore})
 		if toolErr != nil {

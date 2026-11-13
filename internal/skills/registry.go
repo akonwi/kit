@@ -75,7 +75,19 @@ type Registry struct {
 // NewRegistry constructs a complete registry from Kit's embedded skills and
 // ordered session-specific additions. Any collision rejects the complete set.
 func NewRegistry(additions ...Skill) (*Registry, error) {
+	return newRegistry(nil, additions)
+}
+
+// newRegistry is NewRegistry with optional embedded skills, which Kit offers
+// only where they apply, and which an addition of the same name replaces.
+func newRegistry(optional []Skill, additions []Skill) (*Registry, error) {
 	builtins := builtinSkills()
+	for _, skill := range optional {
+		if skill.Source != SourceBuiltin || IsReservedName(skill.Name) || replaced(skill.Name, additions) {
+			continue
+		}
+		builtins = append(builtins, skill)
+	}
 	if len(additions)+len(builtins) > maxSkillsPerRegistry {
 		return nil, fmt.Errorf("skill registry exceeds the %d-skill limit", maxSkillsPerRegistry)
 	}
@@ -185,6 +197,16 @@ func validModelText(value string) bool {
 		return false
 	}
 	return true
+}
+
+// replaced reports whether additions holds a skill named name.
+func replaced(name string, additions []Skill) bool {
+	for _, skill := range additions {
+		if strings.TrimSpace(skill.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // IsReservedName reports whether name belongs to a skill embedded in Kit, which

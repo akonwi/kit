@@ -26,14 +26,14 @@ type bashArgs struct {
 // execution and the model-facing bash tool.
 type DirectBashResult = CommandExecution
 
-// RunDirectBash executes one direct composer command with Kit's standard shell,
-// timeout, and bounded output policy.
-func RunDirectBash(ctx context.Context, command, cwd string) (DirectBashResult, error) {
+// RunDirectBash executes one direct composer command of sessionID with Kit's
+// standard shell, timeout, and bounded output policy.
+func RunDirectBash(ctx context.Context, command, cwd, sessionID string) (DirectBashResult, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "bash"
 	}
-	return RunCommand(ctx, shell, command, cwd, defaultBashTimeout, maxBashOutputBytes)
+	return RunCommand(ctx, shell, command, cwd, sessionID, defaultBashTimeout, maxBashOutputBytes)
 }
 
 type bashDetails struct {
@@ -46,13 +46,23 @@ type bashDetails struct {
 
 func newBashTool(cwd string) droids.Tool[bashArgs] {
 	cwd = filepath.Clean(cwd)
-	return newBashToolWithCWD(func() string { return cwd })
+	return newBashToolWithCWD(func() string { return cwd }, "")
 }
 
-func newBashToolWithCWD(currentCWD CWDProvider) droids.Tool[bashArgs] {
+// bashDescription tells the model how to use the tool, and, in a session,
+// how a command can reach it again.
+func bashDescription(sessionID string) string {
+	description := "Run a shell command in the project directory. Use for file operations, building, testing, git, etc. Avoid interactive commands."
+	if sessionID != "" {
+		description += " Commands see this session's ID in $" + SessionIDVariable + "."
+	}
+	return description
+}
+
+func newBashToolWithCWD(currentCWD CWDProvider, sessionID string) droids.Tool[bashArgs] {
 	return droids.Tool[bashArgs]{
 		Name:        BashToolName,
-		Description: "Run a shell command in the project directory. Use for file operations, building, testing, git, etc. Avoid interactive commands.",
+		Description: bashDescription(sessionID),
 		Parameters: objectSchema(map[string]any{
 			"command": stringSchema("The shell command to run"),
 			"timeout": numberSchema("Timeout in milliseconds (default 120000)"),
@@ -78,7 +88,7 @@ func newBashToolWithCWD(currentCWD CWDProvider) droids.Tool[bashArgs] {
 			if shell == "" {
 				shell = "bash"
 			}
-			execution, err := RunCommand(ctx, shell, args.Command, cwd, timeout, maxBashOutputBytes)
+			execution, err := RunCommand(ctx, shell, args.Command, cwd, sessionID, timeout, maxBashOutputBytes)
 			if err != nil {
 				if ctx.Err() != nil {
 					return droids.ToolResult{}, ctx.Err()

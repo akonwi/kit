@@ -44,6 +44,9 @@ type Loader interface {
 type FilesystemLoader struct {
 	userHome     string
 	userHomeInfo os.FileInfo
+	// findRex returns the rex command's path, or empty when this machine
+	// has none and the Rex skill doesn't apply.
+	findRex func() string
 }
 
 // NewFilesystemLoader constructs the standard skill loader from resolved Kit paths.
@@ -62,7 +65,7 @@ func NewFilesystemLoader(paths apphome.Paths) (*FilesystemLoader, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("inspect Kit home for skill discovery: %w", err)
 	}
-	return &FilesystemLoader{userHome: userHome, userHomeInfo: userHomeInfo}, nil
+	return &FilesystemLoader{userHome: userHome, userHomeInfo: userHomeInfo, findRex: findRexCommand}, nil
 }
 
 // Load scans resolved global paths and the explicit cwd without reading or changing process-global cwd.
@@ -94,7 +97,16 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 	if err := ctx.Err(); err != nil {
 		return LoadResult{}, err
 	}
-	registry, err := NewRegistry(state.skills...)
+	var optional []Skill
+	if l.findRex != nil {
+		if path := l.findRex(); path != "" {
+			optional = append(optional, rexSkill(path))
+			if location, ok := state.seenNames[RexName]; ok {
+				state.note("skills.builtin_replaced", "Kit's built-in Rex skill was replaced by this skill", location)
+			}
+		}
+	}
+	registry, err := newRegistry(optional, state.skills)
 	if err != nil {
 		return LoadResult{}, err
 	}
@@ -425,6 +437,15 @@ func rootedPath(root *os.Root, relative string) string {
 }
 
 func (s *discoveryState) warn(code, message, path string) {
+	s.diagnose(systemprompt.DiagnosticWarning, code, message, path)
+}
+
+// note records information about a skill that needs no action.
+func (s *discoveryState) note(code, message, path string) {
+	s.diagnose(systemprompt.DiagnosticInfo, code, message, path)
+}
+
+func (s *discoveryState) diagnose(severity systemprompt.DiagnosticSeverity, code, message, path string) {
 	if len(s.diagnostics) >= maxDiscoveryDiagnostics {
 		return
 	}
@@ -432,7 +453,7 @@ func (s *discoveryState) warn(code, message, path string) {
 	digest := sha256.Sum256([]byte(path))
 	path = boundedDiagnosticText(path)
 	s.diagnostics = append(s.diagnostics, systemprompt.Diagnostic{
-		Severity: systemprompt.DiagnosticWarning, Code: code, Message: message,
+		Severity: severity, Code: code, Message: message,
 		Source: systemprompt.Source{ID: "skill-file:" + hex.EncodeToString(digest[:]), Path: path},
 	})
 }

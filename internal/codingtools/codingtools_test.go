@@ -22,7 +22,7 @@ func TestRunCommandStopsWhenOwnerProcessDies(t *testing.T) {
 		_, _ = RunCommand(
 			context.Background(), "bash",
 			`trap '' TERM; printf started > "$KIT_COMMAND_OWNER_MARKER.started"; sleep 6; printf leaked > "$KIT_COMMAND_OWNER_MARKER"`,
-			filepath.Dir(marker), 10*time.Second, 1024,
+			filepath.Dir(marker), "", 10*time.Second, 1024,
 		)
 		return
 	}
@@ -413,5 +413,30 @@ func writeTestFile(t *testing.T, root, relative, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBashCommandsSeeTheirSessionsIDAndNoOther(t *testing.T) {
+	t.Setenv(SessionIDVariable, "session_inherited")
+	cwd := t.TempDir()
+	tool := newBashToolWithCWD(func() string { return cwd }, "session_1")
+	result, err := tool.Execute(context.Background(), droids.ToolContext{}, bashArgs{Command: `printf '%s' "$KIT_SESSION_ID"`}, nil)
+	if err != nil || resultText(t, result) != "session_1" {
+		t.Fatalf("session bash = %#v, %v; want KIT_SESSION_ID=session_1", result, err)
+	}
+	result, err = newBashTool(cwd).Execute(context.Background(), droids.ToolContext{}, bashArgs{Command: `printf '[%s]' "${KIT_SESSION_ID-unset}"`}, nil)
+	if err != nil || resultText(t, result) != "[unset]" {
+		t.Fatalf("sessionless bash = %#v, %v; want KIT_SESSION_ID unset", result, err)
+	}
+	direct, err := RunDirectBash(context.Background(), `printf '%s' "$KIT_SESSION_ID"`, cwd, "session_2")
+	if err != nil || direct.Output != "session_2" {
+		t.Fatalf("direct bash = %q, %v; want session_2", direct.Output, err)
+	}
+}
+
+func TestBashToolTellsTheModelAboutItsSessionsID(t *testing.T) {
+	want := "Run a shell command in the project directory. Use for file operations, building, testing, git, etc. Avoid interactive commands. Commands see this session's ID in $KIT_SESSION_ID."
+	if got := newBashToolWithCWD(func() string { return "/" }, "session_1").Description; got != want {
+		t.Fatalf("description = %q, want %q", got, want)
 	}
 }
