@@ -45,3 +45,16 @@ past the last match wraps to the first. Every client matches the same way;
   selected; ⌘G then reopens it at the next match. A browser without the
   CSS Custom Highlight API counts and scrolls to matches without tinting
   them.
+- **Terminal:** Ctrl+F on a File tab, or **find** in the command palette,
+  opens a row under the tab's header and gives it the keyboard; on a File
+  tab, Ctrl+F no longer moves the composer's cursor right. Return or ↓ go
+  to the next match; Shift-Return or ↑ to the previous one. Alt+C and
+  Alt+W toggle **Aa** and **ab**, which can also be clicked, as can the
+  arrows and ×. (In a macOS terminal, Alt shortcuts need Option set to act
+  as Meta.) A narrow pane drops the label and arrows and counts as `3/12`.
+  Matches are tinted, the current one filled with the accent; in the
+  source it becomes the cursor line, scrolling sideways into view if need
+  be, and in a rendered Markdown file a bar in the gutter marks its block.
+  Tabs show as spaces in the terminal and are searched as shown. Esc
+  closes the row, keeping the query for next time, and gives the keyboard
+  back to the composer.

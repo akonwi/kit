@@ -248,6 +248,31 @@ test fn resolution_validates_builtins_and_preserves_extension_arguments() Void!S
   }
 }
 
+test fn find_in_file_needs_a_file_tab() Void!Str {
+  let find_item = fn(file_shown: Bool) palette::Item? {
+    mut found = Maybe::new<palette::Item>()
+    for candidate in command_palette::command_catalog(false, true, [], [], file_shown: Maybe::new(file_shown)) {
+      if candidate.key == "find" {
+        found = Maybe::new(candidate)
+      }
+    }
+    found
+  }
+  let elsewhere = find_item(false).expect("the catalog offers find")
+  try testing::assert(
+    elsewhere.description == "Find in File" and elsewhere.disabled_reason == "file tabs only",
+    "away from a File tab, find says where it works: {elsewhere.disabled_reason}",
+  )
+  let on_file = find_item(true).expect("the catalog offers find")
+  try testing::assert(on_file.disabled_reason == "", "on a File tab, find is enabled")
+  match command_palette::resolve(on_file, "find", [], []) {
+    ok(action) => {
+      testing::assert(action.kind == command_palette::ActionKind::find, "find resolves to find")
+    },
+    err(_) => testing::fail("find resolves"),
+  }
+}
+
 test fn fork_stays_available_during_a_turn_and_carries_a_first_message() Void!Str {
   mut fork = Maybe::new<palette::Item>()
   for candidate in command_palette::command_catalog(true, true, [], []) {

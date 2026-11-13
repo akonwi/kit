@@ -120,18 +120,21 @@ let local_commands = ["connect", "debug", "mcp", "quit", "release-notes", "setti
 // command_catalog preserves the established command vocabulary while this
 // client reaches feature parity. Commands whose owning surface is not ported
 // yet stay discoverable but cannot be activated. Once the server can no longer
-// serve the attachment, only local commands remain.
+// serve the attachment, only local commands remain. Find in File needs a
+// File tab shown.
 fn command_catalog(
   running: Bool,
   connected: Bool,
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
+  file_shown: Bool?,
 ) [palette::Item] {
+  let on_file = file_shown.or(false)
   match connected {
-    true => available_catalog(running, prompt_commands, plugin_commands),
+    true => available_catalog(running, prompt_commands, plugin_commands, on_file),
     false => {
       let local = &mut List::new<palette::Item>()
-      for item in available_catalog(running, [], []) {
+      for item in available_catalog(running, [], [], on_file) {
         for key in local_commands {
           if item.key == key {
             local.push(item)
@@ -147,6 +150,7 @@ private fn available_catalog(
   running: Bool,
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
+  file_shown: Bool,
 ) [palette::Item] {
   let cd_disabled = match running {
     true => "idle only",
@@ -173,6 +177,15 @@ private fn available_catalog(
     command_item("debug", "Show session diagnostics", "details usage", ""),
     command_item("diff", "Review working-tree changes", "changes working tree", ""),
     command_item("files", "Open a workspace file", "file open browse", ""),
+    command_item(
+      "find",
+      "Find in File",
+      "search text match",
+      match file_shown {
+        true => "",
+        false => "file tabs only",
+      },
+    ),
     command_item_with_hint(
       "fork",
       "[message]",
@@ -282,6 +295,7 @@ enum ActionKind {
   subagents,
   tabs,
   files,
+  find,
   diff,
   change_directory,
   prompt_command,
@@ -313,6 +327,8 @@ struct Props {
   connected: Bool,
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
+  // Whether a File tab is shown, which Find in File needs.
+  file_shown: Bool?,
   dismiss: fn() Bool,
   activate: fn(Action),
   notice: fn(Notice),
@@ -357,7 +373,13 @@ private fn new(props: &mut Props) &mut Palette {
     list: cui::virtual_list_ref(),
     query: "",
     selection: palette::first_enabled(
-      command_catalog(props.busy, props.connected, props.prompt_commands, props.plugin_commands),
+      command_catalog(
+        props.busy,
+        props.connected,
+        props.prompt_commands,
+        props.plugin_commands,
+        file_shown: props.file_shown,
+      ),
     ),
     hovered: "",
     hidden_above: false,
@@ -459,6 +481,7 @@ private fn resolve_arguments(
       "subagents" => builtin(ActionKind::subagents),
       "tabs" => builtin(ActionKind::tabs),
       "files" => builtin(ActionKind::files),
+      "find" => builtin(ActionKind::find),
       "diff" => builtin(ActionKind::diff),
       "cd" => {
         match trimmed == "" {
@@ -516,6 +539,7 @@ impl Palette {
       self.props.connected,
       self.props.prompt_commands,
       self.props.plugin_commands,
+      file_shown: self.props.file_shown,
     )
   }
 

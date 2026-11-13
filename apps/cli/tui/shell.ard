@@ -217,6 +217,10 @@ struct Shell {
   diff_split: Bool,
   // The lines an annotation's chip last asked the Diff tab to show.
   diff_reveal: diff_pane::Reveal,
+  // The last request to open find: the File tab's ID and a count that
+  // grows with each request.
+  find_tab: Str,
+  find_count: Int,
   active_modal: Modal,
   // The notification host owns notifications; Shell only raises them.
   notifications: &mut toast::Control,
@@ -273,6 +277,8 @@ fn new(props: &mut Props) &mut Shell {
     diff_wrap: props.options.DiffWrapLines,
     diff_split: props.options.DiffLayout == "split",
     diff_reveal: diff_pane::no_reveal(),
+    find_tab: "",
+    find_count: 0,
     active_modal: NoModal{},
     notifications: notifications,
     connect_button: cui::box_ref(),
@@ -786,6 +792,12 @@ impl Shell {
                       self.focus_composer()
                     })
                   },
+                  find_request: Maybe::new(
+                    match tab.id == self.find_tab {
+                      true => self.find_count,
+                      false => 0,
+                    },
+                  ),
                 },
               ),
             ],
@@ -1472,6 +1484,17 @@ impl Shell {
         bash_changed: fn(bash: Bool) {
           self.apply_composer_bash(bash)
         },
+        find_in_file: match self.on_file() {
+          true => {
+            Maybe::new(fn() Bool {
+              self.dispatch(fn() {
+                let _ = self.find_in_file()
+              })
+              true
+            })
+          },
+          false => Maybe::new<fn() Bool>(),
+        },
       },
     )
   }
@@ -1650,6 +1673,13 @@ impl cui::Component for Shell {
       })
       commands.push(open_files)
       bindings.push(keymap::binding(keymap::key("o", ctrl: true), open_files.with()))
+      if self.on_file() {
+        let find = keymap::simple_command("file.find", "Find in file", fn() Bool {
+          self.find_in_file()
+        })
+        commands.push(find)
+        bindings.push(keymap::binding(keymap::key("f", ctrl: true), find.with()))
+      }
     }
     // Ctrl+] and Ctrl+[ step through the tabs, wrapping through Agent. They
     // need a terminal that reports Ctrl+[ apart from Escape.
@@ -2311,6 +2341,7 @@ impl Shell {
         connected: self.attached.connected(),
         prompt_commands: self.attached.prompt_commands,
         plugin_commands: self.attached.plugin_commands,
+        file_shown: Maybe::new(self.on_file()),
         dismiss: fn() Bool {
           self.dismiss_modal()
         },
@@ -2396,6 +2427,10 @@ impl Shell {
       command_palette::ActionKind::tabs => { self.active_modal = TabsModal{} },
       command_palette::ActionKind::files => {
         let _ = self.open_files()
+      },
+      command_palette::ActionKind::find => {
+        self.finish_modal()
+        let _ = self.find_in_file()
       },
       command_palette::ActionKind::diff => {
         self.finish_modal()
@@ -2576,6 +2611,31 @@ impl Shell {
 
   private fn on_scratchpad() Bool {
     self.workspace.selected == workspace::scratchpad().id
+  }
+
+  // Whether a File tab is shown.
+  private fn on_file() Bool {
+    match self.workspace.current() {
+      tab => workspace::is_file(tab.kind),
+      _ => false,
+    }
+  }
+
+  // Asks the File tab shown to open find.
+  private fn mut find_in_file() Bool {
+    match self.workspace.current() {
+      tab => {
+        match workspace::is_file(tab.kind) {
+          true => {
+            self.find_tab = tab.id
+            self.find_count =+ 1
+            true
+          },
+          false => false,
+        }
+      },
+      _ => false,
+    }
   }
 
   // Shows the file picker, loading the index and workspace it needs.
@@ -3665,6 +3725,45 @@ test fn ctrl_c_closes_a_single_view_at_once() Void!Str {
   )
   terminal.flush()
   testing::assert(quits.size() == 1, "a view has no draft to clear first")
+}
+
+test fn ctrl_f_and_the_palette_ask_the_file_tab_shown_to_find() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let quits = &mut List::new<Int>()
+  let subject = viewing_subject(quits)
+  subject.view_opening = true
+  subject.open_tab(workspace::host_file("/srv/notes.md", 0))
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.key(
+    event::key(
+      "f",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: true,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+  try testing::assert(
+    subject.find_tab == "host-file:/srv/notes.md" and subject.find_count == 1,
+    "Ctrl+F asks the tab: {subject.find_tab} {subject.find_count}",
+  )
+  subject.run_palette_action(
+    command_palette::Action{
+      kind: command_palette::ActionKind::find,
+      argument: "",
+      prompt_command: "",
+      plugin_command: Maybe::new<protocol::PluginCommand>(),
+    },
+  )
+  testing::assert(subject.find_count == 2, "so does Find in File: {subject.find_count}")
 }
 
 test fn a_reveal_shows_its_line_in_the_views_own_tab() Void!Str {

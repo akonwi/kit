@@ -183,6 +183,9 @@ struct Props {
   // composer then draws itself as the Bash panel, in the interaction dock's
   // frame, so the Shell drops the rules that would border it.
   bash_changed: fn(Bool),
+  // Opens find in the File tab shown, whose Ctrl+F it takes from the
+  // cursor; absent elsewhere.
+  find_in_file: (fn() Bool)?,
 }
 
 // What a mention references: a project file, typed as `@`, or another
@@ -1119,7 +1122,17 @@ impl cui::Component for Composer {
         self.request_mention_dismissal()
       },
     )
+    let find_in_file = self.props.find_in_file
+    let find = keymap::simple_command("composer.find_in_file", "Find in file", fn() Bool {
+      match find_in_file {
+        open => open(),
+        _ => false,
+      }
+    })
     let bindings = &mut List::new<keymap::Binding>()
+    if find_in_file.is_some() {
+      bindings.push(keymap::binding(keymap::key("f", ctrl: true), find.with()))
+    }
     let bash_mode = self.bash
     if bash_mode {
       bindings.push(
@@ -1217,6 +1230,7 @@ impl cui::Component for Composer {
         mention_next,
         mention_choose,
         mention_dismiss,
+        find,
       ],
       bindings: bindings.*,
     )

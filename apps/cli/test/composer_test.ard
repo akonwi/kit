@@ -42,6 +42,9 @@ struct Model {
   // The sessions `#` mentions list, and how often they were asked for.
   sessions: session_mentions::Source,
   session_loads: Int,
+  // Whether a File tab is shown, and how often Ctrl+F asked it to find.
+  on_file: Bool,
+  finds: Int,
   context: cui::Context?,
   control: &mut composer::Ref,
   other_input: &mut cui::InputRef,
@@ -145,6 +148,15 @@ impl cui::Component for Host {
             bash_changed: fn(bash: Bool) {
               model.bash = bash
             },
+            find_in_file: match model.on_file {
+              true => {
+                Maybe::new(fn() Bool {
+                  model.finds =+ 1
+                  true
+                })
+              },
+              false => Maybe::new<fn() Bool>(),
+            },
           },
         ),
         cui::input(
@@ -197,6 +209,8 @@ fn model() &mut Model {
     file_loads: 0,
     sessions: session_mentions::source(""),
     session_loads: 0,
+    on_file: false,
+    finds: 0,
     context: Maybe::new<cui::Context>(),
     control: composer::ref(),
     other_input: cui::input_ref(),
@@ -262,6 +276,45 @@ test fn ctrl_w_and_ctrl_shift_w_delete_the_word_before_and_after_the_cursor() Vo
   terminal.flush()
   // Submission trims the spaces left around the remaining word.
   testing::assert(value.submitted == "two", "got \"{value.submitted}\"")
+}
+
+test fn on_a_file_tab_ctrl_f_finds_instead_of_moving_right() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("abc"))
+  terminal.flush()
+  terminal.key(chord("a", false, true))
+  terminal.flush()
+  terminal.key(chord("f", false, true))
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.submitted == "axbc", "elsewhere Ctrl+F moves right: \"{value.submitted}\"")
+
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.on_file = true
+  })
+  terminal.flush()
+  terminal.key(character("abc"))
+  terminal.flush()
+  terminal.key(chord("a", false, true))
+  terminal.flush()
+  terminal.key(chord("f", false, true))
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.finds == 1, "Ctrl+F asks the File tab to find: {value.finds}")
+  testing::assert(value.submitted == "xabc", "and leaves the cursor: \"{value.submitted}\"")
 }
 
 test fn parent_renders_do_not_make_the_composer_reclaim_focus() Void!Str {

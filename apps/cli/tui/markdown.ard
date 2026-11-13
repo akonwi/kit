@@ -6,6 +6,7 @@ use go:github.com/akonwi/kit/internal/markdown as parser
 use kit/tui/code
 use kit/tui/diff_fence
 use kit/tui/figure
+use kit/tui/file_find
 use kit/tui/mermaid
 use kit/tui/theme
 use go:strings
@@ -224,7 +225,7 @@ private fn render_document(
           _ => (),
         }
         let complete = (not fence_open) or block_index + 1 < document.Blocks.size()
-        children.push(render_block(themes, id, block_index, base, semantic, block, complete))
+        children.push(render_block(themes, id, block_index, base, semantic, block, complete, []))
         prior = Maybe::new(block)
         block_index =+ 1
       }
@@ -264,7 +265,8 @@ fn document_gap(document: parser::Document, index: Int) Bool {
 // it from the block before, then the block, each in the quotes and list
 // items it shares with its neighbours. `fence_open` says whether the source
 // ends inside a code fence, so a last diagram whose fence was cut off shows
-// its source.
+// its source. `marks` draws find matches over the texts `block_texts`
+// lists, `marks[i]` over its `i`th.
 fn document_block(
   themes: theme::Context,
   id: Str,
@@ -272,6 +274,7 @@ fn document_block(
   document: parser::Document,
   index: Int,
   fence_open: Bool,
+  marks: [[file_find::Mark]]?,
 ) cui::View {
   let colors = themes.current()
   let children = &mut List::new<cui::View>()
@@ -288,11 +291,61 @@ fn document_block(
         }
       }
       let complete = (not fence_open) or index + 1 < document.Blocks.size()
-      children.push(render_block(themes, id, index, base, true, block, complete))
+      children.push(render_block(themes, id, index, base, true, block, complete, marks.or([])))
     },
     _ => (),
   }
   cui::box(children.*, styles: ui::style(flex_direction: ui::FlexDirection::column))
+}
+
+// The texts block `index` of a parsed document shows in a File tab, which
+// find searches, in reading order: a heading's, paragraph's, or quote's
+// text, a code block's source as shown, or a table's cells row by row, each
+// row as wide as the table. Diagrams, data figures, and diff fences draw
+// rather than show their text, and rules, list markers, and alert labels
+// are chrome, so none is searched. `fence_open` is as for
+// `document_block`.
+fn block_texts(document: parser::Document, index: Int, fence_open: Bool) [Str] {
+  match document.Blocks.at(index) {
+    block => {
+      let complete = (not fence_open) or index + 1 < document.Blocks.size()
+      match {
+        block.Kind == parser::BlockCode and complete and mermaid::is_mermaid(block.Language) => [],
+        block.Kind == parser::BlockCode and complete and figure::is_figure(block.Info) => [],
+        block.Kind == parser::BlockCode and diff_fence::is_diff(block.Language) => [],
+        block.Kind == parser::BlockCode => [code::shown_source(block.Language, "", block.Code)],
+        block.Kind == parser::BlockRule => [],
+        block.Kind == parser::BlockTable => {
+          let columns = table_layout(block).columns
+          let texts = &mut List::new<Str>()
+          for row in block.Rows {
+            mut column = 0
+            while column < columns {
+              texts.push(
+                match row.Cells.at(column) {
+                  cell => table_text(cell.Runs),
+                  _ => "",
+                },
+              )
+              column =+ 1
+            }
+          }
+          texts.*
+        },
+        _ => [shown_text(block.Runs)],
+      }
+    },
+    _ => [],
+  }
+}
+
+// The text runs show over several lines.
+private fn shown_text(runs: [parser::Run]) Str {
+  let parts = &mut List::new<Str>()
+  for run in runs {
+    parts.push(visible_run_text(run, false))
+  }
+  strings::Join(parts, "")
 }
 
 private fn document_text(document: parser::Document) Str {
@@ -340,7 +393,7 @@ private fn render_inline(
     },
     false => {
       cui::text(
-        ui::styled_text(markdown_spans(colors, semantic, inline_runs(source, document), true)),
+        ui::styled_text(markdown_spans(colors, semantic, inline_runs(source, document), true, [])),
         text_style: base,
         wrap: ui::TextWrap::none,
         overflow: ui::TextOverflow::ellipsis,
@@ -437,8 +490,10 @@ private fn render_block(
   semantic: Bool,
   block: parser::Block,
   complete: Bool,
+  marks: [[file_find::Mark]],
 ) cui::View {
   let colors = themes.current()
+  let first = marks.at(0).or([])
   mut child = match {
     block.Kind == parser::BlockCode and complete and mermaid::is_mermaid(block.Language) => {
       mermaid::view(themes, "{id}:{block_index}", block.Code, base, semantic)
@@ -455,6 +510,7 @@ private fn render_block(
         heading_style(colors, base, block.HeadingLevel, semantic),
         semantic,
         bold_runs(block.Runs),
+        first,
       )
     },
     block.Kind == parser::BlockCode => {
@@ -472,15 +528,18 @@ private fn render_block(
           marker_color: Maybe::new<ui::Color>(),
           fill: colors.surface,
           inset: 1,
+          marks: Maybe::new(first),
         },
       )
     },
     block.Kind == parser::BlockRule => cui::divider(styles: ui::style(border_color: colors.border)),
-    block.Kind == parser::BlockTable => table_view(colors, "{id}:{block_index}", base, semantic, block),
-    block.Kind == parser::BlockQuote => {
-      rich_text(colors, quote_style(colors, base, semantic), semantic, block.Runs)
+    block.Kind == parser::BlockTable => {
+      table_view(colors, "{id}:{block_index}", base, semantic, block, marks)
     },
-    _ => rich_text(colors, base, semantic, block.Runs),
+    block.Kind == parser::BlockQuote => {
+      rich_text(colors, quote_style(colors, base, semantic), semantic, block.Runs, first)
+    },
+    _ => rich_text(colors, base, semantic, block.Runs, first),
   }
   mut quote_depth = 0
   mut index = block.Containers.size() - 1
@@ -559,13 +618,17 @@ private fn enabled(value: Bool) Bool? {
   }
 }
 
+// Spans of runs, with find marks, by byte range of the runs' text as
+// shown, drawn over them.
 private fn markdown_spans(
   colors: theme::Theme,
   semantic: Bool,
   runs: [parser::Run],
   single_line: Bool,
+  marks: [file_find::Mark],
 ) [ui::Span] {
   let spans = &mut List::new<ui::Span>()
+  mut offset = 0
   for run in runs {
     let target = hyperlink::SafeExternal(run.Link)
     let link = match target == "" {
@@ -577,30 +640,45 @@ private fn markdown_spans(
       run.RawHTML and semantic => Maybe::new(colors.muted),
       _ => Maybe::new<ui::Color>(),
     }
-    spans.push(
-      ui::span(
-        visible_run_text(run, single_line),
-        style: ui::span_style(
-          foreground: foreground,
-          background: match run.Code {
-            true => Maybe::new(colors.surface),
-            false => Maybe::new<ui::Color>(),
-          },
-          bold: enabled(run.Bold),
-          italic: enabled(run.Italic),
-          underline: enabled(target != ""),
-          strike: enabled(run.Strikethrough),
+    let background = match run.Code {
+      true => Maybe::new(colors.surface),
+      false => Maybe::new<ui::Color>(),
+    }
+    let text = visible_run_text(run, single_line)
+    let parts = match marks.size() == 0 {
+      true => [file_find::Part{text: text, mark: 0}],
+      false => file_find::split(text, offset, marks),
+    }
+    for part in parts {
+      spans.push(
+        ui::span(
+          part.text,
+          style: ui::span_style(
+            foreground: file_find::ink(colors, part.mark, foreground),
+            background: file_find::fill(colors, part.mark, background),
+            bold: enabled(run.Bold),
+            italic: enabled(run.Italic),
+            underline: enabled(target != ""),
+            strike: enabled(run.Strikethrough),
+          ),
+          link: link,
         ),
-        link: link,
-      ),
-    )
+      )
+    }
+    offset =+ text.size()
   }
   spans.*
 }
 
-private fn rich_text(colors: theme::Theme, base: ui::TextStyle, semantic: Bool, runs: [parser::Run]) cui::View {
+private fn rich_text(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  semantic: Bool,
+  runs: [parser::Run],
+  marks: [file_find::Mark],
+) cui::View {
   cui::text(
-    ui::styled_text(markdown_spans(colors, semantic, runs, false)),
+    ui::styled_text(markdown_spans(colors, semantic, runs, false, marks)),
     text_style: base,
     selectable: true,
     selection_style: theme::selection_style(colors),
@@ -702,6 +780,7 @@ private fn table_cell(
   runs: [parser::Run],
   width: Int,
   alignment: parser::Alignment,
+  marks: [file_find::Mark],
 ) cui::View {
   let used = ui::text_width(table_text(runs))
   let extra = maximum(0, width - used)
@@ -718,7 +797,7 @@ private fn table_cell(
   if left > 0 {
     spans.push(ui::span(strings::Repeat(" ", left)))
   }
-  for span in markdown_spans(colors, semantic, runs, true) {
+  for span in markdown_spans(colors, semantic, runs, true, marks) {
     spans.push(span)
   }
   if right > 0 {
@@ -747,6 +826,7 @@ private fn table_row(
   row: parser::TableRow,
   layout: TableLayout,
   background: ui::Color?,
+  marks: [[file_find::Mark]],
 ) cui::View {
   mut base = base
   let cells = &mut List::new<cui::View>()
@@ -788,6 +868,7 @@ private fn table_row(
         styled_runs,
         layout.widths.at(index).or(1),
         table_alignment(block, index),
+        marks.at(index).or([]),
       ),
     )
     index =+ 1
@@ -814,6 +895,7 @@ private fn table_view(
   base: ui::TextStyle,
   semantic: Bool,
   block: parser::Block,
+  marks: [[file_find::Mark]],
 ) cui::View {
   mut base = base
   let layout = table_layout(block)
@@ -828,7 +910,13 @@ private fn table_view(
       }
       body_index =+ 1
     }
-    children.push(table_row(colors, base, semantic, block, row, layout, background))
+    let cells = &mut List::new<[file_find::Mark]>()
+    mut column = 0
+    while column < layout.columns and marks.size() > 0 {
+      cells.push(marks.at(row_index * layout.columns + column).or([]))
+      column =+ 1
+    }
+    children.push(table_row(colors, base, semantic, block, row, layout, background, cells.*))
     if row.Header and row_index + 1 < block.Rows.size() {
       let divider_style = &mut base
       divider_style.foreground = colors.border

@@ -42,6 +42,8 @@ struct Theme {
   surface_pressed: ui::Color,
   // The wash behind user turns: the primary text color over the surface.
   user_fill: ui::Color,
+  // The fill behind a find match that isn't current.
+  find_match: ui::Color,
   // The fills behind added and removed lines of a diff.
   diff_added: ui::Color,
   diff_removed: ui::Color,
@@ -274,6 +276,10 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
     ctheme::Mode::dark => 0.18,
     ctheme::Mode::light => 0.12,
   }
+  let find_wash = match base.mode {
+    ctheme::Mode::dark => 0.26,
+    ctheme::Mode::light => 0.20,
+  }
   let syntax_palette = resolve_syntax(definition.SyntaxPalette, base, backdrop)
   Theme{
     background: painted(background),
@@ -300,6 +306,7 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
     surface_hovered: color(tokens, kittheme::TokenBackgroundMuted, from_ui(base.surface_hovered), backdrop),
     surface_pressed: color(tokens, kittheme::TokenBackgroundAccent, from_ui(base.surface_pressed), backdrop),
     user_fill: to_ui(tint(surface, primary_text, wash)),
+    find_match: to_ui(tint(backdrop, primary_text, find_wash)),
     diff_added: color(
       tokens,
       kittheme::TokenDiffAddedBackground,

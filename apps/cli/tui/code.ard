@@ -6,6 +6,7 @@ use cooper/event
 use cooper/ui
 use go:github.com/akonwi/kit/internal/highlight
 use go:kit/ffi/contextbridge
+use kit/tui/file_find
 use kit/tui/theme
 use go:strings
 
@@ -34,6 +35,9 @@ struct Props {
   fill: ui::Color,
   // Cells of padding on each side.
   inset: Int,
+  // Find matches to draw, by byte range of the source as shown: see
+  // `shown_source`.
+  marks: [file_find::Mark]?,
 }
 
 fn view(key: Str, props: Props) cui::View {
@@ -85,6 +89,11 @@ fn highlight_later(
       Maybe::new(attempt)
     },
   }
+}
+
+// The source as a code view shows it, whose bytes find marks index.
+fn shown_source(language: Str, path: Str, source: Str) Str {
+  highlight::Sanitize(source_request(language, path, source).Source)
 }
 
 // The source without highlighting.
@@ -177,7 +186,7 @@ impl cui::Component for Code {
     cui::box(
       [
         cui::text(
-          styled(colors, self.props.semantic, self.result, marker),
+          styled(colors, self.props.semantic, self.result, marker, self.props.marks.or([])),
           styles: match self.props.wrap {
             true => ui::style(),
             false => ui::style(flex_shrink: 0.0),
@@ -213,49 +222,84 @@ private struct Marker {
   color: ui::Color?,
 }
 
-// The highlighted source as styled text, with marker before each line.
-private fn styled(colors: theme::Theme, semantic: Bool, result: highlight::Result, marker: Marker?) ui::StyledText {
+// The highlighted source as styled text, with marker before each line and
+// find marks drawn over it.
+private fn styled(
+  colors: theme::Theme,
+  semantic: Bool,
+  result: highlight::Result,
+  marker: Marker?,
+  marks: [file_find::Mark],
+) ui::StyledText {
   let spans = &mut List::new<ui::Span>()
-  let push = fn(text: Str, foreground: ui::Color?) {
+  // A run of the source starting `offset` bytes in, cut where marks begin
+  // and end.
+  let text_spans = fn(text: Str, offset: Int, foreground: ui::Color?) {
+    match marks.size() == 0 {
+      true => {
+        spans.push(ui::span(text, style: ui::span_style(foreground: foreground)))
+        ()
+      },
+      false => {
+        for part in file_find::split(text, offset, marks) {
+          spans.push(
+            ui::span(
+              part.text,
+              style: ui::span_style(
+                foreground: file_find::ink(colors, part.mark, foreground),
+                background: file_find::fill(colors, part.mark, Maybe::new<ui::Color>()),
+              ),
+            ),
+          )
+        }
+        ()
+      },
+    }
+  }
+  let push = fn(text: Str, offset: Int, foreground: ui::Color?) {
     match marker {
       mark => {
         let lines = strings::Split(text, "\n")
+        mut at = offset
         for line, index in lines {
           if index > 0 {
             spans.push(ui::span("\n"))
+            at =+ 1
           }
           if index > 0 or spans.size() == 0 {
             spans.push(ui::span(mark.text, style: ui::span_style(foreground: mark.color)))
           }
           if line != "" {
-            spans.push(ui::span(line, style: ui::span_style(foreground: foreground)))
+            text_spans(line, at, foreground)
           }
+          at =+ line.size()
         }
         ()
       },
-      _ => {
-        spans.push(ui::span(text, style: ui::span_style(foreground: foreground)))
-        ()
-      },
+      _ => text_spans(text, offset, foreground),
     }
   }
   mut position = 0
   for capture in result.Spans {
     if capture.Start > position {
-      push(result.Source.slice(position, capture.Start).or(""), Maybe::new<ui::Color>())
+      push(result.Source.slice(position, capture.Start).or(""), position, Maybe::new<ui::Color>())
     }
     let foreground = match semantic {
       true => Maybe::new(colors.syntax(capture.Role.to_str())),
       false => Maybe::new<ui::Color>(),
     }
-    push(result.Source.slice(capture.Start, capture.End).or(""), foreground)
+    push(result.Source.slice(capture.Start, capture.End).or(""), capture.Start, foreground)
     position = capture.End
   }
   if position < result.Source.size() {
-    push(result.Source.slice(position, result.Source.size()).or(""), Maybe::new<ui::Color>())
+    push(
+      result.Source.slice(position, result.Source.size()).or(""),
+      position,
+      Maybe::new<ui::Color>(),
+    )
   }
   if spans.size() == 0 {
-    push(result.Source, Maybe::new<ui::Color>())
+    push(result.Source, 0, Maybe::new<ui::Color>())
   }
   ui::styled_text(spans.*)
 }

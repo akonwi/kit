@@ -17,6 +17,7 @@ use kit/tui/after_commit
 use kit/tui/annotations
 use kit/tui/code
 use kit/tui/controls
+use kit/tui/file_find
 use kit/tui/layout
 use kit/tui/markdown
 use kit/tui/theme
@@ -53,6 +54,11 @@ use go:strings
 // a note is being written. A file past the parser's budget for files shows
 // its source. Links show their labels; web links open as transcript links
 // do.
+//
+// Find opens a row under the header that searches what the tab shows: the
+// source's lines, or the rendered blocks' texts. Matches tint; the current
+// one takes the accent and scrolls into view, becoming the cursor line in
+// the source, and its block's gutter takes an accent bar in the preview.
 
 // Cells a horizontal wheel step moves the text.
 let column_step = 4
@@ -115,18 +121,23 @@ struct Props {
   annotations: [sessionbridge::Annotation],
   annotate: annotations::Service?,
   remove_annotation: fn(Uint64),
-  // Hands the keyboard back once the note editor closes.
+  // Hands the keyboard back once the note editor or find closes.
   release_focus: fn(),
+  // Counts requests to open find on this tab; a new nonzero count opens
+  // its row and gives it the keyboard.
+  find_request: Int?,
 }
 
 fn view(props: Props) cui::View {
   cui::child(new, props, key: "file-pane:{props.tab.id}")
 }
 
-// A run of a line's text and its syntax role, or "" for none.
+// A run of a line's text, its syntax role, or "" for none, and how find
+// marks it, as `file_find::Part` does.
 struct Segment {
   text: Str,
   role: Str,
+  mark: Int,
 }
 
 // Why a file shows no content.
@@ -145,15 +156,31 @@ fn lines(result: highlight::Result) [[Segment]] {
   mut position = 0
   for capture in result.Spans {
     if capture.Start > position {
-      pieces.push(Segment{text: source.slice(position, capture.Start).or(""), role: ""})
+      pieces.push(
+        Segment{
+          text: source.slice(position, capture.Start).or(""),
+          role: "",
+          mark: 0,
+        },
+      )
     }
     pieces.push(
-      Segment{text: source.slice(capture.Start, capture.End).or(""), role: capture.Role.to_str()},
+      Segment{
+        text: source.slice(capture.Start, capture.End).or(""),
+        role: capture.Role.to_str(),
+        mark: 0,
+      },
     )
     position = capture.End
   }
   if position < source.size() {
-    pieces.push(Segment{text: source.slice(position, source.size()).or(""), role: ""})
+    pieces.push(
+      Segment{
+        text: source.slice(position, source.size()).or(""),
+        role: "",
+        mark: 0,
+      },
+    )
   }
   let rows = &mut List::new<[Segment]>()
   mut current = &mut List::new<Segment>()
@@ -164,7 +191,13 @@ fn lines(result: highlight::Result) [[Segment]] {
         current = &mut List::new<Segment>()
       }
       if part != "" {
-        current.push(Segment{text: part, role: piece.role})
+        current.push(
+          Segment{
+            text: part,
+            role: piece.role,
+            mark: 0,
+          },
+        )
       }
     }
   }
@@ -189,10 +222,45 @@ fn visible(segments: [Segment], from: Int, width: Int) [Segment] {
       }
     }
     if text != "" {
-      shown.push(Segment{text: text, role: segment.role})
+      shown.push(
+        Segment{
+          text: text,
+          role: segment.role,
+          mark: segment.mark,
+        },
+      )
     }
   }
   shown.*
+}
+
+// A line's text.
+fn line_text(segments: [Segment]) Str {
+  let parts = &mut List::new<Str>()
+  for segment in segments {
+    parts.push(segment.text)
+  }
+  strings::Join(parts, "")
+}
+
+// A line's segments cut where find marks, by byte range of the line's text,
+// begin and end.
+fn marked(segments: [Segment], marks: [file_find::Mark]) [Segment] {
+  let made = &mut List::new<Segment>()
+  mut offset = 0
+  for segment in segments {
+    for part in file_find::split(segment.text, offset, marks) {
+      made.push(
+        Segment{
+          text: part.text,
+          role: segment.role,
+          mark: part.mark,
+        },
+      )
+    }
+    offset =+ segment.text.size()
+  }
+  made.*
 }
 
 private fn line_width(segments: [Segment]) Int {
@@ -441,6 +509,19 @@ private struct Pane {
   drag_block: Int,
   reveal_line: Int,
   editing: &mut annotations::Drafting,
+  // Find: its state, its field, and the last request to open it seen.
+  finding: &mut file_find::State,
+  find_field: &mut cui::InputRef,
+  find_seen: Int,
+  // The texts find searches, whether they are the preview's, and whether
+  // they are current. In the preview, the index of each block's first text,
+  // and one past the last block's last.
+  find_texts: [Str],
+  find_texts_rendered: Bool,
+  find_texts_current: Bool,
+  block_starts: [Int],
+  // The virtual rows as last shown.
+  shown_items: [Item],
 }
 
 private fn new(props: &mut Props) &mut Pane {
@@ -475,6 +556,14 @@ private fn new(props: &mut Props) &mut Pane {
     drag_block: -1,
     reveal_line: 0,
     editing: annotations::drafting(),
+    finding: file_find::state(),
+    find_field: cui::input_ref(),
+    find_seen: props.find_request.or(0),
+    find_texts: [],
+    find_texts_rendered: false,
+    find_texts_current: false,
+    block_starts: [],
+    shown_items: [],
   }
 }
 
@@ -535,6 +624,13 @@ impl Pane {
         self.load()
       }
       self.was_shown = self.props.shown
+      let request = self.props.find_request.or(0)
+      if request != self.find_seen {
+        self.find_seen = request
+        if request != 0 {
+          self.open_find()
+        }
+      }
     }
   }
 
@@ -710,6 +806,10 @@ impl Pane {
     if self.reveal_line > 0 {
       self.reveal_note()
     }
+    self.find_texts_current = false
+    if self.finding.open {
+      self.refind_later()
+    }
   }
 
   // Shows the line a revealed note starts on: in the preview, or, for a
@@ -733,6 +833,7 @@ impl Pane {
 
   private fn mut show(result: highlight::Result) {
     self.rows = lines(result)
+    self.find_texts_current = false
     mut widest = 0
     for row in self.rows {
       let width = line_width(row)
@@ -1058,6 +1159,59 @@ impl Pane {
     }
     let base = ui::text_style(foreground: colors.foreground)
     let document = self.document.or(parser::Document{})
+    // The find marks of the block's texts, and whether it holds the current
+    // match.
+    let block_marks = &mut List::new<[file_find::Mark]>()
+    mut holds_current = false
+    if self.finding.open and self.finding.matches.size() > 0 {
+      let first = self.block_starts.at(index).or(0)
+      let end = self.block_starts.at(index + 1).or(first)
+      mut text = first
+      while text < end {
+        block_marks.push(self.find_marks(text))
+        text =+ 1
+      }
+      match self.finding.current_match() {
+        found => { holds_current = found.piece >= first and found.piece < end },
+        _ => (),
+      }
+    }
+    // The gutter's fill under its mark: an accent bar down its first cell
+    // on the current match's block.
+    let gutter_mark = match holds_current and not offers {
+      true => {
+        cui::box(
+          [
+            cui::box(
+              [],
+              styles: ui::style(
+                width: ui::cells(1),
+                flex_shrink: 0.0,
+                background: Maybe::new(colors.primary_text),
+              ),
+            ),
+          ],
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_direction: ui::FlexDirection::row,
+            background: fill,
+          ),
+        )
+      },
+      false => {
+        cui::box(
+          [
+            cui::text(
+              mark,
+              text_style: ui::text_style(foreground: colors.foreground),
+              wrap: ui::TextWrap::none,
+              selectable: false,
+            ),
+          ],
+          styles: ui::style(flex_grow: 1.0, background: fill),
+        )
+      },
+    }
     let gap = match markdown::document_gap(document, index) {
       true => 1,
       false => 0,
@@ -1069,17 +1223,7 @@ impl Pane {
         cui::box(
           [
             cui::box([], styles: ui::style(height: ui::cells(top + gap), flex_shrink: 0.0)),
-            cui::box(
-              [
-                cui::text(
-                  mark,
-                  text_style: ui::text_style(foreground: colors.foreground),
-                  wrap: ui::TextWrap::none,
-                  selectable: false,
-                ),
-              ],
-              styles: ui::style(flex_grow: 1.0, background: fill),
-            ),
+            gutter_mark,
             cui::box([], styles: ui::style(height: ui::cells(bottom), flex_shrink: 0.0)),
           ],
           styles: ui::style(
@@ -1100,6 +1244,10 @@ impl Pane {
               document,
               index,
               self.fence_open,
+              marks: match block_marks.size() == 0 {
+                true => Maybe::new<[[file_find::Mark]]>(),
+                false => Maybe::new(block_marks.*),
+              },
             ),
           ],
           styles: ui::style(
@@ -1125,6 +1273,298 @@ impl Pane {
       ),
       on_mouse: fn(received: &mut event::MouseEvent, context: cui::Context) {
         self.block_mouse(index, received)
+      },
+    )
+  }
+
+  // The texts find searches: the source's lines, or in the preview each
+  // block's texts, noting where each block's start.
+  private fn mut texts_to_find() [Str] {
+    let rendered = self.showing_rendered()
+    if (not self.find_texts_current) or self.find_texts_rendered != rendered {
+      let texts = &mut List::new<Str>()
+      match rendered {
+        true => {
+          let document = self.document.or(parser::Document{})
+          let starts = &mut List::new<Int>()
+          for block, index in document.Blocks {
+            starts.push(texts.size())
+            for text in markdown::block_texts(document, index, self.fence_open) {
+              texts.push(text)
+            }
+          }
+          starts.push(texts.size())
+          self.block_starts = starts.*
+        },
+        false => {
+          for row in self.rows {
+            texts.push(line_text(row))
+          }
+        },
+      }
+      self.find_texts = texts.*
+      self.find_texts_rendered = rendered
+      self.find_texts_current = true
+    }
+    self.find_texts
+  }
+
+  // The preview block showing text `text`: the last whose texts start at
+  // or before it.
+  private fn block_holding(text: Int) Int {
+    mut low = 0
+    mut high = self.block_starts.size() - 2
+    mut found = 0
+    while low <= high {
+      let middle = (low + high) / 2
+      match self.block_starts.at(middle).or(0) <= text {
+        true => {
+          found = middle
+          low = middle + 1
+        },
+        false => { high = middle - 1 },
+      }
+    }
+    found
+  }
+
+  // The key of a virtual row.
+  private fn item_key(item: Item) Str {
+    match item.kind {
+      ItemKind::line => "{item.number}",
+      ItemKind::block => "block:{item.number}",
+      ItemKind::note => "note:{item.note.or(sessionbridge::Annotation{}).ID}",
+      ItemKind::editor => "editor",
+    }
+  }
+
+  // The list showing the file: the preview's or the source's.
+  private fn shown_list() &mut cui::VirtualListRef {
+    match self.showing_rendered() {
+      true => self.blocks,
+      false => self.list,
+    }
+  }
+
+  // Where find starts looking: the first text at the top of what's shown.
+  // A note or the editor at the top stands for the line or block after it.
+  private fn top_position() file_find::Position {
+    let start = match self.shown_list().current {
+      current => current.visible_range().start,
+      _ => 0,
+    }
+    match self.shown_items.at(start) {
+      item => {
+        let after = match item.kind == ItemKind::line or item.kind == ItemKind::block {
+          true => 0,
+          false => 1,
+        }
+        match self.showing_rendered() {
+          true => {
+            file_find::Position{piece: self.block_starts.at(item.number + after).or(self.find_texts.size()), offset: 0}
+          },
+          false => file_find::Position{piece: item.number + after - 1, offset: 0},
+        }
+      },
+      _ => file_find::Position{piece: 0, offset: 0},
+    }
+  }
+
+  // Opens find, or gives its open row the keyboard again. A query kept
+  // from before searches at once.
+  private fn mut open_find() {
+    if self.image.is_none() and self.read.is_some() {
+      if not self.finding.open {
+        self.finding.open()
+        self.refind()
+      }
+      match self.context {
+        context => {
+          let _ = self.find_field.focus(context)
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Closes find, leaving the current match's line as the cursor line, and
+  // hands back the keyboard.
+  private fn mut close_find() {
+    self.finding.close()
+    self.props.release_focus()
+  }
+
+  // Searches again, keeping the current match's place, or else from the
+  // top of what's shown, and reveals the current match.
+  private fn mut refind() {
+    let texts = self.texts_to_find()
+    self.finding.search(texts, self.top_position())
+    self.reveal_match()
+  }
+
+  // Searches again once the pending commit has laid out what it shows.
+  private fn mut refind_later() {
+    match self.context {
+      context => {
+        let dispatch = context.dispatch
+        let _ = after_commit::once(context, fn() {
+          let _ = dispatch(fn() {
+            if self.finding.open {
+              self.refind()
+            }
+          })
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // Applies a change to find from its row, then searches again.
+  private fn mut change_find(change: fn(&mut file_find::State)) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          change(self.finding)
+          self.refind()
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut step_find(by: Int) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.finding.step(by) {
+            self.reveal_match()
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // Scrolls the current match into view, and in the source makes its line
+  // the cursor line.
+  private fn mut reveal_match() {
+    match self.finding.current_match() {
+      found => {
+        match self.showing_rendered() {
+          true => self.reveal_key(self.blocks, "block:{self.block_holding(found.piece)}"),
+          false => {
+            self.cursor = found.piece + 1
+            self.reveal_columns(found)
+            self.reveal_key(self.list, "{found.piece + 1}")
+          },
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Scrolls the source sideways to a match outside the columns shown,
+  // leaving a quarter of the width before it.
+  private fn mut reveal_columns(found: file_find::Match) {
+    let line = self.find_texts.at(found.piece).or("")
+    let start = ui::text_width(line.slice(0, found.start).or(""))
+    let end = ui::text_width(line.slice(0, found.end).or(""))
+    let width = self.text_width()
+    if start < self.column or end > self.column + width {
+      let _ = self.scroll_columns(start - width / 4 - self.column)
+    }
+  }
+
+  // Scrolls a row centred into view, once laid out, unless it is shown.
+  private fn mut reveal_key(list: &mut cui::VirtualListRef, key: Str) {
+    match self.context {
+      context => {
+        let _ = after_commit::once(context, fn() {
+          match list.current {
+            current => {
+              let range = current.visible_range()
+              mut shown = false
+              mut index = range.start
+              while index < range.end {
+                shown = shown or self.item_key(
+                  self.shown_items.at(
+                    index,
+                  ).or(
+                    Item{
+                      kind: ItemKind::editor,
+                      number: 0,
+                      note: Maybe::new<sessionbridge::Annotation>(),
+                    },
+                  ),
+                ) == key
+                index =+ 1
+              }
+              if not shown {
+                let _ = current.scroll_to_key(key, cui::ScrollAlignment::center)
+              }
+            },
+            _ => (),
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // The find marks in text `text`, while find shows matches.
+  private fn find_marks(text: Int) [file_find::Mark] {
+    match self.finding.open and self.finding.matches.size() > 0 {
+      true => file_find::marks(self.finding.matches, self.finding.current, text),
+      false => [],
+    }
+  }
+
+  // The find row, under the header.
+  private fn mut find_row() cui::View {
+    let searched_lines = match self.read {
+      file => {
+        match file.Truncated {
+          true => self.rows.size(),
+          false => 0,
+        }
+      },
+      _ => 0,
+    }
+    file_find::row(
+      file_find::RowProps{
+        themes: self.props.themes,
+        find: self.finding.*,
+        width: self.width,
+        searched_lines: searched_lines,
+        field: self.find_field,
+        input: fn(value: Str) {
+          self.change_find(fn(state: &mut file_find::State) {
+            state.query = value
+          })
+        },
+        step: fn(by: Int) {
+          self.step_find(by)
+        },
+        toggle_case: fn() {
+          self.change_find(fn(state: &mut file_find::State) {
+            state.match_case = not state.match_case
+          })
+        },
+        toggle_word: fn() {
+          self.change_find(fn(state: &mut file_find::State) {
+            state.whole_word = not state.whole_word
+          })
+        },
+        close: fn() {
+          match self.context {
+            context => {
+              let _ = context.dispatch(fn() {
+                self.close_find()
+              })
+            },
+            _ => (),
+          }
+        },
       },
     )
   }
@@ -1411,14 +1851,26 @@ impl Pane {
 
   private fn mut row(number: Int) cui::View {
     let colors = self.props.themes.current()
-    let segments = self.rows.at(number - 1).or([])
+    let marks = self.find_marks(number - 1)
+    let segments = match marks.size() == 0 {
+      true => self.rows.at(number - 1).or([]),
+      false => marked(self.rows.at(number - 1).or([]), marks),
+    }
     let spans = &mut List::new<ui::Span>()
     for segment in visible(segments, self.column, self.text_width()) {
       let foreground = match segment.role == "" {
         true => Maybe::new<ui::Color>(),
         false => Maybe::new(colors.syntax(segment.role)),
       }
-      spans.push(ui::span(segment.text, style: ui::span_style(foreground: foreground)))
+      spans.push(
+        ui::span(
+          segment.text,
+          style: ui::span_style(
+            foreground: file_find::ink(colors, segment.mark, foreground),
+            background: file_find::fill(colors, segment.mark, Maybe::new<ui::Color>()),
+          ),
+        ),
+      )
     }
     mut annotated = false
     for note in self.notes() {
@@ -1534,6 +1986,11 @@ impl Pane {
         let _ = context.dispatch(fn() {
           if not self.editing.is_open() {
             self.rendered = not self.rendered
+            // The other view's matches start from the top of what it shows.
+            if self.finding.open {
+              self.finding.current = -1
+              self.refind_later()
+            }
           }
         })
       },
@@ -1709,14 +2166,11 @@ impl Pane {
       self.rows.size() == 0 => self.message("Empty file", "0 bytes"),
       count == 0 => self.message("Nothing to render", "The file has no Markdown content to show."),
       _ => {
+        self.shown_items = self.preview_items()
         cui::virtual_list(
-          self.preview_items(),
+          self.shown_items,
           fn(item: Item) Str {
-            match item.kind {
-              ItemKind::block => "block:{item.number}",
-              ItemKind::note => "note:{item.note.or(sessionbridge::Annotation{}).ID}",
-              _ => "editor",
-            }
+            self.item_key(item)
           },
           fn(item: Item) cui::View {
             self.item_view(item)
@@ -1760,14 +2214,11 @@ impl Pane {
         match self.rows.size() == 0 {
           true => self.message("Empty file", "0 bytes"),
           false => {
+            self.shown_items = self.items()
             cui::virtual_list(
-              self.items(),
+              self.shown_items,
               fn(item: Item) Str {
-                match item.kind {
-                  ItemKind::line => "{item.number}",
-                  ItemKind::note => "note:{item.note.or(sessionbridge::Annotation{}).ID}",
-                  _ => "editor",
-                }
+                self.item_key(item)
               },
               fn(item: Item) cui::View {
                 self.item_view(item)
@@ -1804,10 +2255,16 @@ impl cui::Component for Pane {
     let colors = self.props.themes.current()
     let children = &mut List::new<cui::View>()
     children.push(self.header())
+    if self.finding.open {
+      children.push(self.find_row())
+    }
     children.push(layout::divider(colors.border))
     children.push(
       cui::box(
         [self.body()],
+        // Keyed, the body keeps its place, and the list its scroll, as the
+        // find row comes and goes above it.
+        key: "file-body",
         ref: self.frame,
         styles: ui::style(
           flex_grow: 1.0,
@@ -1837,7 +2294,13 @@ impl cui::Component for Pane {
 private fn segments(parts: [Str]) [Segment] {
   let made = &mut List::new<Segment>()
   for part in parts {
-    made.push(Segment{text: part, role: ""})
+    made.push(
+      Segment{
+        text: part,
+        role: "",
+        mark: 0,
+      },
+    )
   }
   made.*
 }

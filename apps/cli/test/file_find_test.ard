@@ -1,0 +1,656 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/file_pane
+use kit/tui/theme
+use kit/tui/workspace
+use go:strings
+use go:time
+
+// Find in a File tab, driven as the Shell drives it: a request to open its
+// row, then keys into the row's field.
+
+// What the host passes the pane, and what the pane asked of it.
+struct Model {
+  // The count of requests to open find.
+  requests: Int,
+  // How often the pane handed back the keyboard.
+  released: Int,
+  context: cui::Context?,
+}
+
+struct HostProps {
+  model: &mut Model,
+  tab: workspace::Tab,
+  content: Str,
+  truncated: Bool,
+}
+
+struct Host {
+  props: &mut HostProps,
+}
+
+fn host(props: &mut HostProps) &mut Host {
+  &mut Host{props: props}
+}
+
+impl cui::Lifecycle for Host {
+  fn mut mounted(context: cui::Context) {
+    self.props.model.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.props.model
+    let content = self.props.content
+    let truncated = self.props.truncated
+    file_pane::view(
+      file_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        tab: self.props.tab,
+        stale: false,
+        shown: true,
+        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error {
+          Result::ok(
+            protocol::WorkspaceFileRead{
+              Path: input.Path,
+              Content: content,
+              Size: Int64::from(content.size()),
+              Truncated: truncated,
+              TruncationReason: "max_bytes",
+            },
+          )
+        }),
+        annotations: [],
+        remove_annotation: fn(id: Uint64) {},
+        release_focus: fn() {
+          model.released =+ 1
+        },
+        find_request: Maybe::new(model.requests),
+      },
+    )
+  }
+}
+
+struct Shown {
+  terminal: headless::TestApp,
+  renderer: cui::Renderer,
+  model: &mut Model,
+}
+
+fn show(width: Int, height: Int, file_path: Str, content: Str) Shown {
+  show_read(width, height, file_path, content, false)
+}
+
+// Mounts a shown File pane for the workspace file at file_path, which reads
+// as content, cut short if `truncated`, and waits for it to load.
+fn show_read(width: Int, height: Int, file_path: Str, content: Str, truncated: Bool) Shown {
+  let terminal = headless::new(width, height)
+  let tabs = workspace::tabs()
+  let _ = tabs.open(workspace::file("workspace_a", file_path, 0))
+  let model = &mut Model{
+    requests: 0,
+    released: 0,
+    context: Maybe::new<cui::Context>(),
+  }
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::child(
+      host,
+      HostProps{
+        model: model,
+        tab: tabs.current().expect("the file tab"),
+        content: content,
+        truncated: truncated,
+      },
+    ),
+  )
+  mut attempts = 0
+  terminal.flush()
+  while attempts < 100 and strings::Contains(terminal.frame().text(), "Loading file") {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+  terminal.flush()
+  Shown{
+    terminal: terminal,
+    renderer: renderer,
+    model: model,
+  }
+}
+
+// Asks the pane to open find, as Ctrl+F or the palette's Find in File does.
+fn open_find(shown: Shown) {
+  let model = shown.model
+  match model.context {
+    context => {
+      let _ = context.dispatch(fn() {
+        model.requests =+ 1
+      })
+    },
+    _ => (),
+  }
+  settle(shown.terminal)
+}
+
+fn settle(terminal: headless::TestApp) {
+  mut index = 0
+  while index < 4 {
+    terminal.flush()
+    index =+ 1
+  }
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = &mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.*
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+fn modifiers(shift: Bool, alt: Bool) event::Modifiers {
+  event::Modifiers{
+    shift: shift,
+    ctrl: false,
+    alt: alt,
+    super: false,
+  }
+}
+
+fn typed(terminal: headless::TestApp, text: Str) {
+  for character in strings::Split(text, "") {
+    terminal.key(
+      event::key(character, character, event::KeyEventType::press, modifiers(false, false)),
+    )
+  }
+  settle(terminal)
+}
+
+fn press(terminal: headless::TestApp, name: Str) {
+  terminal.key(event::key(name, "", event::KeyEventType::press, modifiers(false, false)))
+  settle(terminal)
+}
+
+fn press_shift(terminal: headless::TestApp, name: Str) {
+  terminal.key(event::key(name, "", event::KeyEventType::press, modifiers(true, false)))
+  settle(terminal)
+}
+
+fn press_alt(terminal: headless::TestApp, name: Str) {
+  terminal.key(event::key(name, name, event::KeyEventType::press, modifiers(false, true)))
+  settle(terminal)
+}
+
+// How find draws the cells of row `y` from column `from` through `to`: "="
+// for a match, "#" for the current match, "." otherwise.
+fn marks(terminal: headless::TestApp, y: Int, from: Int, to: Int) Str {
+  let colors = theme::system()
+  mut drawn = ""
+  mut x = from
+  while x <= to {
+    let cell = terminal.frame().cell(x, y)
+    let mark = match cell {
+      found => {
+        match {
+          same_color(found.style.background, colors.find_match) => "=",
+          same_color(found.style.background, colors.primary_text) => "#",
+          _ => ".",
+        }
+      },
+      _ => " ",
+    }
+    drawn = "{drawn}{mark}"
+    x =+ 1
+  }
+  drawn
+}
+
+let routes = "func routes() {{\n  mux.Handle(\"/a\", handler(a))\n  mux.Handle(\"/b\", handler(b))\n  mux.Handle(\"/c\", Handler(c))\n}}\n\nfunc handler(next Handler) Handler {{\n"
+
+fn fills(terminal: headless::TestApp, y: Int, from: Int, to: Int, color: ui::Color) Str {
+  mut drawn = ""
+  mut x = from
+  while x <= to {
+    drawn = match terminal.frame().cell(x, y) {
+      found => {
+        match same_color(found.style.background, color) {
+          true => "{drawn}+",
+          false => "{drawn}.",
+        }
+      },
+      _ => "{drawn} ",
+    }
+    x =+ 1
+  }
+  drawn
+}
+
+// Row `y` as shown.
+fn row(shown: Shown, y: Int) Str {
+  rows(shown.terminal).at(y).or("")
+}
+
+test fn typing_tints_every_match_and_counts_them() Void!Str {
+  let shown = show(56, 11, "routes.go", routes)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  typed(shown.terminal, "handler")
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " routes.go                       Ln 2 · 7 lines · 149 B",
+      " Find  handler                 1 of 6  Aa   ab   ‹ ›  ×",
+      "────────────────────────────────────────────────────────",
+      "   1 func routes() {{",
+      "   2   mux.Handle(\"/a\", handler(a))",
+      "   3   mux.Handle(\"/b\", handler(b))",
+      "   4   mux.Handle(\"/c\", Handler(c))",
+      "   5 }}",
+      "   6",
+      "   7 func handler(next Handler) Handler {{",
+      "",
+    ],
+  )
+  try testing::assert(
+    marks(shown.terminal, 4, 23, 31) == ".#######.",
+    "the first match from the top is current: {marks(shown.terminal, 4, 23, 31)}",
+  )
+  let current = shown.terminal.frame().cell(24, 4).expect("the current match")
+  try testing::assert(
+    same_color(current.style.foreground, theme::system().selection_backdrop),
+    "the current match's text reads on the accent",
+  )
+  try testing::assert(
+    marks(shown.terminal, 5, 23, 31) == ".=======.",
+    "another match is tinted: {marks(shown.terminal, 5, 23, 31)}",
+  )
+  testing::assert(
+    marks(shown.terminal, 9, 9, 39) == ".=======......=======..=======.",
+    "matches ignore case: {marks(shown.terminal, 9, 9, 39)}",
+  )
+}
+
+test fn enter_and_the_arrows_step_through_matches_wrapping() Void!Str {
+  let shown = show(56, 11, "routes.go", routes)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  typed(shown.terminal, "handler")
+  let steps = &mut List::new<Str>()
+  let note = fn() {
+    let count = strings::TrimSpace(row(shown, 1).slice(30, 38).or(""))
+    let line = strings::TrimSpace(row(shown, 0).slice(32, 37).or(""))
+    steps.push("{count} {line}")
+  }
+  note()
+  press(shown.terminal, "return")
+  note()
+  press(shown.terminal, "down")
+  note()
+  press_shift(shown.terminal, "return")
+  note()
+  press(shown.terminal, "up")
+  note()
+  press(shown.terminal, "up")
+  note()
+  press(shown.terminal, "return")
+  note()
+  try testing::assert(
+    strings::Join(steps.*, ", ") == "1 of 6 Ln 2, 2 of 6 Ln 3, 3 of 6 Ln 4, 2 of 6 Ln 3, 1 of 6 Ln 2, 6 of 6 Ln 7, 1 of 6 Ln 2",
+    strings::Join(steps.*, ", "),
+  )
+  press(shown.terminal, "up")
+  testing::assert(
+    marks(shown.terminal, 9, 31, 39) == ".#######.",
+    "the last match is current: {marks(shown.terminal, 9, 31, 39)}",
+  )
+}
+
+test fn match_case_and_whole_word_narrow_the_matches() Void!Str {
+  let shown = show(56, 11, "routes.go", routes)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  let colors = theme::system()
+  open_find(shown)
+  typed(shown.terminal, "handle")
+  try testing::assert(
+    row(shown, 1) == " Find  handle                  1 of 9  Aa   ab   ‹ ›  ×",
+    "any case, inside words: {row(shown, 1)}|",
+  )
+  let arrows = shown.terminal.frame().cell(49, 1).expect("the arrows")
+  try testing::assert(
+    same_color(arrows.style.foreground, colors.foreground),
+    "with matches, the arrows read as text",
+  )
+  press_alt(shown.terminal, "w")
+  try testing::assert(
+    row(shown, 1) == " Find  handle                  1 of 3  Aa   ab   ‹ ›  ×",
+    "Alt+W keeps whole words: {row(shown, 1)}|",
+  )
+  let word = shown.terminal.frame().cell(44, 1).expect("ab")
+  try testing::assert(
+    same_color(word.style.foreground, colors.primary_text) and same_color(word.style.background, colors.surface_hovered),
+    "an option that's on takes the accent",
+  )
+  press_alt(shown.terminal, "c")
+  try testing::assert(
+    row(shown, 1) == " Find  handle              No matches  Aa   ab   ‹ ›  ×",
+    "Alt+C matches case: {row(shown, 1)}|",
+  )
+  let none = shown.terminal.frame().cell(30, 1).expect("the count")
+  try testing::assert(same_color(none.style.foreground, colors.warning_text), "no matches warns")
+  let dim = shown.terminal.frame().cell(49, 1).expect("the arrows")
+  try testing::assert(
+    same_color(dim.style.foreground, colors.border),
+    "with nothing to step to, the arrows dim",
+  )
+  shown.terminal.click(44, 1)
+  settle(shown.terminal)
+  testing::assert(
+    row(shown, 1) == " Find  handle                  1 of 3  Aa   ab   ‹ ›  ×",
+    "a click toggles an option: {row(shown, 1)}|",
+  )
+}
+
+// Lines "line 1" onward, with "needle" ending each line numbered in
+// `needles`.
+fn numbered(count: Int, needles: [Int]) Str {
+  let lines = &mut List::new<Str>()
+  for number in 1..count {
+    mut line = "line {number}"
+    for needle in needles {
+      if needle == number {
+        line = "{line} needle"
+      }
+    }
+    lines.push(line)
+  }
+  "{strings::Join(lines.*, "\n")}\n"
+}
+
+test fn the_current_match_scrolls_into_view_centred() Void!Str {
+  let shown = show(56, 12, "long.txt", numbered(300, [150, 290]))
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  typed(shown.terminal, "needle")
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " long.txt                  Ln 150 · 300 lines · 2.5 KiB",
+      " Find  needle                  1 of 2  Aa   ab   ‹ ›  ×",
+      "────────────────────────────────────────────────────────",
+      " 146 line 146                                          │",
+      " 147 line 147                                          │",
+      " 148 line 148                                          │",
+      " 149 line 149                                          │",
+      " 150 line 150 needle                                   ┃",
+      " 151 line 151                                          │",
+      " 152 line 152                                          │",
+      " 153 line 153                                          │",
+      " 154 line 154                                          │",
+    ],
+  )
+  press(shown.terminal, "return")
+  try testing::assert(
+    strings::HasPrefix(row(shown, 7), " 290 line 290 needle "),
+    "the next match scrolls in: {row(shown, 7)}|",
+  )
+  testing::assert(marks(shown.terminal, 7, 13, 20) == ".######.", "and is current")
+}
+
+test fn a_match_past_the_edge_scrolls_the_lines_sideways() Void!Str {
+  let shown = show(30, 7, "wide.txt", "{strings::Repeat("x", 60)} needle\nshort\n")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  typed(shown.terminal, "needle")
+  let line = row(shown, 3)
+  try testing::assert(strings::Contains(line, "x needle"), "the match is shown: {line}|")
+  let at = 5 + strings::Index(line.slice(5, line.size()).or(""), "needle")
+  testing::assert(
+    marks(shown.terminal, 3, at - 1, at + 6) == ".######.",
+    "and current: {marks(shown.terminal, 3, at - 1, at + 6)}",
+  )
+}
+
+test fn find_starts_from_the_top_of_what_is_shown() Void!Str {
+  let shown = show(56, 12, "long.txt", numbered(300, [50, 100, 127, 200, 250, 300]))
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  for tick in 1..40 {
+    shown.terminal.scroll(10, 6, 1)
+    shown.terminal.flush()
+  }
+  let top = strings::TrimSpace(row(shown, 2).slice(0, 4).or(""))
+  try testing::assert(top == "121", "scrolled to line {top}")
+  open_find(shown)
+  typed(shown.terminal, "needle")
+  try testing::assert(
+    row(shown, 1) == " Find  needle                  3 of 6  Aa   ab   ‹ ›  ×",
+    "the first match below the top is current: {row(shown, 1)}|",
+  )
+  try testing::assert(
+    strings::HasPrefix(row(shown, 0), " long.txt                  Ln 127 · 300 lines"),
+    "its line is the cursor line: {row(shown, 0)}|",
+  )
+  // Shown already, the match doesn't scroll the lines.
+  try testing::assert(
+    strings::HasPrefix(row(shown, 3), " 121 line 121 "),
+    "the lines stay put: {row(shown, 3)}|",
+  )
+  press(shown.terminal, "escape")
+  try testing::assert(
+    strings::HasPrefix(row(shown, 2), " 121 line 121 "),
+    "and stay put as find closes: {row(shown, 2)}|",
+  )
+  testing::pass()
+}
+
+test fn escape_closes_find_and_hands_back_the_keyboard() Void!Str {
+  let shown = show(56, 11, "routes.go", routes)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  typed(shown.terminal, "handler")
+  press(shown.terminal, "return")
+  press(shown.terminal, "escape")
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " routes.go                       Ln 3 · 7 lines · 149 B",
+      "────────────────────────────────────────────────────────",
+      "   1 func routes() {{",
+      "   2   mux.Handle(\"/a\", handler(a))",
+      "   3   mux.Handle(\"/b\", handler(b))",
+      "   4   mux.Handle(\"/c\", Handler(c))",
+      "   5 }}",
+      "   6",
+      "   7 func handler(next Handler) Handler {{",
+      "",
+      "",
+    ],
+  )
+  try testing::assert(shown.model.released == 1, "the keyboard goes back: {shown.model.released}")
+  try testing::assert(
+    marks(shown.terminal, 4, 23, 31) == ".........",
+    "matches are no longer tinted: {marks(shown.terminal, 4, 23, 31)}",
+  )
+  open_find(shown)
+  testing::assert(
+    row(shown, 1) == " Find  handler                 1 of 6  Aa   ab   ‹ ›  ×",
+    "find opens again with its query: {row(shown, 1)}|",
+  )
+}
+
+test fn a_narrow_row_counts_briefly() Void!Str {
+  let shown = show(40, 6, "routes.go", routes)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  typed(shown.terminal, "handler")
+  testing::assert(row(shown, 1) == "  handler               1/6  Aa   ab  ×", "{row(shown, 1)}|")
+}
+
+test fn a_file_cut_short_says_how_far_it_was_searched() Void!Str {
+  let shown = show_read(80, 6, "routes.go", routes, true)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  typed(shown.terminal, "handler")
+  testing::assert(
+    row(shown, 1) == " Find  handler                    1 of 6 in the first 7 lines  Aa   ab   ‹ ›  ×",
+    "{row(shown, 1)}|",
+  )
+}
+
+test fn a_large_file_counts_to_the_limit_and_stays_responsive() Void!Str {
+  let lines = &mut List::new<Str>()
+  for number in 1..20000 {
+    lines.push("{number} handler handler")
+  }
+  let shown = show(60, 8, "big.txt", strings::Join(lines.*, "\n"))
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  let started = time::Now()
+  typed(shown.terminal, "handler")
+  let took = time::Since(started).Milliseconds()
+  try testing::assert(
+    row(shown, 1) == " Find  handler               1 of 10,000+  Aa   ab   ‹ ›  ×",
+    "{row(shown, 1)}|",
+  )
+  try testing::assert(took < 2000, "seven searches of 40,000 matches took {took} ms")
+  // Matching nothing reads the whole file.
+  let again = time::Now()
+  typed(shown.terminal, "z")
+  let scanned = time::Since(again).Milliseconds()
+  try testing::assert(
+    row(shown, 1) == " Find  handlerz                No matches  Aa   ab   ‹ ›  ×",
+    "{row(shown, 1)}|",
+  )
+  testing::assert(scanned < 1000, "a search of the whole file took {scanned} ms")
+}
+
+let plan = "# Handler\n\nThe handler runs.\n\n```go\nhandler()\n```\n\n```mermaid\ngraph TD\n  handler --> done\n```\n\n| Name | Role |\n| --- | --- |\n| handler | serve |\n"
+
+test fn rendered_markdown_tints_its_text_code_and_cells() Void!Str {
+  let shown = show(56, 24, "PLAN.md", plan)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  open_find(shown)
+  typed(shown.terminal, "handler")
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " PLAN.md                    16 lines · 145 B   Preview",
+      " Find  handler                 1 of 4  Aa   ab   ‹ ›  ×",
+      "────────────────────────────────────────────────────────",
+      "",
+      "   Handler",
+      "",
+      "   The handler runs.",
+      "",
+      "    handler()",
+      "",
+      "   ┌─────────┐",
+      "   │ handler │",
+      "   └────┬────┘",
+      "        │",
+      "        ▼",
+      "    ┌──────┐",
+      "    │ done │",
+      "    └──────┘",
+      "",
+      "   Name     Role",
+      "   ──────────────",
+      "   handler  serve",
+      "",
+      "",
+    ],
+  )
+  let colors = theme::system()
+  try testing::assert(
+    marks(shown.terminal, 4, 2, 10) == ".#######.",
+    "the heading holds the current match: {marks(shown.terminal, 4, 2, 10)}",
+  )
+  try testing::assert(
+    fills(shown.terminal, 4, 0, 2, colors.primary_text) == "+..",
+    "its block's gutter takes the accent bar: {fills(shown.terminal, 4, 0, 2, colors.primary_text)}",
+  )
+  try testing::assert(
+    marks(shown.terminal, 6, 6, 14) == ".=======.",
+    "the paragraph's match is tinted: {marks(shown.terminal, 6, 6, 14)}",
+  )
+  try testing::assert(
+    marks(shown.terminal, 8, 3, 11) == ".=======.",
+    "so is the code's: {marks(shown.terminal, 8, 3, 11)}",
+  )
+  try testing::assert(
+    marks(shown.terminal, 21, 2, 10) == ".=======.",
+    "and the table cell's: {marks(shown.terminal, 21, 2, 10)}",
+  )
+  press(shown.terminal, "return")
+  try testing::assert(
+    marks(shown.terminal, 6, 6, 14) == ".#######.",
+    "the next match is the paragraph's: {marks(shown.terminal, 6, 6, 14)}",
+  )
+  try testing::assert(
+    fills(shown.terminal, 6, 0, 2, colors.primary_text) == "+..",
+    "and the bar moves to its block: {fills(shown.terminal, 6, 0, 2, colors.primary_text)}",
+  )
+  testing::assert(
+    fills(shown.terminal, 4, 0, 2, colors.primary_text) == "...",
+    "from the heading's: {fills(shown.terminal, 4, 0, 2, colors.primary_text)}",
+  )
+}
+
+fn fills(terminal: headless::TestApp, y: Int, from: Int, to: Int, color: ui::Color) Str {
+  mut drawn = ""
+  mut x = from
+  while x <= to {
+    drawn = match terminal.frame().cell(x, y) {
+      found => {
+        match same_color(found.style.background, color) {
+          true => "{drawn}+",
+          false => "{drawn}.",
+        }
+      },
+      _ => "{drawn} ",
+    }
+    x =+ 1
+  }
+  drawn
+}
