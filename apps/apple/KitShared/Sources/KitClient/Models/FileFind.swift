@@ -1,25 +1,35 @@
 import Foundation
-import KitClient
 import Observation
 
 /// A place in the text a find bar searches: an offset, in UTF-16 units, into
 /// one of its pieces. A code file is one piece; a rendered Markdown file has
 /// a piece for each text its rows show (see `MarkdownFind`).
-struct FindPosition: Comparable, Hashable, Sendable {
-    var piece: Int
-    var offset: Int
+public struct FindPosition: Comparable, Hashable, Sendable {
+    public var piece: Int
+    public var offset: Int
 
-    static let start = FindPosition(piece: 0, offset: 0)
+    public init(piece: Int, offset: Int) {
+        self.piece = piece
+        self.offset = offset
+    }
 
-    static func < (a: Self, b: Self) -> Bool { (a.piece, a.offset) < (b.piece, b.offset) }
+    public static let start = FindPosition(piece: 0, offset: 0)
+
+    public static func < (a: Self, b: Self) -> Bool { (a.piece, a.offset) < (b.piece, b.offset) }
 }
 
 /// A match a find bar found: a UTF-16 range in one piece.
-struct FindMatch: Equatable, Sendable {
-    var piece: Int
-    var range: Range<Int>
-    var start: FindPosition { FindPosition(piece: piece, offset: range.lowerBound) }
-    var nsRange: NSRange { NSRange(location: range.lowerBound, length: range.count) }
+public struct FindMatch: Equatable, Sendable {
+    public var piece: Int
+    public var range: Range<Int>
+
+    public init(piece: Int, range: Range<Int>) {
+        self.piece = piece
+        self.range = range
+    }
+
+    public var start: FindPosition { FindPosition(piece: piece, offset: range.lowerBound) }
+    public var nsRange: NSRange { NSRange(location: range.lowerBound, length: range.count) }
 }
 
 /// One file tab's find bar: what it searches, its query and options, what
@@ -27,49 +37,51 @@ struct FindMatch: Equatable, Sendable {
 /// out the requests it counts (focus the field, show the current match,
 /// give the keyboard back to the file).
 @MainActor @Observable
-final class FileFind {
-    /// What a file tab shows, which decides what its pieces are.
-    enum Corpus: Equatable, Sendable { case none, source, rendered }
+public final class FileFind {
+    public init() {}
 
-    private(set) var isOpen = false
-    var query = "" { didSet { if query != oldValue { searchChanged() } } }
-    var matchCase = false { didSet { if matchCase != oldValue { searchChanged() } } }
-    var wholeWord = false { didSet { if wholeWord != oldValue { searchChanged() } } }
+    /// What a file tab shows, which decides what its pieces are.
+    public enum Corpus: Equatable, Sendable { case none, source, rendered }
+
+    public private(set) var isOpen = false
+    public var query = "" { didSet { if query != oldValue { searchChanged() } } }
+    public var matchCase = false { didSet { if matchCase != oldValue { searchChanged() } } }
+    public var wholeWord = false { didSet { if wholeWord != oldValue { searchChanged() } } }
     /// The lines a cut-short file arrived with, or 0 when it arrived whole.
-    var searchedLines = 0
+    public var searchedLines = 0
 
     /// The lines of `source`, a file that arrived cut short, or 0 for one
     /// that arrived whole.
-    nonisolated static func searchedLines(_ source: String?, truncated: Bool) -> Int {
+    public nonisolated static func searchedLines(_ source: String?, truncated: Bool) -> Int {
         guard truncated, let source, !source.isEmpty else { return 0 }
         var lines = 0
         for unit in source.utf8 where unit == 0x0A { lines += 1 }
         return source.utf8.last == 0x0A ? lines : lines + 1
     }
 
-    private(set) var corpus = Corpus.none
-    private(set) var pieces: [String] = []
+    public private(set) var corpus = Corpus.none
+    public private(set) var pieces: [String] = []
     /// Counts changes to `pieces`, so a search knows when to run again.
-    private(set) var piecesVersion = 0
+    public private(set) var piecesVersion = 0
 
-    private(set) var matches: [FindMatch] = []
-    private(set) var capped = false
-    private(set) var current: Int?
+    public private(set) var matches: [FindMatch] = []
+    public private(set) var capped = false
+    public private(set) var current: Int?
     /// Counts searches finished, so views can tell a fresh result apart.
-    private(set) var searches = 0
+    public private(set) var searches = 0
 
     /// Asks the bar's field to take the keyboard and select its text.
-    private(set) var focusRequest = 0
+    public private(set) var focusRequest = 0
     /// Asks the file's view to show the current match.
-    private(set) var revealRequest = 0
+    public private(set) var revealRequest = 0
     /// Asks the file's view to take the keyboard back, the bar having closed.
-    private(set) var dismissRequest = 0
+    public private(set) var dismissRequest = 0
 
     /// Where a search starts looking when nothing else says: the top of
     /// what the file's view shows. Set by the view.
-    @ObservationIgnored var visibleAnchor: @MainActor () -> FindPosition = { .start }
+    @ObservationIgnored public var visibleAnchor: @MainActor () -> FindPosition = { .start }
     /// The text selected in the file's view, for Use Selection for Find.
-    @ObservationIgnored var selectedText: @MainActor () -> (text: String, start: FindPosition)? = { nil }
+    @ObservationIgnored public var selectedText: @MainActor () -> (text: String, start: FindPosition)? = { nil }
 
     /// Where the next search starts instead of the current match or the
     /// view: a used selection, or where Find Next resumes after closing.
@@ -80,35 +92,35 @@ final class FileFind {
     /// Previous while the bar was closed.
     @ObservationIgnored private var pendingStep = 0
 
-    var currentMatch: FindMatch? { current.map { matches[$0] } }
+    public var currentMatch: FindMatch? { current.map { matches[$0] } }
 
     /// What the bar's count reads; empty with nothing typed.
-    var label: String {
+    public var label: String {
         guard !query.isEmpty else { return "" }
         return TextFind.label(current: current.map { $0 + 1 } ?? 0, total: matches.count, capped: capped,
                               searchedLines: searchedLines)
     }
 
     /// What a search runs on: changes to any of it search again.
-    struct Request: Equatable, Sendable {
-        var query: String
-        var options: TextFind.Options
-        var piecesVersion: Int
+    public struct Request: Equatable, Sendable {
+        public var query: String
+        public var options: TextFind.Options
+        public var piecesVersion: Int
     }
-    var request: Request {
+    public var request: Request {
         Request(query: query, options: .init(matchCase: matchCase, wholeWord: wholeWord), piecesVersion: piecesVersion)
     }
 
     /// Opens the bar, or with it open, selects its field's text again. The
     /// last query comes back, searched from the top of what's on screen.
-    func open() {
+    public func open() {
         if !isOpen { isOpen = true }
         focusRequest += 1
     }
 
     /// Closes the bar. The current match stays selected in the file, and
     /// Find Next or Previous resumes from it.
-    func close() {
+    public func close() {
         guard isOpen else { return }
         resumeAnchor = currentMatch?.start
         isOpen = false
@@ -118,13 +130,13 @@ final class FileFind {
 
     /// Moves to the next match, wrapping. With the bar closed, reopens it
     /// on the last query and steps from where it left off.
-    func next() { step(1) }
+    public func next() { step(1) }
 
     /// Moves to the previous match, wrapping.
-    func previous() { step(-1) }
+    public func previous() { step(-1) }
 
     /// Searches for the text selected in the file, from where it starts.
-    func useSelection() {
+    public func useSelection() {
         guard let selection = selectedText() else { return }
         let line = selection.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         guard !line.isEmpty else { return }
@@ -135,12 +147,12 @@ final class FileFind {
     }
 
     /// Whether the selection is something Use Selection for Find can use.
-    var canUseSelection: Bool { selectedText()?.text.isEmpty == false }
+    public var canUseSelection: Bool { selectedText()?.text.isEmpty == false }
 
     /// Sets the text searched. A change of what's shown, as from rendered
     /// Markdown to its source, forgets the current match, whose place
     /// meant something only in the old pieces.
-    func setPieces(_ pieces: [String], corpus: Corpus) {
+    public func setPieces(_ pieces: [String], corpus: Corpus) {
         guard pieces != self.pieces || corpus != self.corpus else { return }
         if corpus != self.corpus {
             current = nil
@@ -155,7 +167,7 @@ final class FileFind {
     /// Runs the search `request` describes, off the main actor, and picks
     /// the current match: the first at or after where the last one was, a
     /// used selection, or the top of the view.
-    func refresh() async {
+    public func refresh() async {
         let request = request
         let pieces = pieces
         let anchor = pendingAnchor ?? currentMatch?.start ?? visibleAnchor()
@@ -201,7 +213,7 @@ final class FileFind {
 
     /// The matches of `query` in `pieces`, in order, counting at most the
     /// limit across them all. No match spans two pieces.
-    nonisolated static func search(_ pieces: [String], query: String, options: TextFind.Options)
+    public nonisolated static func search(_ pieces: [String], query: String, options: TextFind.Options)
         -> (matches: [FindMatch], capped: Bool) {
         var matches: [FindMatch] = []
         let limit = options.limit > 0 ? options.limit : TextFind.defaultLimit
@@ -225,7 +237,7 @@ final class FileFind {
 
     /// The first match starting at or after `anchor`, the first when none
     /// does, or nil when there are none.
-    nonisolated static func following(_ matches: [FindMatch], anchor: FindPosition) -> Int? {
+    public nonisolated static func following(_ matches: [FindMatch], anchor: FindPosition) -> Int? {
         guard !matches.isEmpty else { return nil }
         var low = 0, high = matches.count
         while low < high {

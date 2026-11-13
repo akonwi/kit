@@ -21,7 +21,9 @@ iOS app. It holds no AppKit or UIKit code.
   files are Markdown. `FilePaths` reads the file and lines a link names
   (`a.go#L42-L50`); `testdata/file-links` holds the cases
   every client's parser agrees on. `TextFind` finds a query in a file tab's
-  text for its find bar, by the rules and cases in `testdata/find`.
+  text for its find bar, by the rules and cases in `testdata/find`, and
+  `FileFind` is the bar's state: its query, options, matches, and current
+  match.
   Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
