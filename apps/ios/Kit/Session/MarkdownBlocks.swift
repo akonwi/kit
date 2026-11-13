@@ -110,6 +110,10 @@ struct Prose: View {
             .lineSpacing(lineHeight - size * 1.2)
             .foregroundStyle(Theme.text)
             .tint(Theme.accent)
+            // Every line, whatever height it's offered: measured in a list
+            // item's row for a wider width than it gets, text would
+            // otherwise end in an ellipsis.
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("prose")
     }

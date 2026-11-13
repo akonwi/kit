@@ -2,11 +2,12 @@ import XCTest
 
 /// Sends two messages in a session on the paired server of an isolated Kit
 /// home whose model is the stand-in in script/fixtures/long_reply_model.py.
-/// The first one's reply is several screens long and shows from its top; the
-/// second one's fits, so the transcript follows it to the end. Opened again
-/// between them, the session starts at the long reply's top. Each message
-/// carries a #tag that the model repeats, so the session can be reused. Run by
-/// script/test_long_reply.sh, which names the session.
+/// The first one's reply is several screens long and shows from its top,
+/// with its nested list items wrapped; the second one's fits, so the
+/// transcript follows it to the end. Opened again between them, the session
+/// starts at the long reply's top. Each message carries a #tag that the model
+/// repeats, so the session can be reused. Run by script/test_long_reply.sh,
+/// which names the session.
 final class LongReplyUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -32,6 +33,7 @@ final class LongReplyUITests: XCTestCase {
         let header = app.navigationBars.firstMatch.frame.maxY
         let placed = waitFor(timeout: 5) { top.frame.minY >= header - 1 && top.frame.minY < app.frame.height * 0.4 }
         attach(app, "Long reply")
+        expectWrapped(text(app, "NESTED-ITEM \(run)"))
         XCTAssertTrue(placed, "Expected the reply's top in view, near the top of the screen; it's at \(top.frame.minY)")
         // It stays there as the rows settle.
         sleep(2)
@@ -46,6 +48,7 @@ final class LongReplyUITests: XCTestCase {
         let opened = waitFor(timeout: 5) { top.frame.minY >= header - 1 && top.frame.minY < app.frame.height * 0.4 }
         attach(app, "Reopened")
         XCTAssertTrue(opened, "Expected the reply's top in view on opening; it's at \(top.frame.minY)")
+        expectWrapped(text(app, "NESTED-ITEM \(run)"))
         sleep(2)
         XCTAssertGreaterThanOrEqual(top.frame.minY, header - 1, "The reply's top scrolled away")
 
@@ -76,6 +79,13 @@ final class LongReplyUITests: XCTestCase {
     /// message's #tag, so earlier runs' replies don't match.
     private func text(_ app: XCUIApplication, _ marker: String) -> XCUIElement {
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", marker)).firstMatch
+    }
+
+    /// A nested list item too long for one line wraps onto more instead of
+    /// being cut with an ellipsis: its text is taller than one 24 pt line.
+    private func expectWrapped(_ item: XCUIElement) {
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "Expected the nested item")
+        XCTAssertGreaterThan(item.frame.height, 36, "Expected the nested item on two lines or more; it's \(item.frame.height) pt tall")
     }
 
     private func waitFor(timeout: TimeInterval, _ condition: @escaping () -> Bool) -> Bool {

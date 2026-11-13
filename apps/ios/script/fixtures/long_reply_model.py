@@ -1,5 +1,6 @@
 """A stand-in for the OpenAI Responses API that answers each message with a
-reply: a long one, several screens tall, when the message asks for "long",
+reply: a long one, several screens tall with a nested list near its top,
+when the message asks for "long",
 and a one-line one otherwise. A reply starts with the message's #tag, so a
 test can tell its reply from earlier ones. It lets script/test_long_reply.sh run turns
 without a real model or API key.
@@ -15,7 +16,12 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-LONG = "LONG-REPLY-TOP {tag} The reconnect drops events because the cursor is read before the stream is open.\n\n" + "\n\n".join(
+LONG = "LONG-REPLY-TOP {tag} The reconnect drops events because the cursor is read before the stream is open.\n\n" + (
+    "- **What changed:**\n"
+    "  - NESTED-ITEM {tag} If a run is still going, or the last message isn't a reply, the session opens at the end as before.\n"
+    "  - Coming back from another screen, like Changes, returns to the reply instead of the end.\n"
+    "- **Tests:** they pass.\n\n"
+) + "\n\n".join(
     f"{n}. Step {n} of the fix: keep the cursor from the last event the client applied, and resume the stream from it "
     f"so nothing between the drop and the reconnect is lost or applied twice."
     for n in range(1, 31)
