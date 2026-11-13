@@ -3479,6 +3479,117 @@ button.sent-comment-where {
   line-height: 1.5;
 }
 
+/* Find in a file: a bar under the header that stays while the file scrolls. */
+.file-find {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  background: var(--color-frame);
+  border-block-end: 1px solid var(--color-border);
+}
+
+.file-find-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.file-find-field {
+  flex: 1 1 0;
+  min-inline-size: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  block-size: 2.5rem;
+  padding-inline: 0.625rem;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+  font-weight: 400;
+  &:focus-within {
+    box-shadow: inset 0 0 0 1.5px var(--color-accent);
+  }
+  & input {
+    flex: 1;
+    min-inline-size: 0;
+    block-size: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 1rem;
+    line-height: 1.25rem;
+    outline: none;
+  }
+}
+
+.file-find-count {
+  flex: none;
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.file-find-toggle,
+.file-find-step {
+  inline-size: 2.25rem;
+  block-size: 2.5rem;
+  padding: 0;
+  flex-shrink: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.file-find-toggle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.125rem;
+  color: var(--color-text-muted);
+  &[aria-pressed="true"] {
+    background: var(--color-fill-hover);
+    color: var(--color-text);
+  }
+  &.whole-word {
+    text-decoration: underline 1px;
+    text-underline-position: from-font;
+  }
+}
+
+.file-find-note {
+  margin: 0;
+  padding-inline: 2px;
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  color: var(--color-text-muted);
+}
+
+/* Matches tinted in the accent, the current one filled with it. */
+::highlight(kit-find) {
+  background-color: light-dark(
+    color-mix(in srgb, var(--color-accent) 20%, transparent),
+    color-mix(in srgb, var(--color-accent) 28%, transparent)
+  );
+}
+
+::highlight(kit-find-current) {
+  background-color: var(--color-accent);
+  color: var(--color-surface);
+}
+
+/* Keyboard focus comes back here when find closes; the file needs no ring. */
+.file-view:focus {
+  outline: none;
+}
+
+/* A rendered file marks the margin of the block with the current match: two
+   shadows leave a 2px accent bar 0.625rem out, which no scrolling table clips. */
+.file-preview .markdown > [data-find-current] {
+  box-shadow:
+    -0.5rem 0 0 0 var(--color-surface),
+    -0.625rem 0 0 0 var(--color-accent);
+}
+
 /* Open File: a search field over the folder's files, best match first. */
 dialog.open-file {
   @media (max-width: 40rem) {

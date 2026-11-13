@@ -20,7 +20,7 @@ the build.
 | `src/markdown`   | Markdown rendered from mdast as elements, never HTML; Mermaid through Pele  |
 | `src/figures`    | Kit's data figures, parsed and drawn as the other clients draw them         |
 | `src/changes`    | Diffs, line comments, and the comments' staleness                           |
-| `src/files`      | Open File search and the file viewer with comments                          |
+| `src/files`      | Open File search, the file viewer with comments, and its find bar           |
 | `src/scratchpad` | The scratchpad editor, its autosave, and conflict review                    |
 | `src/subagents`  | The agent strip, subagent transcripts kept live, and the agent bar          |
 | `src/pages`      | Pairing, Sessions, Session                                                  |

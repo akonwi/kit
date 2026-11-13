@@ -21,6 +21,7 @@ import { Markdown } from "../markdown/Markdown";
 import type { SessionState } from "../session/projection";
 import { copyText } from "../ui/copy";
 import { Icon, Spinner } from "../ui/icons";
+import { FindBar } from "./FindBar";
 import {
   type FileLine,
   type FileLocation,
@@ -34,6 +35,7 @@ import {
   tapFileLine,
   truncationNote,
 } from "./file";
+import { createFileFind } from "./findView";
 
 const WRAP_KEY = "kit.files.wrap";
 
@@ -224,6 +226,15 @@ export function FileView(props: FileViewProps) {
 
   const digits = () => String(Math.max(lines().length, 1)).length;
 
+  const fileFind = createFileFind({
+    scroller: () => scroller,
+    corpus: () => (!read() ? "none" : mode() === "preview" ? "rendered" : "source"),
+    searchedLines: () => {
+      const value = read();
+      return value?.truncated ? value.returnedLines : 0;
+    },
+    path,
+  });
   return (
     <>
       <header class="bar">
@@ -259,6 +270,15 @@ export function FileView(props: FileViewProps) {
             </label>
           </fieldset>
         </Show>
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="Find in file"
+          aria-expanded={fileFind.isOpen()}
+          onClick={fileFind.toggle}
+        >
+          <Icon name="search" />
+        </button>
         <button type="button" class="icon-button" popovertarget="file-menu" aria-label="File options">
           <Icon name="more" />
         </button>
@@ -288,9 +308,13 @@ export function FileView(props: FileViewProps) {
           Path copied
         </p>
       </Show>
+      <Show when={fileFind.isOpen()}>
+        <FindBar find={fileFind.find} version={fileFind.version} ref={fileFind.setField} />
+      </Show>
       <div
         class="file-view"
         ref={scroller}
+        tabindex="-1"
         data-wrap={wrap() || undefined}
         style={{ "--gutter": `${digits() + 2}ch` }}
       >

@@ -32,3 +32,16 @@ past the last match wraps to the first. Every client matches the same way;
   fills it and marks its block's margin. Esc or **Done** closes the bar,
   leaving the current match selected and the keyboard in the file; ⌘G then
   reopens it at the next match.
+- **Browser:** the magnifier in a file's header, or ⌘F (Ctrl+F off Apple
+  devices), opens the bar under the header, where it stays while the file
+  scrolls; ⌘F again in the bar opens the browser's own find. Return and
+  ⌘G go to the next match; Shift-Return and ⇧⌘G to the previous one. ⌘E
+  searches for the text selected in the file. A file that arrived cut short
+  says how far it was searched under the field. Matches are tinted in the
+  accent, the current one filled; in a rendered Markdown file a bar in the
+  margin marks its block. A diff fence shows as code in the browser, so it
+  is searched there. Esc or the close button closes the bar, leaving the
+  keyboard in the file and, with a mouse or trackpad, the current match
+  selected; ⌘G then reopens it at the next match. A browser without the
+  CSS Custom Highlight API counts and scrolls to matches without tinting
+  them.
