@@ -558,8 +558,13 @@ private struct MarkdownInline: View {
     @Environment(\.transcriptSessionLink) private var sessionLink
     let value: AttributedString
 
+    /// Every line, whatever height it's offered. A list is placed at its
+    /// height and its stack shares that out among the items; text that
+    /// could shrink would let an item wrapping above a sublist, beside an
+    /// item that wraps as much, take less than it needs and end in an
+    /// ellipsis.
     var body: some View {
-        Text(styled).tint(theme.accent)
+        Text(styled).tint(theme.accent).fixedSize(horizontal: false, vertical: true)
     }
 
     private var styled: AttributedString {
