@@ -1,4 +1,5 @@
 import KitMermaid
+import KitMermaidScene
 import SwiftUI
 
 /// A diagram annotation waiting in the composer: the part it's on and the

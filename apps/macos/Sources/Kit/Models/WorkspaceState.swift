@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 @preconcurrency import CodeEditSourceEditor
+import KitMermaidScene
 
 struct WorkspaceFixture: Decodable {
     let files: [PreviewFile]

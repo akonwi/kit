@@ -37,6 +37,8 @@ let package = Package(
         .target(name: "KitMermaid"),
         // A Mermaid layout as shapes, strokes and text to draw: the geometry
         // both apps draw from. Each app supplies its own fonts and colors.
+        // It also holds what both share for annotating a diagram's parts:
+        // where a part is drawn, Annotate mode, and the waiting comments.
         .target(name: "KitMermaidScene", dependencies: ["KitMermaid"]),
         // Kit's data figures, ported from the terminal client's (ADR 0054).
         .target(name: "KitFigures"),

@@ -1,5 +1,6 @@
 import AppKit
 import KitDictation
+import KitMermaidScene
 import KitTranscript
 import SwiftUI
 import UniformTypeIdentifiers

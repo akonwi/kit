@@ -4,46 +4,6 @@ import KitMermaid
 import KitMermaidScene
 import SwiftUI
 
-/// A diagram's Annotate mode: the part under the pointer, the part picked,
-/// and the comment being written on it.
-@MainActor @Observable
-final class DiagramAnnotator {
-    private(set) var annotating = false
-    private(set) var hovered: Part?
-    private(set) var selected: Part?
-    var comment = ""
-
-    func start() { annotating = true }
-
-    func stop() {
-        annotating = false
-        hovered = nil
-        deselect()
-    }
-
-    func toggle() { annotating ? stop() : start() }
-
-    func hover(_ part: Part?) { hovered = annotating ? part : nil }
-
-    /// Picks the part clicked, or lets go of the picked one when the click
-    /// lands on nothing. A new part starts a new comment.
-    func click(_ part: Part?) {
-        guard annotating else { return }
-        if part != selected { comment = "" }
-        selected = part
-    }
-
-    func deselect() {
-        selected = nil
-        comment = ""
-    }
-
-    /// Esc: lets go of the picked part, else leaves the mode.
-    func escape() {
-        if selected != nil { deselect() } else { stop() }
-    }
-}
-
 /// What a diagram's annotations need from where it's shown: the session's
 /// waiting annotations, to mark their parts and add to them.
 struct DiagramAnnotationContext {
@@ -96,7 +56,7 @@ struct DiagramAnnotationLayer: View {
         .allowsHitTesting(annotator.annotating)
         .popover(isPresented: commentShown, attachmentAnchor: .rect(.rect(anchor)), arrowEdge: .bottom) {
             if let selected = annotator.selected {
-                DiagramCommentBox(annotator: annotator, summary: summary(selected)) { add(selected) }
+                DiagramCommentBox(annotator: annotator, summary: summary(selected), add: add)
             }
         }
         .accessibilityHidden(!annotator.annotating)
@@ -119,8 +79,8 @@ struct DiagramAnnotationLayer: View {
         (try? DiagramAnnotationText.summary(source, part)) ?? ""
     }
 
-    private func add(_ part: Part) {
-        if draft.add(comment: annotator.comment, source: source, part: part) { annotator.deselect() }
+    private func add() {
+        annotator.commit(to: draft, source: source)
     }
 
     /// The part the pointer is over, outlined; the picked part, outlined

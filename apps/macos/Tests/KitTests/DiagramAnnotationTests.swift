@@ -202,10 +202,26 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
         #expect(!annotator.annotating && annotator.hovered == nil)
     }
 
+    /// The comment on the picked part goes to the message, and the part is
+    /// let go. An empty comment, or none picked, adds nothing.
+    @Test func committingAddsTheCommentAndLetsThePartGo() {
+        let draft = DiagramAnnotationDraft()
+        let annotator = DiagramAnnotator()
+        annotator.start()
+        #expect(!annotator.commit(to: draft, source: Self.flowchart))
+        annotator.click(Part(.node, 2))
+        annotator.comment = "  \n"
+        #expect(!annotator.commit(to: draft, source: Self.flowchart))
+        annotator.comment = "Say why it was rejected."
+        #expect(annotator.commit(to: draft, source: Self.flowchart))
+        #expect(draft.items.map(\.summary) == ["node C \"Reject\" (box)"])
+        #expect(draft.items.map(\.annotation.comment) == ["Say why it was rejected."])
+        #expect(annotator.selected == nil && annotator.comment == "" && annotator.annotating)
+    }
+
     /// In Annotate mode the pointer outlines the part under it, a click
-    /// opens the comment box on it, and Return adds the comment to the
-    /// message, where a mark shows on the part.
-    @Test func pointingAndClickingAddsACommentOnThePart() async throws {
+    /// picks it, and a part with a waiting comment carries a mark.
+    @Test func pointingAndClickingPicksThePart() async throws {
         let draft = DiagramAnnotationDraft()
         let annotator = DiagramAnnotator()
         let diagram = try await RenderedDiagram(draft: draft, annotator: annotator)
@@ -223,18 +239,73 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
         try diagram.snapshot("hovered")
         diagram.click(cellX: 15, cellY: 7)
         try await eventually { annotator.selected == Part(.node, 2) }
-        try await diagram.type("Say why it was rejected.")
-        try await eventually { annotator.comment == "Say why it was rejected." }
         annotator.hover(diagram.part(cellX: 16, cellY: 4))
         try await diagram.settle()
         try diagram.snapshot("picked")
         try diagram.snapshotPopover("comment-box")
-        try diagram.pressReturn()
-        try await eventually { !draft.isEmpty }
-        #expect(draft.items.map(\.summary) == ["node C \"Reject\" (box)"])
-        #expect(draft.items.first?.annotation.comment == "Say why it was rejected.")
-        try await eventually { annotator.selected == nil }
+        annotator.comment = "Say why it was rejected."
+        annotator.commit(to: draft, source: Self.flowchart)
+        annotator.hover(nil)
+        try await diagram.settle()
         try diagram.snapshot("marked")
+    }
+
+    /// The comment box takes typing into the comment, and Return adds it.
+    /// It's shown in its own window here: a popover closes when another
+    /// test's window takes the keyboard.
+    @Test func theCommentBoxAddsOnReturn() async throws {
+        let annotator = DiagramAnnotator()
+        annotator.start()
+        annotator.click(Part(.node, 2))
+        var added = 0
+        let box = try await CommentBoxWindow(annotator: annotator) { added += 1 }
+        defer { box.close() }
+        try await box.type("Say why it was rejected.")
+        try await eventually { annotator.comment == "Say why it was rejected." }
+        try box.pressReturn()
+        try await eventually { added == 1 }
+    }
+}
+
+/// A diagram's comment box in a window of its own.
+@MainActor private final class CommentBoxWindow {
+    let window: NSWindow
+    let host: NSView
+
+    init(annotator: DiagramAnnotator, add: @escaping () -> Void) async throws {
+        _ = NSApplication.shared
+        let theme = ThemeConfiguration.decode("").theme(dark: false)
+        let view = DiagramCommentBox(annotator: annotator, summary: "node C \"Reject\" (box)", add: add)
+            .environment(\.mica, theme)
+        host = NSHostingView(rootView: view)
+        window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: DiagramCommentBox.width, height: 120))
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<6 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(30))
+        }
+    }
+
+    func close() { window.close() }
+
+    private var field: NSTextField? {
+        RenderedDiagram.allViews(in: host).compactMap { $0 as? NSTextField }.first { $0.isEditable }
+    }
+
+    /// Types into the comment once it has focus.
+    func type(_ text: String) async throws {
+        try await eventually { self.field?.currentEditor() != nil }
+        let editor = try #require(field?.currentEditor() as? NSTextView)
+        editor.insertText(text, replacementRange: editor.selectedRange())
+    }
+
+    func pressReturn() throws {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            window.sendEvent(try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                isARepeat: false, keyCode: 36)))
+        }
     }
 }
 
@@ -316,28 +387,6 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
         NSApplication.shared.windows.first { $0 !== window && $0.isVisible && $0.className.contains("Popover") }
     }
 
-    private var field: NSTextField? {
-        guard let content = popover?.contentView else { return nil }
-        return Self.allViews(in: content).compactMap { $0 as? NSTextField }.first { $0.isEditable }
-    }
-
-    /// Types into the comment box once it's open and has focus.
-    func type(_ text: String) async throws {
-        try await eventually { self.field?.currentEditor() != nil }
-        let editor = try #require(field?.currentEditor() as? NSTextView)
-        editor.insertText(text, replacementRange: editor.selectedRange())
-        try await settle()
-    }
-
-    func pressReturn() throws {
-        let window = try #require(popover)
-        for type in [NSEvent.EventType.keyDown, .keyUp] {
-            window.sendEvent(try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
-                windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
-                isARepeat: false, keyCode: 36)))
-        }
-    }
-
     func snapshot(_ name: String) throws {
         guard let directory = ProcessInfo.processInfo.environment["KIT_SNAPSHOT_DIR"] else { return }
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -355,7 +404,7 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
             .appendingPathComponent("diagram-\(name).png"))
     }
 
-    private static func allViews(in view: NSView) -> [NSView] {
+    static func allViews(in view: NSView) -> [NSView] {
         [view] + view.subviews.flatMap(allViews)
     }
 }
