@@ -24,6 +24,7 @@ import { FilesContext } from "../files/context";
 import { FileView } from "../files/FileView";
 import { type FileLocation, fileHash, folderPath, parseFileHash } from "../files/file";
 import { OpenFileSheet } from "../files/OpenFile";
+import { DiagramAnnotationsContext } from "../markdown/annotate/draft";
 import { createHighlighter, HighlightContext } from "../markdown/highlight";
 import { createPadHandle, ScratchpadView } from "../scratchpad/ScratchpadView";
 import { AttachmentsContext, AttachmentViewer, type Openable } from "../session/AttachmentViews";
@@ -378,236 +379,244 @@ export function SessionPage(props: { id: string }) {
 
   return (
     <AttachmentsContext.Provider value={{ library, open: setViewing }}>
-      <HighlightContext.Provider value={highlighter}>
-        <FilesContext.Provider value={files}>
-          <AgentsContext.Provider value={{ has: agents.has, open: showAgent }}>
-            <div class="screen session-screen">
-              <header
-                class="bar"
-                hidden={covered() && Boolean(state())}
-                data-agents={agents.strip().length > 0 || undefined}
-              >
-                <button type="button" class="icon-button" aria-label="Back" onClick={back}>
-                  <Icon name="back" />
-                </button>
-                <div class="bar-title">
-                  <h1>{state()?.info.name || (state() ? "Untitled session" : "")}</h1>
-                  <p class="mono muted">{state() ? displayPath(state()?.info.cwd ?? "", home) : ""}</p>
-                </div>
-                <Show when={state()}>
-                  {(current) => (
-                    <SessionMenu
-                      session={current()}
-                      compactionPending={compactionPending()}
-                      onCompact={compact}
-                      onModelName={setModelName}
-                      onOpen={setDialog}
-                      onChanges={openChanges}
-                      onOpenFile={() => setChoosingFile(true)}
-                      onScratchpad={openPad}
-                    />
-                  )}
-                </Show>
-                <Show when={agents.strip().length > 0}>
-                  <AgentStrip agents={agents} mainNeedsYou={interaction() !== undefined} onShow={showAgent} />
-                </Show>
-              </header>
-              <Switch>
-                <Match when={missing()}>
-                  <div class="empty-state">
-                    <p>This session isn’t on the server anymore.</p>
-                    <button type="button" onClick={back}>
-                      Back to sessions
-                    </button>
+      <DiagramAnnotationsContext.Provider value={draft.diagrams}>
+        <HighlightContext.Provider value={highlighter}>
+          <FilesContext.Provider value={files}>
+            <AgentsContext.Provider value={{ has: agents.has, open: showAgent }}>
+              <div class="screen session-screen">
+                <header
+                  class="bar"
+                  hidden={covered() && Boolean(state())}
+                  data-agents={agents.strip().length > 0 || undefined}
+                >
+                  <button type="button" class="icon-button" aria-label="Back" onClick={back}>
+                    <Icon name="back" />
+                  </button>
+                  <div class="bar-title">
+                    <h1>{state()?.info.name || (state() ? "Untitled session" : "")}</h1>
+                    <p class="mono muted">{state() ? displayPath(state()?.info.cwd ?? "", home) : ""}</p>
                   </div>
-                </Match>
-                <Match when={state()}>
-                  {(current) => (
-                    <>
-                      {/* The transcript stays while Changes shows, so it keeps its place. */}
-                      <Show when={changesOpen()}>
-                        <ChangesView
-                          api={ready.api}
-                          session={current()}
-                          fail={kit.fail}
-                          refreshComments={refreshComments}
-                          checkComments={checkComments}
-                          onOpenFile={(path) => openFile({ path })}
-                          onClose={closeChanges}
-                        />
-                      </Show>
-                      <Show when={fileLocation()}>
-                        {(location) => (
-                          <FileView
+                  <Show when={state()}>
+                    {(current) => (
+                      <SessionMenu
+                        session={current()}
+                        compactionPending={compactionPending()}
+                        onCompact={compact}
+                        onModelName={setModelName}
+                        onOpen={setDialog}
+                        onChanges={openChanges}
+                        onOpenFile={() => setChoosingFile(true)}
+                        onScratchpad={openPad}
+                      />
+                    )}
+                  </Show>
+                  <Show when={agents.strip().length > 0}>
+                    <AgentStrip
+                      agents={agents}
+                      mainNeedsYou={interaction() !== undefined}
+                      onShow={showAgent}
+                    />
+                  </Show>
+                </header>
+                <Switch>
+                  <Match when={missing()}>
+                    <div class="empty-state">
+                      <p>This session isn’t on the server anymore.</p>
+                      <button type="button" onClick={back}>
+                        Back to sessions
+                      </button>
+                    </div>
+                  </Match>
+                  <Match when={state()}>
+                    {(current) => (
+                      <>
+                        {/* The transcript stays while Changes shows, so it keeps its place. */}
+                        <Show when={changesOpen()}>
+                          <ChangesView
                             api={ready.api}
                             session={current()}
-                            location={location()}
                             fail={kit.fail}
                             refreshComments={refreshComments}
-                            onClose={closeFile}
+                            checkComments={checkComments}
+                            onOpenFile={(path) => openFile({ path })}
+                            onClose={closeChanges}
                           />
-                        )}
-                      </Show>
-                      <Show when={padOpen()}>
-                        <ScratchpadView handle={scratchpad} session={current()} onClose={closePad} />
-                      </Show>
-                      <div
-                        class="transcript"
-                        hidden={covered() || agents.focused() !== undefined}
-                        ref={scroller}
-                        onScroll={() => {
-                          stick = atBottom();
-                        }}
-                      >
-                        <Show when={current().hasMoreMessages}>
-                          <button
-                            type="button"
-                            class="load-older"
-                            disabled={loadingOlder()}
-                            onClick={loadOlder}
-                          >
-                            {loadingOlder() ? "Loading…" : "Show earlier messages"}
-                          </button>
                         </Show>
-                        <Show when={rows().length > 0} fallback={<p class="empty">No messages yet.</p>}>
-                          <For each={rows()}>
-                            {(row, index) => <TranscriptRow row={row} last={index() === rows().length - 1} />}
-                          </For>
-                        </Show>
-                      </div>
-                      <For each={agents.visited().map((agent) => agent.id)}>
-                        {(id) => (
-                          <Show when={agents.visited().find((agent) => agent.id === id)}>
-                            {(agent) => (
-                              <AgentTranscript
-                                agents={agents}
-                                agent={agent()}
-                                hidden={covered() || agents.focused()?.id !== id}
-                              />
-                            )}
-                          </Show>
-                        )}
-                      </For>
-                      <Show when={!agentInView() && outcome()}>
-                        {(value) => (
-                          <div
-                            class="feedback"
-                            data-tone={value().tone}
-                            role={value().tone === "error" ? "alert" : "status"}
-                          >
-                            <Icon name={value().tone === "error" ? "alertCircle" : "info"} size={16} />
-                            <span class="grow">
-                              <strong>{value().title}</strong>
-                              <Show when={"detail" in value() && (value() as { detail: string }).detail}>
-                                {(detail) => <span class="muted small">{detail()}</span>}
-                              </Show>
-                            </span>
-                            <Show when={"retry" in value() && (value() as { retry: boolean }).retry}>
-                              <button type="button" data-size="small" onClick={compact}>
-                                Retry
-                              </button>
-                            </Show>
-                            <button
-                              type="button"
-                              class="icon-button small"
-                              aria-label="Dismiss"
-                              onClick={() => showOutcome(undefined)}
-                            >
-                              <Icon name="close" size={16} />
-                            </button>
-                          </div>
-                        )}
-                      </Show>
-                      <RenameDialog
-                        api={ready.api}
-                        session={current()}
-                        open={dialog() === "rename"}
-                        onClose={() => setDialog(undefined)}
-                      />
-                      <ForkDialog
-                        api={ready.api}
-                        session={current()}
-                        open={dialog() === "fork"}
-                        onClose={() => setDialog(undefined)}
-                      />
-                      <DetailsSheet
-                        api={ready.api}
-                        session={current()}
-                        home={home}
-                        modelName={modelName()}
-                        open={dialog() === "details"}
-                        onClose={() => setDialog(undefined)}
-                      />
-                      <OpenFileSheet
-                        api={ready.api}
-                        sessionId={props.id}
-                        folder={displayPath(current().workspace?.cwd ?? current().info.cwd, home)}
-                        open={choosingFile()}
-                        fail={kit.fail}
-                        onOpen={(path) => openFile({ path })}
-                        onClose={() => setChoosingFile(false)}
-                      />
-                      <DeleteDialog
-                        api={ready.api}
-                        session={current()}
-                        open={dialog() === "delete"}
-                        onClose={() => setDialog(undefined)}
-                      />
-                      {/* The scratchpad has no composer; it's hidden, not removed, so
-                  nothing being written or uploaded is lost. */}
-                      <div class="dock-slot" hidden={padOpen() || agentInView()}>
-                        {/* Keyed by id: each request gets a fresh dock, with no answer or
-                  busy state carried over from the one before. */}
-                        <Show
-                          when={interactionId()}
-                          keyed
-                          fallback={
-                            <Composer
+                        <Show when={fileLocation()}>
+                          {(location) => (
+                            <FileView
                               api={ready.api}
                               session={current()}
-                              connection={connection()}
+                              location={location()}
                               fail={kit.fail}
-                              reconnect={() => watch.wake()}
-                              draft={draft}
-                              initialError={forkFailure?.error}
-                              shell={shell}
-                              anchor={() => current().rows.at(-1)?.id ?? ""}
-                              onOpenChanges={openChanges}
-                              onOpenFile={(path, line, end) => openFile({ path, line, end })}
-                              checkComments={checkComments}
+                              refreshComments={refreshComments}
+                              onClose={closeFile}
                             />
-                          }
+                          )}
+                        </Show>
+                        <Show when={padOpen()}>
+                          <ScratchpadView handle={scratchpad} session={current()} onClose={closePad} />
+                        </Show>
+                        <div
+                          class="transcript"
+                          hidden={covered() || agents.focused() !== undefined}
+                          ref={scroller}
+                          onScroll={() => {
+                            stick = atBottom();
+                          }}
                         >
-                          {(_id) => (
-                            <Show when={interaction()}>
-                              {(request) => (
-                                <InteractionDock
-                                  api={ready.api}
-                                  sessionId={props.id}
-                                  interaction={request()}
-                                  fail={kit.fail}
+                          <Show when={current().hasMoreMessages}>
+                            <button
+                              type="button"
+                              class="load-older"
+                              disabled={loadingOlder()}
+                              onClick={loadOlder}
+                            >
+                              {loadingOlder() ? "Loading…" : "Show earlier messages"}
+                            </button>
+                          </Show>
+                          <Show when={rows().length > 0} fallback={<p class="empty">No messages yet.</p>}>
+                            <For each={rows()}>
+                              {(row, index) => (
+                                <TranscriptRow row={row} last={index() === rows().length - 1} />
+                              )}
+                            </For>
+                          </Show>
+                        </div>
+                        <For each={agents.visited().map((agent) => agent.id)}>
+                          {(id) => (
+                            <Show when={agents.visited().find((agent) => agent.id === id)}>
+                              {(agent) => (
+                                <AgentTranscript
+                                  agents={agents}
+                                  agent={agent()}
+                                  hidden={covered() || agents.focused()?.id !== id}
                                 />
                               )}
                             </Show>
                           )}
+                        </For>
+                        <Show when={!agentInView() && outcome()}>
+                          {(value) => (
+                            <div
+                              class="feedback"
+                              data-tone={value().tone}
+                              role={value().tone === "error" ? "alert" : "status"}
+                            >
+                              <Icon name={value().tone === "error" ? "alertCircle" : "info"} size={16} />
+                              <span class="grow">
+                                <strong>{value().title}</strong>
+                                <Show when={"detail" in value() && (value() as { detail: string }).detail}>
+                                  {(detail) => <span class="muted small">{detail()}</span>}
+                                </Show>
+                              </span>
+                              <Show when={"retry" in value() && (value() as { retry: boolean }).retry}>
+                                <button type="button" data-size="small" onClick={compact}>
+                                  Retry
+                                </button>
+                              </Show>
+                              <button
+                                type="button"
+                                class="icon-button small"
+                                aria-label="Dismiss"
+                                onClick={() => showOutcome(undefined)}
+                              >
+                                <Icon name="close" size={16} />
+                              </button>
+                            </div>
+                          )}
                         </Show>
-                      </div>
-                      {/* A subagent takes no messages; its bar stands in for the composer. */}
-                      <Show when={agentInView() && agents.focused()}>
-                        {(agent) => <AgentDock agents={agents} agent={agent()} />}
-                      </Show>
-                    </>
-                  )}
-                </Match>
-                <Match when={true}>
-                  <p class="empty">Loading…</p>
-                </Match>
-              </Switch>
-              <AttachmentViewer attachment={viewing()} onClose={() => setViewing(undefined)} />
-            </div>
-          </AgentsContext.Provider>
-        </FilesContext.Provider>
-      </HighlightContext.Provider>
+                        <RenameDialog
+                          api={ready.api}
+                          session={current()}
+                          open={dialog() === "rename"}
+                          onClose={() => setDialog(undefined)}
+                        />
+                        <ForkDialog
+                          api={ready.api}
+                          session={current()}
+                          open={dialog() === "fork"}
+                          onClose={() => setDialog(undefined)}
+                        />
+                        <DetailsSheet
+                          api={ready.api}
+                          session={current()}
+                          home={home}
+                          modelName={modelName()}
+                          open={dialog() === "details"}
+                          onClose={() => setDialog(undefined)}
+                        />
+                        <OpenFileSheet
+                          api={ready.api}
+                          sessionId={props.id}
+                          folder={displayPath(current().workspace?.cwd ?? current().info.cwd, home)}
+                          open={choosingFile()}
+                          fail={kit.fail}
+                          onOpen={(path) => openFile({ path })}
+                          onClose={() => setChoosingFile(false)}
+                        />
+                        <DeleteDialog
+                          api={ready.api}
+                          session={current()}
+                          open={dialog() === "delete"}
+                          onClose={() => setDialog(undefined)}
+                        />
+                        {/* The scratchpad has no composer; it's hidden, not removed, so
+                  nothing being written or uploaded is lost. */}
+                        <div class="dock-slot" hidden={padOpen() || agentInView()}>
+                          {/* Keyed by id: each request gets a fresh dock, with no answer or
+                  busy state carried over from the one before. */}
+                          <Show
+                            when={interactionId()}
+                            keyed
+                            fallback={
+                              <Composer
+                                api={ready.api}
+                                session={current()}
+                                connection={connection()}
+                                fail={kit.fail}
+                                reconnect={() => watch.wake()}
+                                draft={draft}
+                                initialError={forkFailure?.error}
+                                shell={shell}
+                                anchor={() => current().rows.at(-1)?.id ?? ""}
+                                onOpenChanges={openChanges}
+                                onOpenFile={(path, line, end) => openFile({ path, line, end })}
+                                checkComments={checkComments}
+                              />
+                            }
+                          >
+                            {(_id) => (
+                              <Show when={interaction()}>
+                                {(request) => (
+                                  <InteractionDock
+                                    api={ready.api}
+                                    sessionId={props.id}
+                                    interaction={request()}
+                                    fail={kit.fail}
+                                  />
+                                )}
+                              </Show>
+                            )}
+                          </Show>
+                        </div>
+                        {/* A subagent takes no messages; its bar stands in for the composer. */}
+                        <Show when={agentInView() && agents.focused()}>
+                          {(agent) => <AgentDock agents={agents} agent={agent()} />}
+                        </Show>
+                      </>
+                    )}
+                  </Match>
+                  <Match when={true}>
+                    <p class="empty">Loading…</p>
+                  </Match>
+                </Switch>
+                <AttachmentViewer attachment={viewing()} onClose={() => setViewing(undefined)} />
+              </div>
+            </AgentsContext.Provider>
+          </FilesContext.Provider>
+        </HighlightContext.Provider>
+      </DiagramAnnotationsContext.Provider>
     </AttachmentsContext.Provider>
   );
 }

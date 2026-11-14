@@ -4,6 +4,7 @@
 import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, useContext } from "solid-js";
 import type { Api } from "../api/client";
 import { type Comment, commentLabel, commentsBlocked } from "../changes/comments";
+import { type DiagramAnnotations, type DiagramItem, joinAnnotations } from "../markdown/annotate/draft";
 import { bytes } from "../ui/format";
 import { Icon, Spinner } from "../ui/icons";
 import { AttachmentsContext, FileTile, Thumbnail } from "./AttachmentViews";
@@ -64,7 +65,12 @@ export function Composer(props: ComposerProps) {
   const items = () => draft().items();
   const comments = () => props.session.comments;
   const commentProblem = () => commentsBlocked(comments());
-  const empty = () => text().trim() === "" && items().length === 0 && comments().length === 0;
+  const diagrams = () => draft().diagrams;
+  const empty = () =>
+    text().trim() === "" &&
+    items().length === 0 &&
+    comments().length === 0 &&
+    diagrams().items().length === 0;
   const uploading = () => !draft().ready();
   const notice = () =>
     draft().notice() ??
@@ -112,6 +118,11 @@ export function Composer(props: ComposerProps) {
     const attachmentIds = draft().ids();
     // The comments shown when Send was pressed are the ones that go.
     const annotationIds = comments().map((comment) => comment.id);
+    // Diagram comments go as text after the message's own.
+    const diagramIds = diagrams()
+      .items()
+      .map((item) => item.id);
+    const message = joinAnnotations(value, diagrams().messageText());
     setSending(true);
     setError("");
     try {
@@ -126,11 +137,12 @@ export function Composer(props: ComposerProps) {
         }
       }
       await props.api.submitPrompt(props.session.info.id, {
-        text: value,
+        text: message,
         ...(attachmentIds.length > 0 ? { attachmentIds } : {}),
         ...(annotationIds.length > 0 ? { annotationIds } : {}),
       });
       draft().acknowledge(attachmentIds);
+      diagrams().acknowledge(diagramIds);
     } catch (failure) {
       // A comment whose source moved is caught when sent; check them again to show which.
       if (comments().length > 0) void props.checkComments().catch(() => {});
@@ -333,8 +345,27 @@ export function Composer(props: ComposerProps) {
           </div>
         )}
       </Show>
-      <Show when={comments().length > 0 && !shellMode()}>
+      <Show when={!shellMode() && diagrams().error()}>
+        {(message) => (
+          <div class="draft-notice" data-tone="error" role="status">
+            <Icon name="alertCircle" size={16} />
+            <span class="grow">{message()}</span>
+            <button
+              type="button"
+              class="icon-button small"
+              aria-label="Dismiss"
+              onClick={() => diagrams().setError(undefined)}
+            >
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+        )}
+      </Show>
+      <Show when={(comments().length > 0 || diagrams().items().length > 0) && !shellMode()}>
         <ul class="comment-chips" aria-label="Comments">
+          <For each={diagrams().items()}>
+            {(item) => <DiagramChip item={item} diagrams={diagrams()} locked={sending()} />}
+          </For>
           <For each={comments()}>
             {(comment) => (
               <CommentChip
@@ -531,6 +562,38 @@ function CommentChip(props: {
       >
         <Icon name="close" size={14} />
       </button>
+    </li>
+  );
+}
+
+/** A comment on a part of a diagram: the part, and × to delete it. Opening it shows the comment and what the model gets about the part. */
+function DiagramChip(props: { item: DiagramItem; diagrams: DiagramAnnotations; locked: boolean }) {
+  const id = () => `${props.item.id}-detail`;
+  return (
+    <li class="comment-chip">
+      <button
+        type="button"
+        class="comment-chip-open"
+        popoverTarget={id()}
+        title={props.item.annotation.comment}
+        aria-label={`Comment on ${props.item.summary}: ${props.item.annotation.comment}`}
+      >
+        <Icon name="treeStructure" size={16} />
+        <span class="mono">{props.item.summary}</span>
+      </button>
+      <button
+        type="button"
+        class="comment-chip-remove"
+        aria-label={`Delete the comment on ${props.item.summary}`}
+        disabled={props.locked}
+        onClick={() => props.diagrams.remove(props.item.id)}
+      >
+        <Icon name="close" size={14} />
+      </button>
+      <div class="diagram-chip-detail" id={id()} popover="auto">
+        <p class="diagram-chip-comment">{props.item.annotation.comment}</p>
+        <pre class="diagram-chip-facts">{props.item.facts.join("\n")}</pre>
+      </div>
     </li>
   );
 }

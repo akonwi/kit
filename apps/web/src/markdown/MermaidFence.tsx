@@ -1,12 +1,72 @@
 // A Mermaid fence: its source while the reply streams, then the diagram Pele
 // lays out to the card's width, with an expand button for full screen.
-// Anything Pele won't draw shows its source with the reason.
-import { createEffect, createResource, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js";
+// Anything Pele won't draw shows its source with the reason. In a session,
+// Annotate in the card or the viewer picks parts to comment on.
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createRoot,
+  createSignal,
+  Match,
+  on,
+  onCleanup,
+  Show,
+  Switch,
+  useContext,
+} from "solid-js";
 import { copyText } from "../ui/copy";
 import { Icon } from "../ui/icons";
 import { Viewer } from "../ui/Viewer";
+import { AnnotateButton, annotateDrawing, DiagramCommentBox } from "./annotate/Annotate";
+import { type DiagramAnnotations, DiagramAnnotationsContext, DiagramAnnotator } from "./annotate/draft";
+import type { PeleModel } from "./annotate/drawing";
+import { type Diagram, readDiagram } from "./annotate/parse";
 import { diagramNode, drawDiagram, loadPele, notDrawnReason, renderOptions } from "./diagram";
 import { CodeBlock, FenceCard } from "./Fence";
+
+type Pele = Awaited<ReturnType<typeof loadPele>>;
+
+/** What Annotate needs for a diagram: the session's waiting annotations and Kit's reading of the source. */
+interface Annotating {
+  draft: DiagramAnnotations;
+  kit: Diagram;
+}
+
+/**
+ * Attaches Annotate mode to each drawing in turn, detaching it from the one
+ * before. Returns the function to call with each new drawing.
+ */
+function annotations(
+  source: () => string,
+  annotating: () => Annotating | undefined,
+  annotator: DiagramAnnotator,
+) {
+  let detach: (() => void) | undefined;
+  onCleanup(() => detach?.());
+  return (svg: SVGSVGElement, pele: Pele) => {
+    detach?.();
+    detach = undefined;
+    const context = annotating();
+    if (!context) return;
+    let model: PeleModel;
+    try {
+      model = pele.parse(source(), renderOptions(bodyFont())) as PeleModel;
+    } catch {
+      return;
+    }
+    createRoot((dispose) => {
+      detach = dispose;
+      annotateDrawing(svg, {
+        source: source(),
+        kit: context.kit,
+        pele: model,
+        annotator,
+        draft: context.draft,
+      });
+    });
+  };
+}
 
 let drawn = 0;
 /** A prefix for one drawing's ids, so two drawings' markers never collide. */
@@ -31,6 +91,18 @@ function MermaidDiagram(props: { source: string }) {
   const [kind, setKind] = createSignal("");
   const [open, setOpen] = createSignal(false);
   const reason = () => failure() ?? (pele.error ? "the diagram renderer didn’t load" : undefined);
+  const draft = useContext(DiagramAnnotationsContext);
+  // Only a diagram Kit reads as the other clients do can be annotated.
+  const annotating = createMemo((): Annotating | undefined => {
+    if (!draft) return undefined;
+    try {
+      return { draft, kit: readDiagram(props.source) };
+    } catch {
+      return undefined;
+    }
+  });
+  const annotator = new DiagramAnnotator();
+  const attach = annotations(() => props.source, annotating, annotator);
 
   // Draws into the card's body at its width, again whenever the width changes.
   const draw = (body: HTMLDivElement) => {
@@ -62,7 +134,9 @@ function MermaidDiagram(props: { source: string }) {
           setKind(result.type);
           if (result.svg === last) return;
           last = result.svg;
-          body.replaceChildren(diagramNode(result.svg));
+          const node = diagramNode(result.svg);
+          body.replaceChildren(node);
+          attach(node, engine);
         } catch (error) {
           setFailure(notDrawnReason(error, source));
         }
@@ -86,19 +160,35 @@ function MermaidDiagram(props: { source: string }) {
           copy={props.source}
           class="diagram"
           actions={
-            <button
-              type="button"
-              class="fence-action"
-              aria-label="Open the diagram full screen"
-              onClick={() => setOpen(true)}
-            >
-              <Icon name="expand" size={14} />
-            </button>
+            <>
+              <Show when={annotating()}>
+                <AnnotateButton annotator={annotator} />
+              </Show>
+              <button
+                type="button"
+                class="fence-action"
+                aria-label="Open the diagram full screen"
+                onClick={() => setOpen(true)}
+              >
+                <Icon name="expand" size={14} />
+              </button>
+            </>
           }
         >
           <div class="diagram-body pele-theme" ref={draw} />
+          <Show when={annotating()}>
+            {(context) => (
+              <DiagramCommentBox annotator={annotator} draft={context().draft} source={props.source} />
+            )}
+          </Show>
         </FenceCard>
-        <DiagramViewer source={props.source} kind={kind()} open={open()} onClose={() => setOpen(false)} />
+        <DiagramViewer
+          source={props.source}
+          kind={kind()}
+          open={open()}
+          annotating={annotating()}
+          onClose={() => setOpen(false)}
+        />
       </Match>
       <Match when={true}>
         <CodeBlock code={props.source} lang="mermaid" />
@@ -108,8 +198,20 @@ function MermaidDiagram(props: { source: string }) {
 }
 
 /** A diagram over the session at its own layout, to pan and zoom. */
-function DiagramViewer(props: { source: string; kind: string; open: boolean; onClose(): void }) {
+function DiagramViewer(props: {
+  source: string;
+  kind: string;
+  open: boolean;
+  annotating: Annotating | undefined;
+  onClose(): void;
+}) {
   const [copied, setCopied] = createSignal(false);
+  const annotator = new DiagramAnnotator();
+  const attach = annotations(
+    () => props.source,
+    () => props.annotating,
+    annotator,
+  );
   let reset: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(reset));
   const copy = async () => {
@@ -134,7 +236,9 @@ function DiagramViewer(props: { source: string; kind: string; open: boolean; onC
           ...renderOptions(bodyFont()),
           idPrefix: idPrefix(),
         });
-        host.replaceChildren(diagramNode(result.svg));
+        const node = diagramNode(result.svg);
+        host.replaceChildren(node);
+        attach(node, pele);
         const zooming = pele.enableZoom(host, { always: true, controls: false, maxScale: 4 });
         zoom = zooming;
         // A diagram wider than the screen opens at full size, to pan; a
@@ -156,13 +260,25 @@ function DiagramViewer(props: { source: string; kind: string; open: boolean; onC
               <h2>Diagram</h2>
               <p class="mono muted">{props.kind ? `mermaid · ${props.kind}` : "mermaid"}</p>
             </div>
+            <Show when={props.annotating}>
+              <AnnotateButton annotator={annotator} />
+            </Show>
             <button type="button" class="icon-button" aria-label="Copy the source" onClick={copy}>
               <Icon name={copied() ? "check" : "copy"} />
             </button>
           </header>
           <div class="viewer-stage" data-kind="diagram">
             <div class="diagram-stage pele-theme" ref={stage} />
-            <p class="diagram-hint">Drag to pan · pinch to zoom</p>
+            <Show
+              when={props.annotating && annotator.picked()}
+              fallback={<p class="diagram-hint">Drag to pan · pinch to zoom</p>}
+            >
+              <DiagramCommentBox
+                annotator={annotator}
+                draft={props.annotating?.draft as DiagramAnnotations}
+                source={props.source}
+              />
+            </Show>
           </div>
         </>
       )}

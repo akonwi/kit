@@ -1162,6 +1162,104 @@ samp,
   }
 }
 
+/* Annotate mode over a diagram: the part under the pointer outlined in the
+   accent, the picked part over a wash, and a dot on parts with a comment
+   waiting to go. Thin lines take the pointer in a wider, unseen band. */
+.fence .fence-action[data-active] {
+  color: var(--color-accent);
+}
+
+.pele[data-annotating] {
+  cursor: crosshair;
+  &
+    :is(
+      .pele-node,
+      .pele-cluster,
+      .pele-cluster-title,
+      .pele-edge,
+      .pele-edge-label,
+      .pele-note,
+      .pele-frame
+    ) {
+    cursor: pointer;
+  }
+}
+
+.pele .kit-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12px;
+  pointer-events: stroke;
+}
+
+.pele :is(.kit-hovered, .kit-picked) {
+  &:is(.pele-node, .pele-note, .pele-cluster) > :is(rect, polygon, circle, ellipse, path),
+  &:is(.pele-edge, .pele-message) > path:not(.pele-marker, .kit-hit),
+  &.pele-edge-label > rect,
+  &.pele-frame > rect:first-child {
+    stroke: var(--color-accent);
+  }
+  &.pele-edge .pele-marker {
+    fill: var(--color-accent);
+  }
+}
+
+.pele .kit-picked {
+  &:is(.pele-node, .pele-note, .pele-cluster) > :is(rect, polygon, circle, ellipse, path),
+  &:is(.pele-edge, .pele-message) > path:not(.pele-marker, .kit-hit),
+  &.pele-frame > rect:first-child {
+    stroke-width: 2px;
+  }
+  &:is(.pele-node, .pele-note) > :is(rect, polygon, circle, ellipse):first-child {
+    fill: color-mix(in srgb, var(--color-accent) 12%, var(--pele-surface));
+  }
+}
+
+.pele .kit-mark {
+  fill: var(--color-accent);
+  stroke: var(--color-surface-raised);
+  stroke-width: 1.5px;
+  pointer-events: none;
+}
+
+.diagram-comment {
+  border-block-end: 0;
+  & .diagram-comment-target {
+    margin: 0;
+    overflow: hidden;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* A waiting diagram comment opened from its chip: the comment, then what
+   the model gets about the part. */
+.diagram-chip-detail {
+  max-inline-size: min(32rem, calc(100vw - 2rem));
+  max-block-size: min(24rem, calc(100vh - 4rem));
+  margin: auto;
+  padding: 0.875rem 1rem;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  & .diagram-chip-comment {
+    margin: 0 0 0.625rem;
+    white-space: pre-wrap;
+  }
+  & .diagram-chip-facts {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    line-height: 1.125rem;
+    white-space: pre-wrap;
+  }
+}
+
 /* A diagram or figure that isn't drawn: its source, then the reason. */
 .undrawn {
   display: flex;

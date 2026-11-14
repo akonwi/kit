@@ -4,6 +4,7 @@
 import { type Accessor, batch, createSignal, type Setter } from "solid-js";
 import { type Api, ApiError } from "../api/client";
 import type { AttachmentInfo } from "../api/types";
+import { DiagramAnnotations } from "../markdown/annotate/draft";
 
 // The server's limits (api/contract/attachment.go, droids/image_ingest.go).
 export const MAX_ATTACHMENTS = 8;
@@ -180,6 +181,8 @@ let keys = 0;
  */
 export class Draft {
   readonly text: Accessor<string>;
+  /** Comments on parts of the transcript's diagrams, sent as text after the message's. */
+  readonly diagrams = new DiagramAnnotations();
   readonly setText: Setter<string>;
   readonly items: Accessor<DraftAttachment[]>;
   readonly notice: Accessor<DraftNotice | undefined>;

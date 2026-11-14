@@ -3,6 +3,7 @@ import { createMemo, createSignal, For, Match, onCleanup, Show, Switch, useConte
 import type { SubmittedAnnotation } from "../api/types";
 import { sentLabel } from "../changes/comments";
 import { useFiles } from "../files/context";
+import { splitAnnotations } from "../markdown/annotate/describe";
 import { CodeBlock } from "../markdown/Fence";
 import { Markdown } from "../markdown/Markdown";
 import { UserCaptionContext, useAgents } from "../subagents/context";
@@ -34,23 +35,37 @@ export function TranscriptRow(props: { row: Row; last: boolean }) {
   const row = props.row;
   const caption = useContext(UserCaptionContext);
   switch (row.kind) {
-    case "user":
+    case "user": {
+      // Diagram comments ride after the message's own text.
+      const sent = splitAnnotations(row.text);
       return (
         <div class="message user">
           <Show when={caption}>
             <p class="user-caption">{caption}</p>
           </Show>
-          <Show when={row.text}>
-            <p class="user-text">{row.text}</p>
+          <Show when={sent.text}>
+            <p class="user-text">{sent.text}</p>
           </Show>
           <SentAttachments items={row.attachments} />
-          <Show when={row.comments.length > 0}>
+          <Show when={row.comments.length > 0 || sent.annotations.length > 0}>
             <ul class="sent-comments" aria-label="Comments">
               <For each={row.comments}>{(comment) => <SentComment comment={comment} />}</For>
+              <For each={sent.annotations}>
+                {(annotation) => (
+                  <li class="sent-comment">
+                    <span class="sent-comment-where mono">
+                      <Icon name="treeStructure" size={16} />
+                      {annotation.target}
+                    </span>
+                    <p class="sent-comment-body">{annotation.comment}</p>
+                  </li>
+                )}
+              </For>
             </ul>
           </Show>
         </div>
       );
+    }
     case "assistant":
       return (
         <div class="message assistant">
