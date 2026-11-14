@@ -5,7 +5,6 @@ use kit/tui/mermaid/flowchart
 use kit/tui/mermaid/layers
 use kit/tui/mermaid/sequence
 use kit/tui/mermaid/source
-use go:strconv
 use go:strings
 
 // Annotations on a drawn Mermaid diagram: the text the model gets for a
@@ -648,28 +647,16 @@ private fn field(lines: [Str], key: Str) Str {
   found.or("")
 }
 
-// The block at the start of text and where it ends: its fence closes with
-// its own nonce, so nothing inside can end it early.
-private fn parse_block(text: Str) Parsed? {
+// The block numbered number at the start of text and where it ends: its
+// fence closes with its own nonce, so nothing inside can end it early.
+private fn parse_block(text: Str, number: Int) Parsed? {
   let none = Maybe::new<Parsed>()
-  let head_end = strings::Index(text, "\">\n")
-  let number_text = match head_end >= open_tag.size() {
-    true => text.slice(open_tag.size(), head_end).or(""),
-    false => "",
-  }
-  let number = match number_text != "" and strings::Trim(number_text, "0123456789") == "" {
-    true => strconv::Atoi(number_text).or(-1),
-    false => -1,
-  }
-  let after_head = head_end + 3
-  let comment_start = after_head + "Comment: ".size()
-  let rest = text.slice(after_head, text.size()).or("")
-  match {
-    number < 0 => none,
-    not strings::HasPrefix(rest, "Comment: ") => none,
-    _ => {
+  let head = "{open_tag}{number}\">\nComment: "
+  match strings::HasPrefix(text, head) {
+    false => none,
+    true => {
       let fence_start = "\n[{fence_name} nonce="
-      let after_comment = text.slice(comment_start, text.size()).or("")
+      let after_comment = text.slice(head.size(), text.size()).or("")
       let fence = strings::Index(after_comment, fence_start)
       match fence < 0 {
         true => none,
@@ -692,8 +679,8 @@ private fn parse_block(text: Str) Parsed? {
                 true => none,
                 false => {
                   let lines = strings::Split(body.slice(0, end).or(""), "\n")
-                  // Offsets of body and of its end in text.
-                  let body_at = comment_start + nonce_at + nonce_end + 2
+                  // Where body starts in text.
+                  let body_at = head.size() + nonce_at + nonce_end + 2
                   Maybe::new(
                     Parsed{
                       sent: Sent{
@@ -715,35 +702,61 @@ private fn parse_block(text: Str) Parsed? {
   }
 }
 
-// Splits a message into its own text and the annotation blocks appended to
-// it. Text without blocks comes back unchanged.
-fn split(message: Str) Split {
-  match strings::Contains(message, open_tag) {
-    false => Split{text: message, sent: []},
-    true => {
-      let kept = &mut List::new<Str>()
-      let sent = &mut List::new<Sent>()
-      mut rest = message
-      mut done = false
-      while not done {
-        let start = strings::Index(rest, open_tag)
-        if start < 0 {
+// The blocks text holds, numbered from 1 and a blank line apart, when
+// they run to its end.
+private fn parse_blocks(text: Str) [Sent]? {
+  let sent = &mut List::new<Sent>()
+  mut rest = text
+  mut failed = false
+  mut done = false
+  while (not failed) and not done {
+    match parse_block(rest, sent.size() + 1) {
+      parsed => {
+        sent.push(parsed.sent)
+        rest = rest.slice(parsed.end, rest.size()).or("")
+        if strings::TrimSpace(rest) == "" {
           done = true
+        } else if strings::HasPrefix(rest, "\n\n") {
+          rest = rest.slice(2, rest.size()).or("")
         } else {
-          match parse_block(rest.slice(start, rest.size()).or("")) {
-            parsed => {
-              kept.push(rest.slice(0, start).or(""))
-              sent.push(parsed.sent)
-              rest = rest.slice(start + parsed.end, rest.size()).or("")
-            },
-            _ => { done = true },
-          }
+          failed = true
+        }
+      },
+      _ => { failed = true },
+    }
+  }
+  match failed {
+    true => Maybe::new<[Sent]>(),
+    false => Maybe::new(sent.*),
+  }
+}
+
+// Splits a message into its own text and the annotation blocks appended to
+// it: blocks numbered from 1 that end the message, after its text and a
+// blank line or alone. A message without them comes back unchanged, as
+// does one whose blocks are malformed or followed by more text.
+fn split(message: Str) Split {
+  let first = "{open_tag}1\">\n"
+  mut found = Maybe::new<Split>()
+  mut from = 0
+  while found.is_none() and from < message.size() {
+    let rest = message.slice(from, message.size()).or("")
+    let offset = strings::Index(rest, first)
+    if offset < 0 {
+      from = message.size()
+    } else {
+      let at = from + offset
+      let before = message.slice(0, at).or("")
+      if at == 0 or strings::HasSuffix(before, "\n\n") {
+        match parse_blocks(message.slice(at, message.size()).or("")) {
+          sent => { found = Maybe::new(Split{text: strings::TrimSpace(before), sent: sent}) },
+          _ => (),
         }
       }
-      kept.push(rest)
-      Split{text: strings::TrimSpace(strings::Join(kept.*, "")), sent: sent.*}
-    },
+      from = at + first.size()
+    }
   }
+  found.or(Split{text: message, sent: []})
 }
 
 test fn a_node_is_described_with_its_edges_and_neighbors() Void!Str {
@@ -808,4 +821,51 @@ test fn a_block_whose_fence_does_not_close_with_its_nonce_stays_text() Void!Str 
   )
   let parts = split(broken)
   testing::assert(parts.text == broken and parts.sent.size() == 0, "kept as text")
+}
+
+test fn only_numbered_blocks_that_end_the_message_are_split_from_it() Void!Str {
+  let source = "flowchart TD\nA --> B"
+  let one = try block(
+    1,
+    Annotation{
+      comment: "x",
+      source: source,
+      target: canvas::Target::node,
+      index: 0,
+      nonce: "n1",
+    },
+    0,
+  )
+  let two = try block(
+    2,
+    Annotation{
+      comment: "y",
+      source: source,
+      target: canvas::Target::node,
+      index: 1,
+      nonce: "n2",
+    },
+    1,
+  )
+  let cases = [
+    // Quoted in the text, then sent after it.
+    "See:\n\n{one}\n\nWhy?\n\n{one}",
+    // Text after the blocks.
+    "Why?\n\n{one}\n\nmore",
+    // Numbered out of order.
+    "Why?\n\n{two}",
+    // Not after a blank line.
+    "Why? {one}",
+  ]
+  let texts = ["See:\n\n{one}\n\nWhy?", "Why?\n\n{one}\n\nmore", "Why?\n\n{two}", "Why? {one}"]
+  let counts = [1, 0, 0, 0]
+  for message, index in cases {
+    let parts = split(message)
+    try testing::assert(
+      parts.text == texts.at(index).or("") and parts.sent.size() == counts.at(index).or(-1),
+      "case {index}: {parts.sent.size()} blocks, text:\n{parts.text}",
+    )
+  }
+  let both = split("{one}\n\n{two}\n")
+  testing::assert(both.text == "" and both.sent.size() == 2, "blocks alone, numbered in order")
 }

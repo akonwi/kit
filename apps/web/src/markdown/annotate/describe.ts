@@ -46,9 +46,10 @@ const FENCE = "UNTRUSTED_DIAGRAM_CONTENT";
 /** The most edges, members, or statements listed for one target; the rest are counted. */
 const MAX_LISTED = 20;
 
-/** A fresh nonce for an annotation's fence. */
+/** A fresh nonce for an annotation's fence: 128 random bits in hex. getRandomValues works on a plain-http page, where randomUUID doesn't. */
 export function nonce(): string {
-  return crypto.randomUUID().replaceAll("-", "");
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 // MARK: Describing a part
@@ -404,15 +405,11 @@ export interface SentAnnotation {
   target: string;
 }
 
-/** The block at the start of text and where it ends: its fence closes with its own nonce, so nothing inside can end it early. */
-function parseBlock(text: string): [SentAnnotation, number] | undefined {
-  const headEnd = text.indexOf('">\n');
-  if (headEnd < 0) return undefined;
-  const numberText = text.slice(OPEN.length, headEnd);
-  if (!/^\d+$/.test(numberText)) return undefined;
-  let at = headEnd + 3;
-  if (!text.startsWith("Comment: ", at)) return undefined;
-  at += "Comment: ".length;
+/** The block numbered number at the start of text and where it ends: its fence closes with its own nonce, so nothing inside can end it early. */
+function parseBlock(text: string, number: number): [SentAnnotation, number] | undefined {
+  const head = `${OPEN}${number}">\nComment: `;
+  if (!text.startsWith(head)) return undefined;
+  let at = head.length;
   const fenceStart = `\n[${FENCE} nonce=`;
   const fence = text.indexOf(fenceStart, at);
   if (fence < 0) return undefined;
@@ -429,25 +426,36 @@ function parseBlock(text: string): [SentAnnotation, number] | undefined {
   const lines = text.slice(body, end).split("\n");
   const field = (key: string) =>
     lines.find((line) => line.startsWith(`${key}: `))?.slice(key.length + 2) ?? "";
-  return [
-    { number: Number(numberText), comment, diagram: field("Diagram"), target: field("Target") },
-    end + closing.length,
-  ];
+  return [{ number, comment, diagram: field("Diagram"), target: field("Target") }, end + closing.length];
 }
 
-/** Splits a message into its own text and the diagram annotation blocks appended to it. Text without blocks comes back unchanged. */
-export function splitAnnotations(message: string): { text: string; annotations: SentAnnotation[] } {
-  if (!message.includes(OPEN)) return { text: message, annotations: [] };
-  let text = "";
-  const annotations: SentAnnotation[] = [];
-  let rest = message;
-  for (let start = rest.indexOf(OPEN); start >= 0; start = rest.indexOf(OPEN)) {
-    const found = parseBlock(rest.slice(start));
-    if (!found) break;
-    text += rest.slice(0, start);
-    annotations.push(found[0]);
-    rest = rest.slice(start + found[1]);
+/** The blocks text holds, numbered from 1 and a blank line apart, when they run to its end. */
+function parseBlocks(text: string): SentAnnotation[] | undefined {
+  const sent: SentAnnotation[] = [];
+  let rest = text;
+  for (;;) {
+    const found = parseBlock(rest, sent.length + 1);
+    if (!found) return undefined;
+    sent.push(found[0]);
+    rest = rest.slice(found[1]);
+    if (trimSpace(rest) === "") return sent;
+    if (!rest.startsWith("\n\n")) return undefined;
+    rest = rest.slice(2);
   }
-  text += rest;
-  return { text: text.trim(), annotations };
+}
+
+/**
+ * Splits a message into its own text and the diagram annotation blocks appended to it: blocks numbered from 1 that
+ * end the message, after its text and a blank line or alone. A message without them comes back unchanged, as does
+ * one whose blocks are malformed or followed by more text.
+ */
+export function splitAnnotations(message: string): { text: string; annotations: SentAnnotation[] } {
+  const first = `${OPEN}1">\n`;
+  for (let at = message.indexOf(first); at >= 0; at = message.indexOf(first, at + first.length)) {
+    const before = message.slice(0, at);
+    if (at > 0 && !before.endsWith("\n\n")) continue;
+    const annotations = parseBlocks(message.slice(at));
+    if (annotations) return { text: trimSpace(before), annotations };
+  }
+  return { text: message, annotations: [] };
 }

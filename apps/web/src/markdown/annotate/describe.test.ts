@@ -3,7 +3,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   annotationText,
+  block,
   type DiagramAnnotation,
+  nonce,
   type Part,
   splitAnnotations,
   summary,
@@ -107,6 +109,30 @@ suite("sent annotations", () => {
         { number: 2, comment: "Why?", diagram: "flowchart TD", target: "edge A --> B" },
       ],
     });
+  });
+
+  test("only numbered blocks that end the message are split from it", () => {
+    const one = block(1, { comment: "x", source, part: { target: "node", index: 0 }, nonce: "n1" }, 0);
+    const two = block(2, { comment: "y", source, part: { target: "node", index: 1 }, nonce: "n2" }, 1);
+    const quoted = splitAnnotations(`See:\n\n${one}\n\nWhy?\n\n${one}`);
+    expect(quoted.text).toBe(`See:\n\n${one}\n\nWhy?`);
+    expect(quoted.annotations).toHaveLength(1);
+    for (const kept of [
+      `Why?\n\n${one}\n\nmore`,
+      `Why?\n\n${two}`,
+      `Why? ${one}`,
+      `Why?\n\n${one.replace('n="1"', 'n="1e400"')}`,
+    ]) {
+      expect(splitAnnotations(kept)).toEqual({ text: kept, annotations: [] });
+    }
+    const both = splitAnnotations(`${one}\n\n${two}\n`);
+    expect(both.text).toBe("");
+    expect(both.annotations.map((sent) => sent.number)).toEqual([1, 2]);
+  });
+
+  test("nonces are 128 random bits in hex", () => {
+    expect(nonce()).toMatch(/^[0-9a-f]{32}$/);
+    expect(nonce()).not.toBe(nonce());
   });
 
   test("a block whose fence doesn't close with its nonce stays text", () => {

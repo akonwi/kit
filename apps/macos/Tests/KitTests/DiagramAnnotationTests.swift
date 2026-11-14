@@ -118,6 +118,26 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
 
     // MARK: The composer's chips
 
+    /// Only numbered blocks that end a message are its annotations; text
+    /// that merely looks like one stays text.
+    @Test func onlyNumberedBlocksThatEndTheMessageAreSplitFromIt() throws {
+        let source = "flowchart TD\nA --> B"
+        let one = try DiagramAnnotationText.block(number: 1, DiagramAnnotation(comment: "x", source: source, part: Part(.node, 0), nonce: "n1"), shared: 0)
+        let two = try DiagramAnnotationText.block(number: 2, DiagramAnnotation(comment: "y", source: source, part: Part(.node, 1), nonce: "n2"), shared: 1)
+        let quoted = DiagramAnnotationText.split("See:\n\n\(one)\n\nWhy?\n\n\(one)")
+        #expect(quoted.text == "See:\n\n\(one)\n\nWhy?")
+        #expect(quoted.annotations.count == 1)
+        for kept in ["Why?\n\n\(one)\n\nmore", "Why?\n\n\(two)", "Why? \(one)",
+                     "Why?\n\n" + one.replacingOccurrences(of: "n=\"1\"", with: "n=\"-1\"")] {
+            let split = DiagramAnnotationText.split(kept)
+            #expect(split.text == kept)
+            #expect(split.annotations.isEmpty)
+        }
+        let both = DiagramAnnotationText.split("\(one)\n\n\(two)\n")
+        #expect(both.text == "")
+        #expect(both.annotations.map(\.number) == [1, 2])
+    }
+
     @Test func chipsAreAddedRemovedAndMarkTheirParts() {
         let draft = DiagramAnnotationDraft()
         draft.add(comment: "One.", source: Self.flowchart, part: Part(.node, 1))

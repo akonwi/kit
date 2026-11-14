@@ -379,31 +379,47 @@ public enum DiagramAnnotationText {
     }
 
     /// Splits a message into its own text and the diagram annotation blocks
-    /// appended to it. Text without blocks comes back unchanged.
+    /// appended to it: blocks numbered from 1 that end the message, after its
+    /// text and a blank line or alone. A message without them comes back
+    /// unchanged, as does one whose blocks are malformed or followed by more
+    /// text.
     public static func split(_ message: String) -> (text: String, annotations: [Sent]) {
-        guard message.contains(open) else { return (message, []) }
-        var text = "", annotations: [Sent] = []
-        var rest = Substring(message)
-        while let start = rest.range(of: open) {
-            guard let (sent, end) = parse(rest[start.lowerBound...]) else { break }
-            text += rest[..<start.lowerBound]
-            annotations.append(sent)
-            rest = rest[end...]
+        let first = "\(open)1\">\n"
+        var from = message.startIndex
+        while let found = message.range(of: first, range: from..<message.endIndex) {
+            let before = message[..<found.lowerBound]
+            // By scalars, since a "\r" before them joins the first "\n" as one
+            // character.
+            if before.isEmpty || before.unicodeScalars.suffix(2).elementsEqual("\n\n".unicodeScalars),
+               let sent = parseBlocks(message[found.lowerBound...]) {
+                return (before.trimmingCharacters(in: .whitespacesAndNewlines), sent)
+            }
+            from = found.upperBound
         }
-        text += rest
-        return (text.trimmingCharacters(in: .whitespacesAndNewlines), annotations)
+        return (message, [])
     }
 
-    /// The block at the start of text and where it ends: its fence closes
-    /// with its own nonce, so nothing inside can end it early.
-    private static func parse(_ text: Substring) -> (Sent, Substring.Index)? {
-        guard let headEnd = text.range(of: "\">\n"),
-              let number = Int(text[text.index(text.startIndex, offsetBy: open.count)..<headEnd.lowerBound]) else {
-            return nil
+    /// The blocks text holds, numbered from 1 and a blank line apart, when
+    /// they run to its end.
+    private static func parseBlocks(_ text: Substring) -> [Sent]? {
+        var sent: [Sent] = []
+        var rest = text
+        while true {
+            guard let (block, end) = parse(rest, number: sent.count + 1) else { return nil }
+            sent.append(block)
+            rest = rest[end...]
+            if rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return sent }
+            guard rest.unicodeScalars.prefix(2).elementsEqual("\n\n".unicodeScalars) else { return nil }
+            rest = rest[rest.unicodeScalars.index(rest.startIndex, offsetBy: 2)...]
         }
-        var rest = text[headEnd.upperBound...]
-        guard rest.hasPrefix("Comment: ") else { return nil }
-        rest = rest.dropFirst("Comment: ".count)
+    }
+
+    /// The block numbered number at the start of text and where it ends: its
+    /// fence closes with its own nonce, so nothing inside can end it early.
+    private static func parse(_ text: Substring, number: Int) -> (Sent, Substring.Index)? {
+        let head = "\(open)\(number)\">\nComment: "
+        guard text.hasPrefix(head) else { return nil }
+        var rest = text.dropFirst(head.count)
         let fenceStart = "\n[\(fenceName) nonce="
         guard let fence = rest.range(of: fenceStart) else { return nil }
         let comment = String(rest[..<fence.lowerBound]).replacingOccurrences(of: "\n  ", with: "\n")
