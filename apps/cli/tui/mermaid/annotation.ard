@@ -5,6 +5,7 @@ use kit/tui/mermaid/flowchart
 use kit/tui/mermaid/layers
 use kit/tui/mermaid/sequence
 use kit/tui/mermaid/source
+use go:strconv
 use go:strings
 
 // Annotations on a drawn Mermaid diagram: the text the model gets for a
@@ -605,10 +606,206 @@ fn text(items: [Annotation]) Str!Str {
   Result::ok(strings::Join(blocks.*, "\n\n"))
 }
 
+// The message's text, then the blocks after it.
+fn join(text: Str, blocks: Str) Str {
+  match {
+    blocks == "" => text,
+    strings::TrimSpace(text) == "" => blocks,
+    _ => text + "\n\n" + blocks,
+  }
+}
+
+// A sent annotation, as a transcript shows it.
+struct Sent {
+  number: Int,
+  comment: Str,
+  // The diagram's type, as its `Diagram:` line names it.
+  diagram: Str,
+  // The part, as its `Target:` line names it.
+  target: Str,
+}
+
+// A message's own text and the annotation blocks appended to it.
+struct Split {
+  text: Str,
+  sent: [Sent],
+}
+
+private struct Parsed {
+  sent: Sent,
+  // The byte just past the block.
+  end: Int,
+}
+
+// The value of the line in lines that starts with key and ": ".
+private fn field(lines: [Str], key: Str) Str {
+  mut found = Maybe::new<Str>()
+  for line in lines {
+    if found.is_none() and strings::HasPrefix(line, key + ": ") {
+      found = Maybe::new(strings::TrimPrefix(line, key + ": "))
+    }
+  }
+  found.or("")
+}
+
+// The block at the start of text and where it ends: its fence closes with
+// its own nonce, so nothing inside can end it early.
+private fn parse_block(text: Str) Parsed? {
+  let none = Maybe::new<Parsed>()
+  let head_end = strings::Index(text, "\">\n")
+  let number_text = match head_end >= open_tag.size() {
+    true => text.slice(open_tag.size(), head_end).or(""),
+    false => "",
+  }
+  let number = match number_text != "" and strings::Trim(number_text, "0123456789") == "" {
+    true => strconv::Atoi(number_text).or(-1),
+    false => -1,
+  }
+  let after_head = head_end + 3
+  let comment_start = after_head + "Comment: ".size()
+  let rest = text.slice(after_head, text.size()).or("")
+  match {
+    number < 0 => none,
+    not strings::HasPrefix(rest, "Comment: ") => none,
+    _ => {
+      let fence_start = "\n[{fence_name} nonce="
+      let after_comment = text.slice(comment_start, text.size()).or("")
+      let fence = strings::Index(after_comment, fence_start)
+      match fence < 0 {
+        true => none,
+        false => {
+          let comment = strings::ReplaceAll(after_comment.slice(0, fence).or(""), "\n  ", "\n")
+          let nonce_at = fence + fence_start.size()
+          let after_fence = after_comment.slice(nonce_at, after_comment.size()).or("")
+          let nonce_end = strings::Index(after_fence, "]\n")
+          let nonce = match nonce_end > 0 {
+            true => after_fence.slice(0, nonce_end).or(""),
+            false => "",
+          }
+          match nonce == "" or strings::Contains(nonce, "\n") {
+            true => none,
+            false => {
+              let body = after_fence.slice(nonce_end + 2, after_fence.size()).or("")
+              let closing = "\n[/{fence_name} nonce={nonce}]\n{close_tag}"
+              let end = strings::Index(body, closing)
+              match end < 0 {
+                true => none,
+                false => {
+                  let lines = strings::Split(body.slice(0, end).or(""), "\n")
+                  // Offsets of body and of its end in text.
+                  let body_at = comment_start + nonce_at + nonce_end + 2
+                  Maybe::new(
+                    Parsed{
+                      sent: Sent{
+                        number: number,
+                        comment: comment,
+                        diagram: field(lines, "Diagram"),
+                        target: field(lines, "Target"),
+                      },
+                      end: body_at + end + closing.size(),
+                    },
+                  )
+                },
+              }
+            },
+          }
+        },
+      }
+    },
+  }
+}
+
+// Splits a message into its own text and the annotation blocks appended to
+// it. Text without blocks comes back unchanged.
+fn split(message: Str) Split {
+  match strings::Contains(message, open_tag) {
+    false => Split{text: message, sent: []},
+    true => {
+      let kept = &mut List::new<Str>()
+      let sent = &mut List::new<Sent>()
+      mut rest = message
+      mut done = false
+      while not done {
+        let start = strings::Index(rest, open_tag)
+        if start < 0 {
+          done = true
+        } else {
+          match parse_block(rest.slice(start, rest.size()).or("")) {
+            parsed => {
+              kept.push(rest.slice(0, start).or(""))
+              sent.push(parsed.sent)
+              rest = rest.slice(start + parsed.end, rest.size()).or("")
+            },
+            _ => { done = true },
+          }
+        }
+      }
+      kept.push(rest)
+      Split{text: strings::TrimSpace(strings::Join(kept.*, "")), sent: sent.*}
+    },
+  }
+}
+
 test fn a_node_is_described_with_its_edges_and_neighbors() Void!Str {
   let source = "flowchart TD\nA{{Valid?}} -- yes --> B[Save]\nA -- no --> C[Reject]\nB --> D[Done]\nC --> D"
   let lines = try describe(source, canvas::Target::node, 0)
   let got = strings::Join(lines, "\n")
   let want = "Diagram: flowchart TD\nTarget: node A \"Valid?\" (decision)\nEdges in: none\nEdges out: A -->|yes| B; A -->|no| C\nNeighbors: B \"Save\"; C \"Reject\""
   testing::assert(got == want, "got:\n{got}")
+}
+
+private fn sent_text(sent: Sent) Str {
+  "{sent.number}|{sent.comment}|{sent.diagram}|{sent.target}"
+}
+
+test fn sent_blocks_split_from_the_message_text() Void!Str {
+  let source = "flowchart TD\nA --> B"
+  let blocks = try text(
+    [
+      Annotation{
+        comment: "Rename.\nAnd say why.",
+        source: source,
+        target: canvas::Target::node,
+        index: 0,
+        nonce: "n1",
+      },
+      Annotation{
+        comment: "Why?",
+        source: source,
+        target: canvas::Target::edge,
+        index: 0,
+        nonce: "n2",
+      },
+    ],
+  )
+  let parts = split(join("Revise it.", blocks))
+  try testing::assert(parts.text == "Revise it.", "text: {parts.text}")
+  try testing::assert(parts.sent.size() == 2, "two blocks")
+  let first = sent_text(parts.sent.at(0).expect("first"))
+  let second = sent_text(parts.sent.at(1).expect("second"))
+  try testing::assert(first == "1|Rename.\nAnd say why.|flowchart TD|node A (box)", "first: {first}")
+  testing::assert(second == "2|Why?|flowchart TD|edge A --> B", "second: {second}")
+}
+
+test fn a_block_whose_fence_does_not_close_with_its_nonce_stays_text() Void!Str {
+  let source = "flowchart TD\nA --> B"
+  let blocks = try text(
+    [
+      Annotation{
+        comment: "x",
+        source: source,
+        target: canvas::Target::node,
+        index: 0,
+        nonce: "n1",
+      },
+    ],
+  )
+  let broken = strings::Replace(
+    blocks,
+    "[/UNTRUSTED_DIAGRAM_CONTENT nonce=n1]",
+    "[/UNTRUSTED_DIAGRAM_CONTENT nonce=n2]",
+    1,
+  )
+  let parts = split(broken)
+  testing::assert(parts.text == broken and parts.sent.size() == 0, "kept as text")
 }

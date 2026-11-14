@@ -251,8 +251,9 @@ followed by what Kit read from the diagram about that part.
   the diagram's source. Everything after the comment comes from a reply, so
   it is fenced as untrusted with a nonce. A message's first block on a
   diagram carries its source; later blocks on the same diagram point back to
-  it. The terminal and Apple clients write the same text, held to the
-  fixtures in `testdata/mermaid/annotations`.
+  it. The terminal, browser, and Apple clients write the same text, held to
+  the fixtures in `testdata/mermaid/annotations`. A client shows a sent
+  message's blocks as comments under its text, and recalls only the text.
 - **Shared fixtures.** Each drawn fixture's regions are recorded beside its
   drawing in a `.regions` file, from the reference, so the port records the
   same parts in the same cells.

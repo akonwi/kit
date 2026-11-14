@@ -1,0 +1,144 @@
+use ard/testing
+
+use go:crypto/rand
+use kit/tui/mermaid/annotation
+use kit/tui/mermaid/canvas
+use go:strings
+
+// Comments on parts of drawn diagrams, waiting in the composer for the next
+// message. On send each becomes a block after the message's text
+// (`mermaid/annotation`); nothing is stored on the server until then.
+
+// The most comments one message holds.
+let max_per_message = 16
+
+// A part of a diagram's source.
+struct Part {
+  target: canvas::Target,
+  index: Int,
+}
+
+// One waiting comment, with the part as the model's text names it.
+struct Note {
+  id: Int,
+  annotation: annotation::Annotation,
+  summary: Str,
+}
+
+private fn nonce() Str {
+  strings::ToLower(rand::Text())
+}
+
+// notes with a comment on part of source's diagram added as id, or why it
+// can't be.
+fn add(notes: [Note], id: Int, comment: Str, source: Str, part: Part) [Note]!Str {
+  match notes.size() >= max_per_message {
+    true => Result::err("A message can contain up to {max_per_message} diagram annotations."),
+    false => {
+      match annotation::summary(source, part.target, part.index) {
+        ok(summary) => {
+          let added = &mut List::new<Note>()
+          for note in notes {
+            added.push(note)
+          }
+          added.push(
+            Note{
+              id: id,
+              annotation: annotation::Annotation{
+                comment: strings::TrimSpace(comment),
+                source: source,
+                target: part.target,
+                index: part.index,
+                nonce: nonce(),
+              },
+              summary: summary,
+            },
+          )
+          Result::ok(added.*)
+        },
+        err(_) => Result::err("That part of the diagram can’t be annotated."),
+      }
+    },
+  }
+}
+
+// notes without those whose ids are listed.
+fn without(notes: [Note], ids: [Int]) [Note] {
+  let kept = &mut List::new<Note>()
+  for note in notes {
+    mut listed = false
+    for id in ids {
+      listed = listed or id == note.id
+    }
+    if not listed {
+      kept.push(note)
+    }
+  }
+  kept.*
+}
+
+fn ids(notes: [Note]) [Int] {
+  let found = &mut List::new<Int>()
+  for note in notes {
+    found.push(note.id)
+  }
+  found.*
+}
+
+// The parts of source's diagram that have a waiting comment.
+fn marked(notes: [Note], source: Str) [Part] {
+  let parts = &mut List::new<Part>()
+  for note in notes {
+    if note.annotation.source == source {
+      parts.push(Part{target: note.annotation.target, index: note.annotation.index})
+    }
+  }
+  parts.*
+}
+
+// text with the blocks for notes after it.
+fn message(text: Str, notes: [Note]) Str {
+  let items = &mut List::new<annotation::Annotation>()
+  for note in notes {
+    items.push(note.annotation)
+  }
+  annotation::join(text, annotation::text(items.*).or(""))
+}
+
+private fn added(notes: [Note], id: Int, comment: Str, source: Str, part: Part) [Note] {
+  add(notes, id, comment, source, part).or(notes)
+}
+
+test fn comments_follow_the_message_text_and_are_marked_on_their_diagram() Void!Str {
+  let flow = "flowchart TD\nA --> B"
+  let other = "flowchart LR\nC --> D"
+  mut notes = added([], 1, "  Rename.  ", flow, Part{target: canvas::Target::node, index: 0})
+  notes = added(notes, 2, "Why?", other, Part{target: canvas::Target::edge, index: 0})
+  let first = notes.at(0).expect("first")
+  try testing::assert(first.summary == "node A (box)", "summary: {first.summary}")
+  try testing::assert(first.annotation.comment == "Rename.", "comment trimmed")
+  let parts = marked(notes, flow)
+  try testing::assert(
+    parts.size() == 1 and parts.at(0).expect("part").target == canvas::Target::node,
+    "only the flow's node is marked",
+  )
+  let sent = annotation::split(message("Look again.", notes))
+  try testing::assert(sent.text == "Look again." and sent.sent.size() == 2, "both blocks follow the text")
+  testing::assert(ids(without(notes, [1])).size() == 1, "removing one keeps the other")
+}
+
+test fn a_message_holds_a_bounded_number_of_comments() Void!Str {
+  let flow = "flowchart TD\nA --> B"
+  mut notes: [Note] = []
+  mut id = 0
+  while id < max_per_message {
+    notes = added(notes, id, "c", flow, Part{target: canvas::Target::node, index: 0})
+    id =+ 1
+  }
+  let refused = add(notes, id, "c", flow, Part{target: canvas::Target::node, index: 0})
+  try testing::assert(refused.is_err(), "the 17th is refused")
+  testing::assert(
+    add([], 0, "c", flow, Part{target: canvas::Target::node, index: 9}).is_err(),
+    "a part the diagram lacks is refused",
+  )
+}

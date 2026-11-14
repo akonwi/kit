@@ -21,6 +21,26 @@ A diagram keeps its shape: it never wraps, and one wider than the pane scrolls
 sideways. Its colors follow the active theme. In the macOS app, a diagram's
 **Copy** button copies its source.
 
+## Commenting on part of a diagram
+
+You can point at part of a drawn diagram and comment on it: a flowchart's
+nodes, edges, and subgraphs, or a sequence diagram's participants, messages,
+notes, and blocks.
+
+1. Turn on **Annotate**: under the diagram in the terminal, on the diagram in
+   the macOS app and the browser, and in the full-screen diagram on iOS.
+2. Hover to see which part you'd pick, then click (or tap) it.
+3. Write the comment and save it. The macOS and iOS apps can take it by
+   dictation. In the terminal, Enter saves and Esc cancels.
+
+Each comment waits above the composer until you send your next message, and
+× removes it. A message holds up to 16. Kit adds each one after your text with
+what it read from the diagram about the part, such as its edges and
+neighbours or what it contains, and the diagram's source. Your message shows
+the comments under its text. Prompt commands don't take them.
+
+Comments stay in the client you wrote them in until they're sent.
+
 ## When a diagram isn't drawn
 
 A diagram that uses unsupported syntax, is malformed, or is too large shows its

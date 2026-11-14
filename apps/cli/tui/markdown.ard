@@ -39,6 +39,8 @@ struct Props {
   source: Str,
   base: ui::TextStyle,
   semantic: Bool,
+  // Lets drawn diagrams take comments on their parts.
+  annotate: mermaid::Annotate?,
 }
 
 struct Document {
@@ -56,7 +58,14 @@ struct InlineDocument {
   parsed: parser::Document,
 }
 
-fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle?, semantic: Bool?) cui::View {
+fn view(
+  themes: theme::Context,
+  id: Str,
+  source: Str,
+  base: ui::TextStyle?,
+  semantic: Bool?,
+  annotate: mermaid::Annotate?,
+) cui::View {
   cui::child(
     new,
     Props{
@@ -65,6 +74,7 @@ fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle?, sema
       source: source,
       base: base.or(ui::text_style()),
       semantic: semantic.or(true),
+      annotate: annotate,
     },
     key: "markdown:{id}",
   )
@@ -81,6 +91,7 @@ fn inline_view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle
       source: source,
       base: base.or(ui::text_style()),
       semantic: semantic.or(true),
+      annotate: Maybe::new<mermaid::Annotate>(),
     },
     key: "markdown-inline:{id}",
   )
@@ -172,6 +183,7 @@ impl cui::Component for Document {
       self.props.semantic,
       self.parsed,
       self.fence_open,
+      self.props.annotate,
     )
   }
 }
@@ -207,6 +219,7 @@ private fn render_document(
   semantic: Bool,
   document: parser::Document,
   fence_open: Bool,
+  annotate: mermaid::Annotate?,
 ) cui::View {
   let colors = themes.current()
   match document.PlainTextFallback {
@@ -225,7 +238,9 @@ private fn render_document(
           _ => (),
         }
         let complete = (not fence_open) or block_index + 1 < document.Blocks.size()
-        children.push(render_block(themes, id, block_index, base, semantic, block, complete, []))
+        children.push(
+          render_block(themes, id, block_index, base, semantic, block, complete, [], annotate),
+        )
         prior = Maybe::new(block)
         block_index =+ 1
       }
@@ -491,12 +506,13 @@ private fn render_block(
   block: parser::Block,
   complete: Bool,
   marks: [[file_find::Mark]],
+  annotate: mermaid::Annotate?,
 ) cui::View {
   let colors = themes.current()
   let first = marks.at(0).or([])
   mut child = match {
     block.Kind == parser::BlockCode and complete and mermaid::is_mermaid(block.Language) => {
-      mermaid::view(themes, "{id}:{block_index}", block.Code, base, semantic)
+      mermaid::view(themes, "{id}:{block_index}", block.Code, base, semantic, annotate: annotate)
     },
     block.Kind == parser::BlockCode and complete and figure::is_figure(block.Info) => {
       figure::view(themes, "{id}:{block_index}", block.Info, block.Code, base, semantic)

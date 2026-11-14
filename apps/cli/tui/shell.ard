@@ -29,6 +29,8 @@ use kit/tui/chrome
 use kit/tui/command_palette
 use kit/tui/composer
 use kit/tui/controls
+use kit/tui/diagram_comment
+use kit/tui/diagram_notes
 use kit/tui/diff_pane
 use kit/tui/diff_target_picker
 use kit/tui/file_pane
@@ -37,6 +39,9 @@ use kit/tui/image_preview
 use kit/tui/interaction_dock
 use kit/tui/layout
 use kit/tui/mcp
+use kit/tui/mermaid
+use kit/tui/mermaid/annotation
+use kit/tui/mermaid/canvas
 use kit/tui/model
 use kit/tui/model_refresh
 use kit/tui/pairing
@@ -58,6 +63,7 @@ use kit/tui/theme
 use kit/tui/theme_picker
 use kit/tui/thinking
 use kit/tui/toast
+use kit/tui/transcript
 use kit/tui/transcript_pane
 use kit/tui/updates
 use kit/tui/workspace
@@ -132,6 +138,7 @@ type Modal =
   | SubagentThinkingModal
   | UpdateModal
   | diff_pane::TargetRequest
+  | diagram_comment::Request
 
 // SelectionMenu is the open selection context menu: the text selected when
 // it opened, and where it opened.
@@ -1286,6 +1293,18 @@ impl Shell {
               self.attached.toggle_sent_annotations(id)
             })
           },
+          annotate: Maybe::new(
+            mermaid::Annotate{
+              marked: fn(source: Str) [diagram_notes::Part] {
+                diagram_notes::marked(self.attached.pending_diagram_notes(), source)
+              },
+              pick: fn(source: Str, part: diagram_notes::Part) {
+                self.dispatch(fn() {
+                  self.open_diagram_comment(source, part)
+                })
+              },
+            },
+          ),
         },
         plugins: transcript_pane::Plugins{
           expanded: self.attached.expanded_plugins,
@@ -1359,6 +1378,29 @@ impl Shell {
           self.attached.remove_annotation(id)
         })
       },
+      diagram_notes: Maybe::new(self.attached.pending_diagram_notes()),
+      remove_diagram_note: Maybe::new(fn(id: Int) {
+        self.dispatch(fn() {
+          self.attached.remove_diagram_note(id)
+        })
+      }),
+    }
+  }
+
+  // Opens the comment box for a part of a drawn diagram, unless a dialog is
+  // open or the part can't be annotated.
+  fn mut open_diagram_comment(source: Str, part: diagram_notes::Part) {
+    if self.modal_closed() {
+      match annotation::summary(source, part.target, part.index) {
+        ok(summary) => {
+          self.active_modal = diagram_comment::Request{
+            source: source,
+            part: part,
+            summary: summary,
+          }
+        },
+        err(_) => (),
+      }
     }
   }
 
@@ -1567,7 +1609,12 @@ impl Shell {
         self.attached.load_message_history(fn(entries: [sessionbridge::HistoryEntry]) {
           let recalled = &mut List::new<composer::HistoryEntry>()
           for entry in entries {
-            recalled.push(composer::HistoryEntry{id: entry.ID, text: entry.Text})
+            // Diagram comments were sent as blocks after the text; only the
+            // text is recalled.
+            let text = annotation::split(entry.Text).text
+            if text != "" {
+              recalled.push(composer::HistoryEntry{id: entry.ID, text: text})
+            }
           }
           let _ = control.open_history(recalled.*)
         })
@@ -1810,6 +1857,7 @@ impl cui::Component for Shell {
         }
       },
       diff_pane::TargetRequest(request) => layers.push(self.diff_target_modal(request)),
+      diagram_comment::Request(request) => layers.push(self.diagram_comment_modal(request)),
     }
     cui::box(
       layers.*,
@@ -2124,6 +2172,28 @@ impl Shell {
       keymap::simple_command("debug.dismiss", "Close", fn() Bool {
         self.dismiss_modal()
       }),
+    )
+  }
+
+  fn mut diagram_comment_modal(request: diagram_comment::Request) cui::View {
+    let dismiss = keymap::simple_command("diagram-comment.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    let attached = self.attached
+    cui::child(
+      diagram_comment::new,
+      diagram_comment::Props{
+        themes: self.props.themes,
+        request: request,
+        dismiss: dismiss,
+        save: fn(comment: Str) Str {
+          let failure = attached.add_diagram_note(comment, request.source, request.part)
+          if failure == "" {
+            let _ = self.dismiss_modal()
+          }
+          failure
+        },
+      },
     )
   }
 
@@ -3834,4 +3904,99 @@ test fn views_open_in_rex_panes_only_while_the_setting_allows() Void!Str {
   try testing::assert(not subject.places(notes), "with panes off, a view opens as a tab here")
   subject.panes_enabled = true
   testing::assert(subject.places(notes), "with panes on, a view opens in a pane")
+}
+
+test fn a_click_on_a_part_of_a_diagram_in_annotate_mode_adds_a_comment_chip() Void!Str {
+  let terminal = headless::new(40, 24)
+  defer terminal.destroy()
+  let subject = ready_shell()
+  let reply = &mut transcript::message("reply", "turn-1", transcript::Role::assistant)
+  reply.text = "```mermaid\nflowchart LR\nA[Start] --> B[End]\n```"
+  subject.attached.messages = [reply.*]
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  let before = shell_rows(terminal)
+  mut toggle = -1
+  mut drawing = -1
+  for row, index in before {
+    if strings::TrimSpace(row) == "Annotate" {
+      toggle = index
+    }
+    if drawing < 0 and strings::Contains(row, "Start") {
+      drawing = index
+    }
+  }
+  try testing::assert(
+    toggle > 0 and drawing > 0,
+    "a drawn diagram with its toggle:\n{strings::Join(before, "\n")}",
+  )
+  let start_x = strings::Index(before.at(drawing).or(""), "Start")
+  terminal.click(strings::Index(before.at(toggle).or(""), "Annotate") + 1, toggle)
+  terminal.flush()
+  terminal.click(start_x, drawing)
+  terminal.flush()
+  try testing::assert(
+    match subject.active_modal {
+      diagram_comment::Request(request) => request.summary == "node A \"Start\" (box)",
+      _ => false,
+    },
+    "the click opens the comment box on the node",
+  )
+  terminal.key(typed("Say why"))
+  terminal.key(typed_key("return"))
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(subject.modal_closed(), "saving closes the box")
+  let after = shell_rows(terminal)
+  mut chip = false
+  for row in after {
+    chip = chip or strings::Contains(row, "🗨️ node A \"Start\" (box)")
+  }
+  try testing::assert(chip, "the comment waits as a chip:\n{strings::Join(after, "\n")}")
+  let named = terminal.frame().cell(start_x, drawing).expect("the node's name")
+  let accent = subject.props.themes.current().accent_text
+  testing::assert(
+    match named.style.foreground {
+      color => color.red == accent.red and color.green == accent.green and color.blue == accent.blue,
+      _ => false,
+    },
+    "the commented node is marked in the accent color",
+  )
+}
+
+test fn a_sent_message_shows_its_diagram_comments_under_its_text() Void!Str {
+  let terminal = headless::new(60, 14)
+  defer terminal.destroy()
+  let subject = ready_shell()
+  let notes = diagram_notes::add(
+    [],
+    1,
+    "Say why",
+    "flowchart LR\nA[Start] --> B[End]",
+    diagram_notes::Part{target: canvas::Target::node, index: 0},
+  ).expect("a comment")
+  let sent = &mut transcript::message("sent", "turn-1", transcript::Role::user)
+  sent.text = diagram_notes::message("Look again.", notes)
+  subject.attached.messages = [sent.*]
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  let rows = shell_rows(terminal)
+  mut first = -1
+  for row, index in rows {
+    if first < 0 and strings::Contains(row, "Look again.") {
+      first = index
+    }
+  }
+  try testing::assert(first > 0, "the message's text:\n{strings::Join(rows, "\n")}")
+  expect_shell_rows(
+    [
+      strings::TrimRight(rows.at(first).or(""), " ┃"),
+      strings::TrimRight(rows.at(first + 1).or(""), " ┃"),
+      strings::TrimRight(rows.at(first + 2).or(""), " ┃"),
+      strings::TrimRight(rows.at(first + 3).or(""), " ┃"),
+    ],
+    ["   Look again.", "", "   ▎ node A \"Start\" (box) · flowchart LR", "   ▎ Say why"],
+  )
 }

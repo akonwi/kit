@@ -9,6 +9,7 @@ use go:kit/ffi/sessionbridge
 use kit/tui/annotations
 use kit/tui/attachments
 use kit/tui/controls
+use kit/tui/diagram_notes
 use kit/tui/format
 use kit/tui/layout
 use kit/tui/markdown
@@ -327,11 +328,14 @@ struct Pending {
   // Opens an annotation's lines, and deletes one.
   open_annotation: fn(sessionbridge::Annotation),
   remove_annotation: fn(Uint64),
+  // Comments on diagram parts, and what deletes one.
+  diagram_notes: [diagram_notes::Note]?,
+  remove_diagram_note: fn(Int)?,
 }
 
 // Whether the row shows anything without its status line.
 fn has_chips(spec: Pending) Bool {
-  spec.attachments.size() > 0 or spec.annotations.size() > 0
+  spec.attachments.size() > 0 or spec.annotations.size() > 0 or spec.diagram_notes.or([]).size() > 0
 }
 
 // pending_row shows the status line followed by up to three follow-up
@@ -351,6 +355,10 @@ fn pending_row(themes: theme::Context, spec: Pending) cui::View {
     }
     for annotation in spec.annotations {
       chips.push(annotation_chip(themes, annotation, spec.open_annotation, spec.remove_annotation))
+    }
+    let remove_note = spec.remove_diagram_note.or(fn(id: Int) {})
+    for note in spec.diagram_notes.or([]) {
+      chips.push(diagram_note_chip(themes, note, remove_note))
     }
     rows.push(
       cui::box(
@@ -457,6 +465,67 @@ private fn annotation_chip(
       ),
     ],
     key: "annotation-{id}",
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
+      flex_shrink: 0.0,
+      height: ui::cells(1),
+      margin: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(0),
+      },
+    ),
+  )
+}
+
+// The widest a diagram comment's chip names its part.
+let diagram_chip_width = 40
+
+// One comment on a diagram's part as a chip: the glyph and the part, and a
+// × that deletes it.
+private fn diagram_note_chip(themes: theme::Context, note: diagram_notes::Note, remove: fn(Int)) cui::View {
+  let colors = themes.current()
+  let id = note.id
+  let close = keymap::simple_command("diagram-note.remove", "Remove annotation", fn() Bool {
+    remove(id)
+    true
+  })
+  cui::box(
+    [
+      cui::box(
+        [
+          cui::text(
+            "{annotations::glyph} {note.summary}",
+            text_style: ui::text_style(foreground: colors.foreground),
+            wrap: ui::TextWrap::none,
+            overflow: ui::TextOverflow::ellipsis,
+          ),
+        ],
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::row,
+          flex_shrink: 1.0,
+          max_width: ui::cells(diagram_chip_width),
+          background: colors.surface,
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+      ),
+      controls::button(
+        themes,
+        "×",
+        close,
+        variant: controls::ButtonVariant::secondary,
+        compact: true,
+        focusable: false,
+        foreground: colors.muted,
+      ),
+    ],
+    key: "diagram-note-{id}",
     styles: ui::style(
       flex_direction: ui::FlexDirection::row,
       flex_shrink: 0.0,

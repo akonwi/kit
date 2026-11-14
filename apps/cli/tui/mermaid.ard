@@ -6,6 +6,8 @@ use cooper/keymap
 use cooper/testing as headless
 use cooper/ui
 use kit/tui/code
+use kit/tui/controls
+use kit/tui/diagram_notes
 use kit/tui/mermaid/canvas
 use kit/tui/mermaid/flowchart
 use kit/tui/mermaid/sequence
@@ -50,16 +52,34 @@ private fn render_lines(text: Str) canvas::Canvas!Str {
   }
 }
 
+// What a drawn diagram needs to take comments on its parts: the parts of a
+// source with a waiting comment, and what opens the comment box for one.
+struct Annotate {
+  marked: fn(Str) [diagram_notes::Part],
+  pick: fn(Str, diagram_notes::Part),
+}
+
 struct Props {
   themes: theme::Context,
   id: Str,
   source: Str,
   base: ui::TextStyle,
   semantic: Bool,
+  annotate: Annotate?,
 }
 
 // A Mermaid diagram, drawn when possible and otherwise shown as source.
-fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle, semantic: Bool) cui::View {
+// Given annotate, a drawn one has an Annotate toggle under it; while it's on,
+// the part under the pointer is tinted, parts with a waiting comment are in
+// the accent color, and a click on a part opens its comment box.
+fn view(
+  themes: theme::Context,
+  id: Str,
+  source: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+  annotate: Annotate?,
+) cui::View {
   cui::child(
     new,
     Props{
@@ -68,6 +88,7 @@ fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle, seman
       source: source,
       base: base,
       semantic: semantic,
+      annotate: annotate,
     },
     key: "mermaid:{id}",
   )
@@ -77,11 +98,16 @@ private struct Diagram {
   props: &mut Props,
   rendered_source: Str,
   result: canvas::Canvas!Str,
-  // The drawing's styled text, kept until the source, theme, or semantic
-  // coloring changes.
+  // The drawing's styled text, kept until the source, theme, semantic
+  // coloring, or highlighted parts change.
   painted: ui::StyledText?,
   painted_revision: Int,
   painted_semantic: Bool,
+  painted_marks: Str,
+  annotating: Bool,
+  // The part under the pointer, and the one a press began on.
+  hovered: diagram_notes::Part?,
+  pressed: diagram_notes::Part?,
 }
 
 private fn new(props: &mut Props) &mut Diagram {
@@ -91,7 +117,140 @@ private fn new(props: &mut Props) &mut Diagram {
     painted: Maybe::new<ui::StyledText>(),
     painted_revision: -1,
     painted_semantic: props.semantic,
+    painted_marks: "",
+    annotating: false,
+    hovered: Maybe::new<diagram_notes::Part>(),
+    pressed: Maybe::new<diagram_notes::Part>(),
     props: props,
+  }
+}
+
+// What the cell at x, y of drawing points at.
+fn part_at(drawing: canvas::Canvas, x: Int, y: Int) diagram_notes::Part? {
+  match drawing.hit(x, y) {
+    region => Maybe::new(diagram_notes::Part{target: region.target, index: region.index}),
+    _ => Maybe::new<diagram_notes::Part>(),
+  }
+}
+
+private fn same_part(a: diagram_notes::Part?, b: diagram_notes::Part?) Bool {
+  match a {
+    left => {
+      match b {
+        right => left.target == right.target and left.index == right.index,
+        _ => false,
+      }
+    },
+    _ => b.is_none(),
+  }
+}
+
+private fn part_key(part: diagram_notes::Part) Str {
+  let name = match part.target {
+    canvas::Target::node => "node",
+    canvas::Target::subgraph => "subgraph",
+    canvas::Target::edge => "edge",
+    canvas::Target::participant => "participant",
+    canvas::Target::message => "message",
+    canvas::Target::note => "note",
+    canvas::Target::block => "block",
+    canvas::Target::heading => "heading",
+  }
+  "{name} {part.index}"
+}
+
+impl Diagram {
+  private fn mut mouse(drawing: canvas::Canvas, received: &mut cooper::MouseEvent) {
+    let kind = received.event_type
+    if kind == cooper::MouseEventType::over or kind == cooper::MouseEventType::move {
+      self.hovered = part_at(drawing, received.local_x, received.local_y)
+    } else if kind == cooper::MouseEventType::out {
+      self.hovered = Maybe::new<diagram_notes::Part>()
+      self.pressed = Maybe::new<diagram_notes::Part>()
+    } else if kind == cooper::MouseEventType::down and received.button == cooper::MouseButton::left {
+      self.pressed = part_at(drawing, received.local_x, received.local_y)
+      received.prevent_default()
+    } else if kind == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+      let released = part_at(drawing, received.local_x, received.local_y)
+      let pressed = self.pressed
+      self.pressed = Maybe::new<diagram_notes::Part>()
+      match self.props.annotate {
+        annotate => {
+          match released {
+            part => {
+              if same_part(pressed, released) {
+                (annotate.pick)(self.props.source, part)
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+      received.prevent_default()
+    }
+  }
+
+  // The parts to highlight, and a key that changes when they do.
+  private fn mut marks() Marks {
+    let marked: [diagram_notes::Part] = match self.annotating {
+      true => {
+        match self.props.annotate {
+          annotate => (annotate.marked)(self.props.source),
+          _ => [],
+        }
+      },
+      false => [],
+    }
+    let hovered = match self.annotating {
+      true => self.hovered,
+      false => Maybe::new<diagram_notes::Part>(),
+    }
+    let keys = &mut List::new<Str>()
+    for part in marked {
+      keys.push(part_key(part))
+    }
+    match hovered {
+      part => keys.push("hover " + part_key(part)),
+      _ => (),
+    }
+    Marks{
+      marked: marked,
+      hovered: hovered,
+      key: strings::Join(keys.*, ";"),
+    }
+  }
+
+  private fn mut toggle_row(colors: theme::Theme) cui::View {
+    let label = match self.annotating {
+      true => "Done",
+      false => "Annotate",
+    }
+    let command = keymap::simple_command("mermaid.annotate", label, fn() Bool {
+      self.annotating = not self.annotating
+      self.hovered = Maybe::new<diagram_notes::Part>()
+      self.pressed = Maybe::new<diagram_notes::Part>()
+      true
+    })
+    cui::box(
+      [
+        controls::button(
+          self.props.themes,
+          label,
+          command,
+          variant: controls::ButtonVariant::secondary,
+          compact: true,
+          focusable: false,
+          foreground: colors.muted,
+        ),
+      ],
+      key: "mermaid-annotate:{self.props.id}",
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::row,
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+      ),
+    )
   }
 }
 
@@ -102,24 +261,47 @@ impl cui::Component for Diagram {
       self.rendered_source = self.props.source
       self.result = render(self.props.source)
       self.painted = Maybe::new<ui::StyledText>()
+      self.hovered = Maybe::new<diagram_notes::Part>()
+    }
+    if self.props.annotate.is_none() {
+      self.annotating = false
     }
     let colors = self.props.themes.current()
     match self.result {
       ok(drawing) => {
         let revision = self.props.themes.revision()
-        let stale = revision != self.painted_revision or self.props.semantic != self.painted_semantic
+        let marks = self.marks()
+        let stale = revision != self.painted_revision or self.props.semantic != self.painted_semantic or marks.key != self.painted_marks
         if stale or self.painted.is_none() {
-          self.painted = Maybe::new(styled(colors, self.props.semantic, drawing))
+          self.painted = Maybe::new(styled(colors, self.props.semantic, drawing, marks: marks))
           self.painted_revision = revision
           self.painted_semantic = self.props.semantic
+          self.painted_marks = marks.key
         }
-        drawn(
+        let picture = drawn(
           colors,
           self.props.id,
           self.props.base,
           drawing,
           self.painted.expect("painted diagram"),
+          match self.annotating {
+            true => {
+              Maybe::new(fn(received: &mut cooper::MouseEvent) {
+                self.mouse(drawing, received)
+              })
+            },
+            false => Maybe::new<fn(&mut cooper::MouseEvent)>(),
+          },
         )
+        match self.props.annotate.is_some() {
+          true => {
+            cui::box(
+              [picture, self.toggle_row(colors)],
+              styles: ui::style(flex_direction: ui::FlexDirection::column, min_width: ui::cells(0)),
+            )
+          },
+          false => picture,
+        }
       },
       err(reason) => source_view(self.props.*, reason),
     }
@@ -175,6 +357,65 @@ private fn role_color(colors: theme::Theme, role: canvas::Role) ui::Color? {
   }
 }
 
+// The parts of a drawing to highlight, and a key naming them.
+struct Marks {
+  marked: [diagram_notes::Part],
+  hovered: diagram_notes::Part?,
+  key: Str,
+}
+
+// A cell's highlight flags.
+let unmarked = 0
+let marked_cell = 1
+let hovered_cell = 2
+
+private fn includes(parts: [diagram_notes::Part], target: canvas::Target, index: Int) Bool {
+  mut found = false
+  for part in parts {
+    found = found or part.target == target and part.index == index
+  }
+  found
+}
+
+// Each cell's highlight: a part's box, or the drawn cells of its lines,
+// where the cell points at the part.
+private fn mark_cells(drawing: canvas::Canvas, marks: Marks) [Int] {
+  let codes = &mut List::new<Int>(drawing.width * drawing.height)
+  let hovered: [diagram_notes::Part] = match marks.hovered {
+    part => [part],
+    _ => [],
+  }
+  for region in drawing.regions {
+    let hover = match includes(hovered, region.target, region.index) {
+      true => hovered_cell,
+      false => unmarked,
+    }
+    let mark = match includes(marks.marked, region.target, region.index) {
+      true => marked_cell,
+      false => unmarked,
+    }
+    let code = hover + mark
+    if code != unmarked {
+      mut y = region.y0
+      while y <= region.y1 {
+        mut x = region.x0
+        while x <= region.x1 {
+          let drawn = (not region.line) or not drawing.blank(x, y)
+          if drawn and same_part(
+            part_at(drawing, x, y),
+            Maybe::new(diagram_notes::Part{target: region.target, index: region.index}),
+          ) {
+            codes.set(y * drawing.width + x, code)
+          }
+          x =+ 1
+        }
+        y =+ 1
+      }
+    }
+  }
+  codes.*
+}
+
 private fn push_run(
   spans: &mut [ui::Span],
   colors: theme::Theme,
@@ -182,10 +423,16 @@ private fn push_run(
   text: Str,
   role: canvas::Role,
   bold: Bool,
+  mark: Int,
 ) {
   if text != "" {
-    let foreground = match semantic {
-      true => role_color(colors, role),
+    let foreground = match {
+      mark % 2 == marked_cell => Maybe::new(colors.accent_text),
+      semantic => role_color(colors, role),
+      _ => Maybe::new<ui::Color>(),
+    }
+    let background = match mark >= hovered_cell {
+      true => Maybe::new(colors.picker_selected),
       false => Maybe::new<ui::Color>(),
     }
     spans.push(
@@ -193,6 +440,7 @@ private fn push_run(
         text,
         style: ui::span_style(
           foreground: foreground,
+          background: background,
           bold: match bold {
             true => Maybe::new(true),
             false => Maybe::new<Bool>(),
@@ -214,9 +462,14 @@ private fn cells(drawing: canvas::Canvas, y: Int, x0: Int, x1: Int) Str {
   strings::Join(parts, "")
 }
 
-// The drawing as styled text, one span per run of cells with the same role.
-// Blank cells join whichever run they fall in.
-fn styled(colors: theme::Theme, semantic: Bool, drawing: canvas::Canvas) ui::StyledText {
+// The drawing as styled text, one span per run of cells with the same role
+// and highlight. Blank cells join whichever run they fall in unless they are
+// highlighted differently.
+fn styled(colors: theme::Theme, semantic: Bool, drawing: canvas::Canvas, marks: Marks?) ui::StyledText {
+  let codes: [Int] = match marks {
+    shown => mark_cells(drawing, shown),
+    _ => [],
+  }
   let spans = &mut List::new<ui::Span>()
   let rows = drawing.lines()
   mut y = 0
@@ -228,22 +481,31 @@ fn styled(colors: theme::Theme, semantic: Bool, drawing: canvas::Canvas) ui::Sty
     mut start = 0
     mut role = canvas::Role::frame
     mut bold = false
+    mut mark = codes.at(y * drawing.width).or(unmarked)
     mut x = 0
     while x < length {
       let shown = drawing.shown(x, y)
-      if shown != "" and shown != " " {
-        let cell_role = drawing.role(x, y)
-        let cell_bold = drawing.is_bold(x, y)
-        if cell_role != role or cell_bold != bold {
-          push_run(spans, colors, semantic, cells(drawing, y, start, x), role, bold)
-          start = x
-          role = cell_role
-          bold = cell_bold
-        }
+      let cell_mark = codes.at(y * drawing.width + x).or(unmarked)
+      let visible = shown != "" and shown != " "
+      let cell_role = match visible {
+        true => drawing.role(x, y),
+        false => role,
+      }
+      let cell_bold = match visible {
+        true => drawing.is_bold(x, y),
+        false => bold,
+      }
+      // A wide character's trailing cell shows nothing and stays in its run.
+      if shown != "" and (cell_role != role or cell_bold != bold or cell_mark != mark) {
+        push_run(spans, colors, semantic, cells(drawing, y, start, x), role, bold, mark)
+        start = x
+        role = cell_role
+        bold = cell_bold
+        mark = cell_mark
       }
       x =+ 1
     }
-    push_run(spans, colors, semantic, cells(drawing, y, start, length), role, bold)
+    push_run(spans, colors, semantic, cells(drawing, y, start, length), role, bold, mark)
     y =+ 1
   }
   ui::styled_text(spans.*)
@@ -254,26 +516,42 @@ private fn pointer_scroll_bindings() keymap::Bindings<ui::ScrollBoxAction> {
 }
 
 // A drawn diagram keeps its shape: it scrolls sideways instead of wrapping.
+// Given mouse, the drawing takes the pointer instead of selecting text.
 private fn drawn(
   colors: theme::Theme,
   id: Str,
   base: ui::TextStyle,
   drawing: canvas::Canvas,
   painted: ui::StyledText,
+  mouse: fn(&mut cooper::MouseEvent)?,
 ) cui::View {
-  let picture = cui::text(
+  let size = ui::style(
+    width: ui::cells(drawing.width),
+    height: ui::cells(drawing.height),
+    flex_shrink: 0.0,
+  )
+  let text = cui::text(
     painted,
     key: "mermaid-drawing:{id}",
-    styles: ui::style(
-      width: ui::cells(drawing.width),
-      height: ui::cells(drawing.height),
-      flex_shrink: 0.0,
-    ),
+    styles: size,
     text_style: base,
     wrap: ui::TextWrap::none,
-    selectable: true,
+    selectable: mouse.is_none(),
     selection_style: theme::selection_style(colors),
   )
+  let picture = match mouse {
+    handle => {
+      cui::box(
+        [text],
+        key: "mermaid-parts:{id}",
+        styles: size,
+        on_mouse: fn(received: &mut cooper::MouseEvent, context: cui::Context) {
+          handle(received)
+        },
+      )
+    },
+    _ => text,
+  }
   cui::box(
     [
       cui::scroll_box(
@@ -372,5 +650,77 @@ test fn drawn_diagrams_color_each_role() Void!Str {
   testing::assert(
     arrow.red == colors.muted.red and arrow.green == colors.muted.green and arrow.blue == colors.muted.blue,
     "arrows use the muted color",
+  )
+}
+
+private fn same_color(a: ui::Color?, b: ui::Color) Bool {
+  match a {
+    color => color.red == b.red and color.green == b.green and color.blue == b.blue,
+    _ => false,
+  }
+}
+
+test fn annotate_mode_tints_the_hovered_part_and_a_click_picks_it() Void!Str {
+  let terminal = headless::new(20, 10)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let picked = &mut List::new<Str>()
+  let annotate = Annotate{
+    marked: fn(source: Str) [diagram_notes::Part] {
+      [diagram_notes::Part{target: canvas::Target::participant, index: 1}]
+    },
+    pick: fn(source: Str, part: diagram_notes::Part) {
+      picked.push(part_key(part))
+    },
+  }
+  let renderer = cui::mount(
+    app,
+    view(
+      themes,
+      "annotate",
+      "sequenceDiagram\nA->>B: hi",
+      ui::text_style(),
+      true,
+      annotate: Maybe::new(annotate),
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = themes.current()
+  let rows = strings::Split(terminal.frame().text(), "\n")
+  try testing::assert(
+    strings::TrimSpace(rows.at(7).or("")) == "Annotate",
+    "the toggle sits under the drawing: {rows.at(7).or("")}",
+  )
+  terminal.click(3, 7)
+  terminal.flush()
+  let toggled = strings::Split(terminal.frame().text(), "\n")
+  try testing::assert(
+    strings::TrimSpace(toggled.at(7).or("")) == "Done",
+    "the toggle reads Done while annotating: {toggled.at(7).or("")}",
+  )
+  let commented = terminal.frame().cell(10, 1).expect("B")
+  try testing::assert(
+    commented.grapheme == "B" and same_color(commented.style.foreground, colors.accent_text),
+    "a part with a comment is in the accent color",
+  )
+  terminal.mouse_move(2, 1)
+  terminal.flush()
+  let corner = terminal.frame().cell(0, 0).expect("A's corner")
+  let beside = terminal.frame().cell(6, 0).expect("between the boxes")
+  try testing::assert(
+    same_color(corner.style.background, colors.picker_selected),
+    "the hovered participant's box is tinted",
+  )
+  try testing::assert(
+    not same_color(beside.style.background, colors.picker_selected),
+    "only the hovered part is tinted",
+  )
+  terminal.click(2, 1)
+  terminal.flush()
+  testing::assert(
+    picked.size() == 1 and picked.at(0).or("") == "participant 0",
+    "the click picks the participant: {strings::Join(picked.*, ",")}",
   )
 }

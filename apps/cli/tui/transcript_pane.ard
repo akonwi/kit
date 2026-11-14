@@ -11,6 +11,8 @@ use kit/tui/controls
 use kit/tui/image_preview
 use kit/tui/layout
 use kit/tui/markdown
+use kit/tui/mermaid
+use kit/tui/mermaid/annotation
 use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/tool_output
@@ -92,6 +94,8 @@ struct Notes {
   // Message IDs whose annotations are expanded.
   expanded: [Str: Bool],
   toggle: fn(Str),
+  // Lets diagrams in replies take comments on their parts.
+  annotate: mermaid::Annotate?,
 }
 
 // Direct shell runs. A finished run's header folds and unfolds its output.
@@ -620,6 +624,7 @@ private fn entry_view(
               message.text,
               base: ui::text_style(foreground: tone),
               semantic: (not message.aborted) and not message.is_error,
+              annotate: notes.annotate,
             ),
           )
         },
@@ -660,21 +665,27 @@ private fn user_entry(
   message: transcript::Message,
 ) cui::View? {
   let colors = themes.current()
+  // Comments on diagram parts are sent as blocks after the text.
+  let parts = annotation::split(message.text)
+  let text = parts.text
   match message.text == "" and message.attachments.size() == 0 and message.annotations.size() == 0 {
     true => Maybe::new<cui::View>(),
     false => {
       let body = &mut List::new<cui::View>()
-      if message.text != "" {
+      if text != "" {
         body.push(
           markdown::view(
             themes,
             key,
-            message.text,
+            text,
             base: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
           ),
         )
       }
-      if message.text != "" and message.attachments.size() > 0 {
+      for sent in parts.sent {
+        body.push(sent_diagram_comment(colors, sent))
+      }
+      if text != "" and message.attachments.size() > 0 {
         body.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
       }
       for attachment in message.attachments {
@@ -692,7 +703,7 @@ private fn user_entry(
         }
       }
       if message.annotations.size() > 0 {
-        if message.text != "" and message.attachments.size() == 0 {
+        if text != "" and message.attachments.size() == 0 {
           body.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
         }
         let expanded = notes.expanded.get(message.id).or(false)
@@ -817,6 +828,30 @@ private fn sent_annotation(colors: theme::Theme, annotation: sessionbridge::Anno
       text_style: ui::text_style(foreground: colors.foreground, background: fill),
     ),
   )
+  accent_card(colors, shown.*)
+}
+
+// A sent comment on a diagram's part: the part and the diagram's type, then
+// the comment, beside an accent bar.
+private fn sent_diagram_comment(colors: theme::Theme, sent: annotation::Sent) cui::View {
+  let fill = colors.user_fill
+  accent_card(
+    colors,
+    [
+      cui::text(
+        "{sent.target} · {sent.diagram}",
+        text_style: ui::text_style(foreground: colors.muted, background: fill),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+      cui::text(sent.comment, text_style: ui::text_style(foreground: colors.foreground, background: fill)),
+    ],
+  )
+}
+
+// Rows beside an accent bar, a blank row below what comes before.
+private fn accent_card(colors: theme::Theme, shown: [cui::View]) cui::View {
+  let fill = colors.user_fill
   cui::box(
     [
       cui::box(
@@ -836,7 +871,7 @@ private fn sent_annotation(colors: theme::Theme, annotation: sessionbridge::Anno
         ),
       ),
       cui::box(
-        shown.*,
+        shown,
         styles: ui::style(
           flex_grow: 1.0,
           flex_basis: ui::cells(0),

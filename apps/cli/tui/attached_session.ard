@@ -21,9 +21,11 @@ use kit/tui/annotations
 use kit/tui/attachments
 use kit/tui/bootstrap
 use kit/tui/chrome
+use kit/tui/diagram_notes
 use kit/tui/file_index
 use kit/tui/format
 use kit/tui/image_preview
+use kit/tui/mermaid/canvas
 use kit/tui/session_mentions
 use kit/tui/subagent_pane
 use kit/tui/subagents
@@ -93,6 +95,12 @@ struct Controller {
   // being sent, which leave the composer meanwhile.
   annotations: [sessionbridge::Annotation],
   sending_annotations: [Uint64],
+  // Comments on diagram parts waiting for the next prompt, the ID the next
+  // one takes, and those whose prompt is being sent, which leave the
+  // composer meanwhile.
+  diagram_notes: [diagram_notes::Note],
+  next_diagram_note: Int,
+  sending_diagram_notes: [Int],
   // The attachment ID of the image whose preview is expanded, if any, and
   // the most recently expanded previews, newest last.
   expanded_image: Str,
@@ -312,6 +320,9 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     attachment_token: 0,
     annotations: [],
     sending_annotations: [],
+    diagram_notes: [],
+    next_diagram_note: 1,
+    sending_diagram_notes: [],
     expanded_image: "",
     previews: [:],
     preview_order: [],
@@ -3474,8 +3485,10 @@ impl Controller {
         notes.push(annotation.ID)
       }
       let annotation_ids = notes.*
+      let diagrams = self.pending_diagram_notes()
+      let diagram_ids = diagram_notes::ids(diagrams)
       let bash = parse_bash(text)
-      if text == "" and ids.size() == 0 and annotation_ids.size() == 0 {
+      if text == "" and ids.size() == 0 and annotation_ids.size() == 0 and diagram_ids.size() == 0 {
         self.promote_follow_ups()
       } else if bash.is_some() {
         self.start_bash(bash.expect("bash command"))
@@ -3490,7 +3503,10 @@ impl Controller {
                 let staged = self.attachments
                 self.attachments = []
                 self.sending_annotations = annotation_ids
-                let optimistic = self.begin_submission(text, staged, sent_notes)
+                self.sending_diagram_notes = diagram_ids
+                // Diagram comments go as blocks after the text.
+                let sent_text = diagram_notes::message(text, diagrams)
+                let optimistic = self.begin_submission(sent_text, staged, sent_notes)
                 self.expand_sent_image(staged)
                 let ctx = lifetime.Context
                 let dispatch = self.host.dispatch
@@ -3498,7 +3514,7 @@ impl Controller {
                   let result = session.SubmitPromptInput(
                     ctx,
                     protocol::PromptInput{
-                      Text: text,
+                      Text: sent_text,
                       AttachmentIDs: ids,
                       AnnotationIDs: annotation_ids,
                     },
@@ -3506,8 +3522,15 @@ impl Controller {
                   let _ = dispatch(fn() {
                     if self.active {
                       self.sending_annotations = []
+                      self.sending_diagram_notes = []
                       match result {
                         ok(submission) => {
+                          // The prompt carries its diagram comments, queued
+                          // or not.
+                          self.diagram_notes = diagram_notes::without(
+                            self.diagram_notes,
+                            diagram_ids,
+                          )
                           // A started prompt consumed its annotations; a
                           // queued one keeps them until it is sent or
                           // restored.
@@ -3598,7 +3621,7 @@ impl Controller {
           },
         )
       },
-      pending.size() > 0 and command => {
+      (pending.size() > 0 or self.pending_diagram_notes().size() > 0) and command => {
         Maybe::new(
           Blocker{
             title: "Prompt commands do not accept annotations",
@@ -3783,6 +3806,28 @@ impl Controller {
       }
     }
     pending.*
+  }
+
+  // The diagram comments waiting for the next prompt: those not being sent.
+  fn pending_diagram_notes() [diagram_notes::Note] {
+    diagram_notes::without(self.diagram_notes, self.sending_diagram_notes)
+  }
+
+  // Adds a comment on part of source's diagram, returning why it can't be
+  // added, or "".
+  fn mut add_diagram_note(comment: Str, source: Str, part: diagram_notes::Part) Str {
+    match diagram_notes::add(self.diagram_notes, self.next_diagram_note, comment, source, part) {
+      ok(added) => {
+        self.diagram_notes = added
+        self.next_diagram_note =+ 1
+        ""
+      },
+      err(reason) => reason,
+    }
+  }
+
+  fn mut remove_diagram_note(id: Int) {
+    self.diagram_notes = diagram_notes::without(self.diagram_notes, [id])
   }
 
   fn mut apply_annotation(annotation: sessionbridge::Annotation) {
@@ -6388,4 +6433,37 @@ test fn snapshots_carry_the_plugin_footer() Void!Str {
     (not subject.plugin_footer.LocationHidden) and subject.plugin_footer.Items.size() == 0,
     "no plugin footer",
   )
+}
+
+test fn diagram_comments_wait_for_the_next_prompt() Void!Str {
+  let effects = &mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.prompt_commands = [
+    protocol::PromptCommand{Name: "review", Source: protocol::PromptCommandSourceProject},
+  ]
+  let flow = "flowchart TD\nA --> B"
+  let node = diagram_notes::Part{target: canvas::Target::node, index: 0}
+  try testing::assert(subject.add_diagram_note("Rename it.", flow, node) == "", "the comment is added")
+  try testing::assert(
+    subject.add_diagram_note("Why?", flow, diagram_notes::Part{target: canvas::Target::node, index: 9}) == "That part of the diagram can’t be annotated.",
+    "a part the diagram lacks is refused",
+  )
+  let blocked = match subject.send_blocker("/review") {
+    blocker => blocker.title,
+    _ => "",
+  }
+  try testing::assert(blocked == "Prompt commands do not accept annotations", blocked)
+  try testing::assert(subject.send_blocker("look again").is_none(), "a prompt can carry them")
+  subject.sending_diagram_notes = diagram_notes::ids(subject.diagram_notes)
+  try testing::assert(
+    subject.pending_diagram_notes().size() == 0,
+    "comments being sent leave the composer",
+  )
+  subject.sending_diagram_notes = []
+  subject.remove_diagram_note(subject.diagram_notes.at(0).expect("note").id)
+  testing::assert(subject.diagram_notes.size() == 0, "a removed comment is gone")
 }
