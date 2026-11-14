@@ -1,5 +1,6 @@
 import Foundation
 import KitClient
+import KitMermaidScene
 import Observation
 
 /// The client a composer sends through: prompts and prompt commands, the
@@ -40,6 +41,12 @@ final class SessionComposer {
     let uploads = ComposerAttachments()
     /// Comments on the session's changes, sent with the next message.
     let annotations = AnnotationState()
+    /// Comments on parts of the transcript's diagrams, sent as text after
+    /// the next message's.
+    let diagrams = DiagramAnnotationDraft()
+    /// The diagram comments in the message being sent, removed once the
+    /// server has it.
+    private var diagramsSent: [UUID] = []
     /// The session's model name, for saying it can't take images.
     var modelName: @MainActor () -> String = { "" }
     /// Whether the session's stream is live. Nothing is sent without it.
@@ -100,7 +107,7 @@ final class SessionComposer {
     var running: Bool { latest?.activeRunID != nil }
     private var hasContent: Bool {
         command != nil || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !restoredAttachmentIDs.isEmpty
-            || !uploads.items.isEmpty || !annotations.records.isEmpty
+            || !uploads.items.isEmpty || !annotations.records.isEmpty || !diagrams.isEmpty
     }
     /// The model's name when the session's model accepts no images.
     var imageRejectingModel: String? {
@@ -171,7 +178,7 @@ final class SessionComposer {
             run(command)
             return
         }
-        let text = draft, id = session
+        let id = session
         let attachments = ComposerAttachments.uniqueIDs(restoredAttachmentIDs + uploads.readyIDs)
         guard attachments.count <= 8 else {
             operations.reject("A message can contain up to eight attachments.")
@@ -191,15 +198,15 @@ final class SessionComposer {
             operations.reject("The code under a comment changed. Select its lines again or delete it before sending.")
             return
         }
-        let sent = SessionOperations.Draft(text: text, notes: [:], attachmentIDs: attachments)
+        let sent = SessionOperations.Draft(text: draft, notes: [:], attachmentIDs: attachments)
         let uncertain: @MainActor () -> Void = { [weak self] in self?.recover() }
         let acknowledged: @MainActor () -> Void = { [weak self] in self?.applyAcknowledgedDraft() }
-        if let command = PromptCommand.invocation(text) {
+        if let command = PromptCommand.invocation(draft) {
             guard (latest?.promptCommands ?? []).contains(where: { $0.name == command.name }) else {
                 operations.reject("Unknown prompt command: /" + command.name)
                 return
             }
-            guard attachments.isEmpty, notes.isEmpty else {
+            guard attachments.isEmpty, notes.isEmpty, diagrams.isEmpty else {
                 operations.reject("Prompt commands do not accept attachments or comments.")
                 return
             }
@@ -208,6 +215,9 @@ final class SessionComposer {
                                      draft: sent, uncertain: uncertain, acknowledged: acknowledged)
             return
         }
+        // Diagram comments go as text after the message's own.
+        let text = DiagramAnnotationDraft.join(draft, diagrams.messageText())
+        diagramsSent = diagrams.items.map(\.id)
         sends += 1
         operations.submit(client: client, session: id,
                           input: WirePromptInput(text: text, attachmentIds: attachments, annotationIds: notes.map(\.id)),
@@ -221,7 +231,7 @@ final class SessionComposer {
             operations.reject("Finish the comment you’re writing before sending.")
             return
         }
-        guard restoredAttachmentIDs.isEmpty, uploads.items.isEmpty, annotations.records.isEmpty else {
+        guard restoredAttachmentIDs.isEmpty, uploads.items.isEmpty, annotations.records.isEmpty, diagrams.isEmpty else {
             operations.reject("Commands don’t take attachments or comments.")
             return
         }
@@ -351,6 +361,8 @@ final class SessionComposer {
         if draft == sent.text { draft = "" }
         restoredAttachmentIDs.removeAll { sent.attachmentIDs.contains($0) }
         uploads.acknowledge(sent.attachmentIDs)
+        diagrams.acknowledge(diagramsSent)
+        diagramsSent = []
         operations.consumeAcknowledgedDraft()
     }
 }

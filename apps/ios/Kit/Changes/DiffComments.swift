@@ -181,7 +181,7 @@ struct DiffCommentEditor: View {
 }
 
 /// Cancel and Comment: capsules, the second filled with the text color.
-private struct CommentButtonStyle: ButtonStyle {
+struct CommentButtonStyle: ButtonStyle {
     let prominent: Bool
     @Environment(\.isEnabled) private var enabled
 

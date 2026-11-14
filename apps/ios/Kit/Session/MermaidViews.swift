@@ -10,6 +10,7 @@ import UIKit
 struct MermaidBlock: View {
     let diagram: MermaidDiagram
     @State private var opened = false
+    @Environment(\.diagramAnnotations) private var annotations
 
     var body: some View {
         switch diagram.drawing {
@@ -35,7 +36,7 @@ struct MermaidBlock: View {
                 .scrollIndicators(.hidden)
             }
             .fullScreenCover(isPresented: $opened) {
-                MermaidScreen(diagram: diagram, drawing: drawing)
+                MermaidScreen(diagram: diagram, drawing: drawing, annotations: annotations)
             }
         case .failure(let notDrawn):
             VStack(alignment: .leading, spacing: 6) {
@@ -47,36 +48,77 @@ struct MermaidBlock: View {
     }
 }
 
+extension EnvironmentValues {
+    /// The session's diagram comments, where a diagram can be annotated.
+    @Entry var diagramAnnotations: DiagramAnnotationDraft? = nil
+}
+
 /// A diagram alone, to drag around and pinch. It opens fitted to the
-/// screen's width, or at full size when that's smaller.
+/// screen's width, or at full size when that's smaller. With the session's
+/// diagram comments, Annotate turns taps into picking a part to comment on;
+/// parts with a waiting comment carry a mark.
 struct MermaidScreen: View {
     let diagram: MermaidDiagram
     let drawing: KitMermaid.Canvas
+    var annotations: DiagramAnnotationDraft? = nil
+    @State var annotator = DiagramAnnotator()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         NavigationStack {
-            MermaidZoomingView(image: MermaidImage(diagram: diagram, drawing: drawing, scheme: scheme,
-                                                   displayScale: displayScale))
-                .background(Theme.raised)
-                .ignoresSafeArea(edges: .bottom)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Mermaid diagram")
-                .accessibilityValue(diagram.source)
-                .accessibilityIdentifier("mermaid-diagram")
-                .navigationTitle("Diagram")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { dismiss() }
-                            .accessibilityIdentifier("mermaid-done")
+            VStack(spacing: 0) {
+                MermaidZoomingView(image: MermaidImage(diagram: diagram, drawing: drawing, scheme: scheme,
+                                                       displayScale: displayScale),
+                                   marks: MermaidMarks(annotating: annotator.annotating, hovered: annotator.hovered,
+                                                       picked: annotator.selected,
+                                                       marked: annotations?.parts(of: diagram.source) ?? []),
+                                   pick: { annotator.click($0) }, hover: { annotator.hover($0) })
+                    .background(Theme.raised)
+                    .ignoresSafeArea(edges: annotator.selected == nil ? .bottom : [])
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Mermaid diagram")
+                    .accessibilityValue(diagram.source)
+                    .accessibilityIdentifier("mermaid-diagram")
+                if let annotations, let picked = annotator.selected {
+                    DiagramCommentEditor(annotator: annotator,
+                                         summary: (try? DiagramAnnotationText.summary(diagram.source, picked)) ?? "",
+                                         error: annotations.error) {
+                        annotator.commit(to: annotations, source: diagram.source)
+                    }
+                    .id(picked)
+                }
+            }
+            .navigationTitle("Diagram")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if annotations != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Toggle(isOn: Binding(get: { annotator.annotating }, set: { $0 ? annotator.start() : annotator.stop() })) {
+                            Label("Annotate", systemImage: "text.bubble")
+                        }
+                        .toggleStyle(.button)
+                        .accessibilityIdentifier("mermaid-annotate")
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .accessibilityIdentifier("mermaid-done")
+                }
+            }
         }
         .accessibilityIdentifier("mermaid-screen")
     }
+}
+
+/// What Annotate mode shows over a diagram: the part a pointer is over,
+/// the part picked, and the parts with a waiting comment.
+struct MermaidMarks: Equatable {
+    var annotating = false
+    var hovered: Part?
+    var picked: Part?
+    var marked: [Part] = []
 }
 
 /// A diagram drawn as an image at a given resolution: its scene with a
@@ -94,12 +136,26 @@ struct MermaidImage: Equatable {
     static let maximumSide: CGFloat = 8192
     static let maximumPixels: CGFloat = 16_000_000
 
+    /// The size of the scene's cells and lines, as MermaidPicture draws it.
+    var metrics: MermaidScene.Metrics {
+        MermaidPicture.metrics(for: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular), scale: displayScale)
+    }
+
     /// The image's size in points: the scene's and its margin.
     var size: CGSize {
-        let metrics = MermaidPicture.metrics(for: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                                             scale: displayScale)
         let scene = MermaidSceneCache.shared.scene(for: diagram.source, drawing: drawing, metrics: metrics).size
         return CGSize(width: scene.width + Self.margin * 2, height: scene.height + Self.margin * 2)
+    }
+
+    /// The part drawn under a point in the image, if any.
+    func part(at point: CGPoint) -> Part? {
+        MermaidHighlight.part(at: CGPoint(x: point.x - Self.margin, y: point.y - Self.margin), in: drawing,
+                              metrics: metrics)
+    }
+
+    /// Where a part is drawn, in the scene's points.
+    func highlight(_ part: Part) -> MermaidHighlight {
+        MermaidHighlight(part, in: drawing, metrics: metrics)
     }
 
     /// The pixels per point for a zoom: enough for the screen at that
@@ -133,8 +189,13 @@ struct MermaidImage: Equatable {
 /// at each zoom it settles on, so it stays sharp. It isn't a hosted
 /// SwiftUI view under the zoom's transform: that one lays itself out at
 /// its scaled frame and draws only part of a diagram wider than the screen.
+/// In Annotate mode a tap picks the part under it, and a pointer outlines
+/// the part it's over; the outlines ride the zoom.
 struct MermaidZoomingView: UIViewRepresentable {
     let image: MermaidImage
+    var marks = MermaidMarks()
+    var pick: (Part?) -> Void = { _ in }
+    var hover: (Part?) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -146,23 +207,60 @@ struct MermaidZoomingView: UIViewRepresentable {
         scroll.showsVerticalScrollIndicator = false
         scroll.bouncesZoom = true
         scroll.contentInsetAdjustmentBehavior = .never
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+        tap.isEnabled = false
+        scroll.addGestureRecognizer(tap)
+        context.coordinator.tap = tap
+        let pointer = UIHoverGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.hovered(_:)))
+        pointer.isEnabled = false
+        scroll.addGestureRecognizer(pointer)
+        context.coordinator.pointer = pointer
         return scroll
     }
 
     func updateUIView(_ scroll: MermaidScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.scroll = scroll
-        guard coordinator.image != image else { return }
-        coordinator.image = image
-        scroll.show(size: image.size)
-        coordinator.redraw()
+        coordinator.pick = pick
+        coordinator.hover = hover
+        coordinator.tap?.isEnabled = marks.annotating
+        coordinator.pointer?.isEnabled = marks.annotating
+        if coordinator.image != image {
+            coordinator.image = image
+            scroll.show(size: image.size)
+            coordinator.redraw()
+        }
+        scroll.overlay.show(marks, in: image)
     }
 
     @MainActor final class Coordinator: NSObject, UIScrollViewDelegate {
         var image: MermaidImage?
         weak var scroll: MermaidScrollView?
+        weak var tap: UITapGestureRecognizer?
+        weak var pointer: UIHoverGestureRecognizer?
+        var pick: (Part?) -> Void = { _ in }
+        var hover: (Part?) -> Void = { _ in }
         /// The scale the shown image was drawn at.
         private(set) var drawnScale: CGFloat = 0
+
+        /// The part under a point in the image's own points.
+        func part(at point: CGPoint) -> Part? { image?.part(at: point) }
+
+        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+            guard let view = scroll?.imageView, gesture.state == .ended else { return }
+            tapped(at: gesture.location(in: view))
+        }
+
+        /// Picks the part under a tap at a point in the image's own points.
+        func tapped(at point: CGPoint) { pick(part(at: point)) }
+
+        @objc func hovered(_ gesture: UIHoverGestureRecognizer) {
+            guard let view = scroll?.imageView else { return }
+            switch gesture.state {
+            case .began, .changed: hover(part(at: gesture.location(in: view)))
+            default: hover(nil)
+            }
+        }
 
         func viewForZooming(in scroll: UIScrollView) -> UIView? { (scroll as? MermaidScrollView)?.imageView }
 
@@ -190,15 +288,19 @@ struct MermaidZoomingView: UIViewRepresentable {
 /// once laid out, and keeps an image smaller than itself in the middle.
 final class MermaidScrollView: UIScrollView {
     let imageView = UIImageView()
+    /// Annotate mode's outlines and marks, over the image in its points.
+    let overlay = MermaidAnnotationOverlay()
     private var fitted = false
 
     func show(size: CGSize) {
         if imageView.superview == nil {
             imageView.contentMode = .scaleToFill
             addSubview(imageView)
+            imageView.addSubview(overlay)
         }
         zoomScale = 1
         imageView.frame = CGRect(origin: .zero, size: size)
+        overlay.frame = CGRect(origin: .zero, size: size)
         contentSize = size
         fitted = false
         setNeedsLayout()

@@ -1,4 +1,5 @@
 import KitClient
+import KitMermaid
 import KitTranscript
 import SwiftUI
 
@@ -33,8 +34,10 @@ struct TranscriptRow: View {
                 }
             }
         } else if message.role == "user" {
-            UserMessage(message: message)
-                .modifier(MessageMenu(text: message.text))
+            // Diagram comments ride after the message's own text.
+            let parts = DiagramAnnotationText.split(message.text)
+            UserMessage(message: message, text: parts.text, diagramComments: parts.annotations)
+                .modifier(MessageMenu(text: parts.text))
         } else if message.plugin != nil {
             VStack(alignment: .leading, spacing: 6) {
                 Text("From \(message.plugin!.pluginID)")
@@ -73,6 +76,8 @@ private struct MessageMenu: ViewModifier {
 private struct UserMessage: View {
     @Environment(\.userMessageCaption) private var caption
     let message: TranscriptMessage
+    let text: String
+    let diagramComments: [DiagramAnnotationText.Sent]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -82,12 +87,15 @@ private struct UserMessage: View {
                     .foregroundStyle(Theme.muted)
                     .padding(.bottom, -4)
             }
-            if !message.text.isEmpty {
-                Prose(text: SessionMentions.linked(plain: message.text), lineHeight: 23)
+            if !text.isEmpty {
+                Prose(text: SessionMentions.linked(plain: text), lineHeight: 23)
             }
             TranscriptAttachments(attachments: message.attachments ?? [])
             if let notes = message.annotations, !notes.isEmpty {
                 SentComments(notes: notes)
+            }
+            if !diagramComments.isEmpty {
+                SentDiagramComments(annotations: diagramComments)
             }
         }
         .padding(.horizontal, 16)

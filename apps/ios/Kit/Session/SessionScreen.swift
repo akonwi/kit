@@ -176,6 +176,7 @@ struct SessionScreen: View {
             .environment(\.selectText) { selecting = SelectedText(text: $0) }
             .environment(\.transcriptAttachments, attachments)
             .environment(\.openComment, open)
+            .environment(\.diagramAnnotations, composer.diagrams)
             // Whether comments' code changed is known when they're read.
             .task(id: "\(feed.session != nil)|\(feed.session?.watchGeneration ?? "")") {
                 guard feed.session != nil else { return }

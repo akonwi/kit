@@ -60,6 +60,7 @@ struct ComposerBar: View {
                                    change: composer.changeQueue)
                     }
                     CommentChips(composer: composer, reveal: revealComment, revealable: revealable)
+                    DiagramChips(draft: composer.diagrams, enabled: composer.editable)
                     AttachmentStrip(composer: composer)
                 }
                 // The list gives way first, so the field stays above the keyboard.
@@ -72,6 +73,7 @@ struct ComposerBar: View {
         .animation(.snappy(duration: 0.2), value: composer.queue?.count)
         .animation(.snappy(duration: 0.2), value: composer.uploads.items.map(\.id))
         .animation(.snappy(duration: 0.2), value: composer.annotations.records.map(\.id))
+        .animation(.snappy(duration: 0.2), value: composer.diagrams.items.map(\.id))
         .animation(.snappy(duration: 0.25), value: interactions.docked?.id)
         .animation(.snappy(duration: 0.25), value: interactions.collapsed)
         .animation(.snappy(duration: 0.2), value: search == nil)
