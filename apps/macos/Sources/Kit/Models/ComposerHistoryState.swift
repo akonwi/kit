@@ -1,4 +1,5 @@
 import Foundation
+import KitMermaid
 import Observation
 
 @MainActor @Observable final class ComposerHistoryState {
@@ -105,7 +106,13 @@ import Observation
                 let page = try await client.messageHistory(session, before: cursor)
                 guard !Task.isCancelled, let self, self.mode == .messages else { return }
                 var seen = Set(self.entries.map(\.text))
-                self.entries += page.entries.filter { seen.insert($0.text).inserted }.map(Entry.message)
+                // Diagram comments were sent as blocks after the text; only
+                // the text is recalled.
+                let recalled = page.entries.compactMap { entry -> ComposerMessageHistoryEntry? in
+                    let text = DiagramAnnotationText.split(entry.text).text
+                    return text.isEmpty ? nil : ComposerMessageHistoryEntry(id: entry.id, text: text)
+                }
+                self.entries += recalled.filter { seen.insert($0.text).inserted }.map(Entry.message)
                 self.hasMore = page.hasMore; self.nextCursor = page.nextCursor
                 self.loading = false; self.task = nil
                 if self.query == requestedQuery, let anchorID,

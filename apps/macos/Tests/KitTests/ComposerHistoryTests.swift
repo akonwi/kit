@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import KitMermaid
+import KitMermaidScene
 import SwiftUI
 import Testing
 @testable import Kit
@@ -94,6 +96,20 @@ struct ComposerHistoryTests {
         try await settle { !state.loading && state.entries.count == 3 }
         #expect(state.selected == .message(.init(id: "old", text: "same ")))
         #expect(state.entries.count == 3)
+    }
+
+    @Test func messageHistoryRecallsTextWithoutDiagramComments() async throws {
+        let blocks = try DiagramAnnotationText.text([
+            DiagramAnnotation(comment: "Say why", source: "flowchart LR\nA --> B", part: Part(.node, 0)),
+        ])
+        let client = HistoryTestClient(messages: [
+            .init(id: "with-text", text: DiagramAnnotationDraft.join("Look again.", blocks)),
+            .init(id: "comments-only", text: blocks),
+        ])
+        let state = ComposerHistoryState()
+        state.openMessages(session: "session_1", client: client)
+        try await settle { !state.loading }
+        #expect(state.entries == [.message(.init(id: "with-text", text: "Look again."))])
     }
 
     @Test func bashHistoryRestoresOriginalContextModeAndLoadsOlderPage() async throws {
