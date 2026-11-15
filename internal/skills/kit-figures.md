@@ -38,7 +38,7 @@ table. A figure for one or two numbers is noise; put them in the sentence.
 | To show | Use |
 |---|---|
 | 1–4 headline numbers, optionally with a trend | `stat` |
-| Quantities to compare, one per row | `bars` |
+| Quantities to compare, or one total's parts, one per row | `bars` |
 | Progress toward a whole, or rows against their own targets | `meter` |
 | Dated events, with where things stand now | `timeline` |
 | An ordered procedure and the current step | `steps` |
@@ -49,7 +49,7 @@ table. A figure for one or two numbers is noise; put them in the sentence.
 | A file or module hierarchy | `tree` |
 | Options against the same criteria | `compare` |
 | Ratings out of the same whole | `score` |
-| Each row split into the same named parts | `stack` |
+| A few named parts (2–4) compared across rows | `stack` |
 | A remark that needs attention | a callout |
 
 ## Rules for every figure
@@ -102,6 +102,8 @@ table. A figure for one or two numbers is noise; put them in the sentence.
   them yourself.
 - Keys: `title`, `max="N"` (fixed scale), `percent="first"` (share of the
   first row, for funnels) or `percent="total"` (share of the sum).
+- One total broken into parts, however many (startup time by phase), is
+  bars with `percent="total"`, not a one-row `stack`.
 
 ### meter
 
@@ -285,6 +287,10 @@ Revisit if writes pass 2k a second.
   segment named `kb js`.
 - Every row has the same 2–4 segment names in the same order. Values are
   >= 0 and share one unit.
+- A stack compares a few parts across rows. More than 4 parts, or one total
+  broken into many parts (a startup time by phase, a bundle by file), is a
+  `bars` figure with one row per part. Past 4, Kit keeps the 3 largest and
+  adds the rest into `other`.
 - Kit computes and shows each row's total; don't add a total row or segment.
 - Keys: `title`, `scale="shared"` (rows compare by total length; by default
   each row fills the track to show shares).
