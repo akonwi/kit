@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// A terminal tab's pane: the shell, drawn edge to edge in the Kit theme.
+/// A terminal tab's pane: the shell, drawn edge to edge in the Kit theme,
+/// which `TerminalTheme` keeps every terminal in.
 /// The terminal is in a window only while its tab is on screen, so a
 /// hidden terminal stops drawing while its shell keeps running.
 struct TerminalPane: View {
@@ -12,7 +13,6 @@ struct TerminalPane: View {
 
     var body: some View {
         let pane = WorkspacePane.terminal(tab.id)
-        let appearance = TerminalAppearance(theme: theme)
         let visible = workspace.isVisible(pane)
         ZStack {
             theme.surface
@@ -23,9 +23,8 @@ struct TerminalPane: View {
             }
         }
         .task(id: visible) {
-            if visible, hosted == nil { hosted = tab.view(appearance: appearance) }
+            if visible, hosted == nil { hosted = tab.view() }
             if visible { tab.bell = false }
         }
-        .onChange(of: appearance) { TerminalRuntime.shared.apply(appearance) }
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyKit
 import SwiftUI
 
 /// How terminals look: the Kit theme's colors and the mono font from
@@ -87,6 +88,9 @@ struct TerminalAppearance: Equatable {
         "\"" + value.replacingOccurrences(of: "\\", with: "").replacingOccurrences(of: "\"", with: "")
             .replacingOccurrences(of: "\n", with: " ") + "\""
     }
+
+    /// Whether programs in the terminal are told it is light or dark.
+    var colorScheme: ghostty_color_scheme_e { dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT }
 
     /// `#RRGGBB` in sRGB, ignoring alpha.
     static func hex(_ color: Color) -> String {

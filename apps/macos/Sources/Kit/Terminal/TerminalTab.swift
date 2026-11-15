@@ -45,11 +45,11 @@ final class TerminalTab: Identifiable {
 
     /// The terminal's view, starting libghostty and the shell on first use.
     /// Nil once it has failed to start.
-    func view(appearance: TerminalAppearance) -> NSView? {
+    func view() -> NSView? {
         if let surface { return surface }
         guard failure == nil else { return nil }
         let runtime = TerminalRuntime.shared
-        guard runtime.start(appearance) else {
+        guard runtime.start() else {
             failure = runtime.failure ?? "The terminal couldn’t start."
             return nil
         }

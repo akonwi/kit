@@ -27,6 +27,7 @@ private final class SurfaceHandle: @unchecked Sendable {
 /// (MIT licensed).
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     weak var owner: TerminalSurfaceOwner?
+    private let runtime: TerminalRuntime
     private var handle: SurfaceHandle?
     var surface: ghostty_surface_t? { handle?.surface }
 
@@ -38,10 +39,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var windowObservers: [NSObjectProtocol] = []
 
     /// Starts a login shell in `directory`, typing `initialInput` into it
-    /// when given. Fails if libghostty isn't running.
-    init?(directory: String, initialInput: String? = nil) {
+    /// when given, or runs `command` instead of the shell. Fails if
+    /// libghostty isn't running.
+    init?(directory: String, initialInput: String? = nil, command: String? = nil, runtime: TerminalRuntime = .shared) {
+        self.runtime = runtime
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        guard let app = TerminalRuntime.shared.app else { return nil }
+        guard let app = runtime.app else { return nil }
         var config = ghostty_surface_config_new()
         config.userdata = Unmanaged.passUnretained(self).toOpaque()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -50,26 +53,34 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2)
         config.font_size = 0
         config.context = GHOSTTY_SURFACE_CONTEXT_TAB
-        // No command: libghostty runs the user's login shell.
+        // Without a command, libghostty runs the user's login shell.
         let created = directory.withCString { path -> ghostty_surface_t? in
             config.working_directory = path
-            guard let initialInput else { return ghostty_surface_new(app, &config) }
-            return initialInput.withCString { input in
-                config.initial_input = input
-                return ghostty_surface_new(app, &config)
+            return Self.withOptionalCString(command) { command in
+                config.command = command
+                return Self.withOptionalCString(initialInput) { input in
+                    config.initial_input = input
+                    return ghostty_surface_new(app, &config)
+                }
             }
         }
         guard let created else { return nil }
         handle = SurfaceHandle(created)
-        TerminalRuntime.shared.register(self)
+        runtime.register(self)
         registerForDraggedTypes([.fileURL, .string])
     }
 
     required init?(coder: NSCoder) { fatalError("unsupported") }
 
+    private static func withOptionalCString<Result>(_ value: String?,
+                                                    _ body: (UnsafePointer<CChar>?) -> Result) -> Result {
+        guard let value else { return body(nil) }
+        return value.withCString { body($0) }
+    }
+
     /// Ends the shell and frees the surface.
     func close() {
-        TerminalRuntime.shared.unregister(self)
+        runtime.unregister(self)
         stopObservingWindow()
         handle?.free()
         handle = nil

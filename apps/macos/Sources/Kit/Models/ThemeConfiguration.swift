@@ -27,9 +27,10 @@ struct ThemeConfiguration: Codable {
     }
 
     /// The theme for one mode, showing a picker's preview in its place.
-    @MainActor func resolved(dark isDark: Bool, installed: [InstalledTheme] = []) -> MicaTheme {
+    @MainActor func resolved(dark isDark: Bool, installed: [InstalledTheme] = [],
+                             preview: ThemePreview = .shared) -> MicaTheme {
         var shown = self
-        if let preview = ThemePreview.shared.choice, preview.dark == isDark {
+        if let preview = preview.choice, preview.dark == isDark {
             if isDark { shown.dark = preview.id } else { shown.light = preview.id }
         }
         return shown.theme(dark: isDark, installed: installed)

@@ -74,6 +74,7 @@ struct KitApp: App {
             UserDefaults.standard.set(configuration.json, forKey: "themeConfiguration")
         }
         _themeLibrary = State(initialValue: library)
+        TerminalTheme.shared.library = library
     }
 
     var body: some Scene {

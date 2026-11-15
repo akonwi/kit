@@ -109,8 +109,9 @@ working directory on the client machine. Since workspace operations belong to
 the server host, terminal panes are offered only when the server is the local
 daemon. The application owns the terminal process. The process ends when its
 pane closes or the application quits, and the terminal is not visible to the
-agent. Terminal colors and fonts come from the active Kit theme; the user's
-Ghostty configuration is not read.
+agent. Terminal colors and fonts come from the active Kit theme, and every
+terminal, shown or not, follows it as it changes; programs that ask are told
+whether it is light or dark. The user's Ghostty configuration is not read.
 
 ### Browsers
 
