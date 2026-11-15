@@ -399,13 +399,14 @@ final class SessionsStore {
 
     /// Records that a session was shown as of its latest change. `working`
     /// is whether the screen saw it working or waiting on the user, if known.
-    /// A screen that hasn't caught up with what the list saw can't say the
-    /// session is idle, or a turn the list saw start would never be marked.
+    /// It counts only when the screen is ahead of the list, as when a message
+    /// was just sent from it; otherwise what the list last saw stands, since
+    /// a screen that hasn't caught up could undo a turn the list saw start
+    /// or end.
     func markSeen(_ id: SessionIdentity, changed: Date? = nil, working: Bool? = nil) {
         let latest = rows.first { $0.id == id }?.changed
-        let behind = changed.map { shown in latest.map { shown < $0 } ?? false } ?? true
-        seen.markSeen(id, at: max(changed ?? .distantPast, latest ?? .distantPast),
-                      working: working == false && behind ? nil : working)
+        let ahead = changed.map { shown in latest.map { shown > $0 } ?? true } ?? false
+        seen.markSeen(id, at: max(changed ?? .distantPast, latest ?? .distantPast), working: ahead ? working : nil)
         seenRevision += 1
     }
 }

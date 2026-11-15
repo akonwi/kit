@@ -243,6 +243,24 @@ struct SessionsStoreTests {
         #expect(store.rows.map(\.unseen) == [true])
     }
 
+    /// A screen that hasn't yet seen the turn end that the list saw can't
+    /// say the session is working.
+    @Test func aScreenBehindTheListLeavesItIdle() async {
+        let network = FakeSessionsNetwork()
+        let id = SessionIdentity(server: "studio", session: "a")
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)], activity: ["a": .running])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio])
+        store.onScreen = id
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
+        await store.refresh([studio])
+        store.markSeen(id, changed: Date(timeIntervalSince1970: 1_800_000_100), working: true)
+        store.onScreen = nil
+
+        await store.refresh([studio])
+        #expect(store.rows.map(\.unseen) == [false])
+    }
+
     /// A listing that answers after a newer one doesn't replace it.
     @Test func anOlderListingThatAnswersLateIsDropped() async {
         let network = FakeSessionsNetwork()
