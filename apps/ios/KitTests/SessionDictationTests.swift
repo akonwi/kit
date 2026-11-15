@@ -181,6 +181,7 @@ struct SessionDictationTests {
     }
 
     @Test func draftsGoWithTheirSessions() {
+        drafts.listed("studio", sessions: ["s", "other"])
         drafts.save("kept", for: session)
         drafts.save("gone", for: other)
         drafts.save("elsewhere", for: SessionIdentity(server: "vps", session: "other"))
@@ -192,18 +193,51 @@ struct SessionDictationTests {
         #expect(drafts.text(for: session) == "")
     }
 
+    /// A session just started isn't in a listing that began before it, so
+    /// its draft waits until a listing has shown it.
+    @Test func aNewSessionsDraftOutlastsAnEarlierListing() {
+        drafts.listed("studio", sessions: ["s"])
+        drafts.save("First words", for: other)
+        drafts.listed("studio", sessions: ["s"])
+        #expect(drafts.text(for: other) == "First words")
+        drafts.listed("studio", sessions: ["s", "other"])
+        drafts.listed("studio", sessions: ["s"])
+        #expect(drafts.text(for: other) == "")
+    }
+
+    /// Drafts are written once typing settles, and are read back after a relaunch.
+    @Test func draftsAreWrittenOnceTypingSettles() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let drafts = SessionDrafts(defaults: defaults)
+        drafts.save("Half", for: session)
+        drafts.save("Half a thought", for: session)
+        #expect(SessionDrafts(defaults: defaults).text(for: session) == "")
+        for _ in 0..<100 where SessionDrafts(defaults: defaults).text(for: session).isEmpty {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(SessionDrafts(defaults: defaults).text(for: session) == "Half a thought")
+    }
+
     // MARK: Background time
 
     /// When the app's background time runs out mid-transcription, the
     /// words transcribed so far are kept.
     @Test func runningOutOfTimeKeepsTheWordsSoFar() async throws {
-        let microphone = SharedMicrophone(SlowEngine())
+        let time = FakeBackgroundTime()
+        let microphone = SharedMicrophone(SlowEngine()) { expired in
+            time.expired = expired
+            return { time.ended += 1 }
+        }
         let recording = try await microphone.prepare(installing: {}, level: { _ in })
         try recording.start()
         let finished = Task { try await recording.finish() }
-        try await Task.sleep(for: .milliseconds(20))
-        (recording as? SharedMicrophone.LentRecording)?.expire()
+        while time.expired == nil { await Task.yield() }
+        time.expired?()
         #expect(try await finished.value == "What was said so far")
+        // The recording stops, then the time ends and the microphone is free.
+        while time.ended == 0 { await Task.yield() }
+        let next = try await microphone.prepare(installing: {}, level: { _ in })
+        await next.cancel()
     }
 
     @Test func cancelThrowsTheWordsAway() async {
@@ -237,6 +271,12 @@ struct SessionDictationTests {
         #expect(press.began(at: .now, idle: false) == .none)
         #expect(press.ended(at: .now, recording: true) == .send)
     }
+}
+
+/// Background time a test runs out of.
+@MainActor private final class FakeBackgroundTime: Sendable {
+    var expired: (@MainActor @Sendable () -> Void)?
+    var ended = 0
 }
 
 /// A recording whose finishing never ends on its own, with some words

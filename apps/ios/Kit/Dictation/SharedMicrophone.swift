@@ -10,11 +10,17 @@ import UIKit
 /// gets background time, so it finishes when the app is left; if iOS ends
 /// that time first, the words transcribed so far are kept.
 struct SharedMicrophone: DictationEngine {
+    /// Keeps the app running for a transcription: called with what to do
+    /// if the time runs out, it returns how to end it.
+    typealias KeepRunning = @MainActor @Sendable (_ expired: @escaping @MainActor @Sendable () -> Void) -> (@MainActor @Sendable () -> Void)
+
     let engine: any DictationEngine
     private let lease = Lease()
+    private let keepRunning: KeepRunning
 
-    init(_ engine: any DictationEngine) {
+    init(_ engine: any DictationEngine, keepRunning: @escaping KeepRunning = BackgroundTime.keep) {
         self.engine = engine
+        self.keepRunning = keepRunning
     }
 
     func requestAccess() async -> DictationAccess {
@@ -26,7 +32,7 @@ struct SharedMicrophone: DictationEngine {
         let id = try await lease.acquire()
         do {
             let recording = try await engine.prepare(installing: installing, level: level)
-            return LentRecording(recording: recording, id: id, lease: lease)
+            return LentRecording(recording: recording, id: id, lease: lease, keepRunning: keepRunning)
         } catch {
             await lease.release(id)
             throw error
@@ -73,12 +79,13 @@ struct SharedMicrophone: DictationEngine {
         let recording: any DictationRecording
         let id: UUID
         let lease: Lease
-        private let expiry = Expiry()
+        let keepRunning: KeepRunning
 
-        init(recording: any DictationRecording, id: UUID, lease: Lease) {
+        init(recording: any DictationRecording, id: UUID, lease: Lease, keepRunning: @escaping KeepRunning) {
             self.recording = recording
             self.id = id
             self.lease = lease
+            self.keepRunning = keepRunning
         }
 
         /// A recording dropped without ending stops, then gives the
@@ -95,28 +102,28 @@ struct SharedMicrophone: DictationEngine {
             try recording.start()
         }
 
+        /// Finishes in the background time iOS gives. If that time ends
+        /// first, the words transcribed so far are the answer at once, before
+        /// the app is suspended, and the recording stops.
         func finish() async throws -> String {
             await lease.ending(id)
-            let background = await BackgroundTime.begin { [self] in expire() }
-            defer { Task { @MainActor in background.end() } }
-            do {
-                let words = try await recording.finish()
-                await lease.release(id)
-                return words
-            } catch {
-                await lease.release(id)
+            let race = Race()
+            let recording = recording, lease = lease, id = id
+            let end = await keepRunning {
                 let soFar = recording.transcribedSoFar()
-                if expiry.isSet, !soFar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return soFar }
-                throw error
+                race.resolve(soFar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                             ? .failure(DictationProblem.failed) : .success(soFar))
+                Task { await recording.cancel() }
             }
-        }
-
-        /// The app's background time ran out before finishing did: it stops,
-        /// and `finish` gives the words transcribed so far.
-        func expire() {
-            expiry.set()
-            let recording = recording
-            Task { await recording.cancel() }
+            Task {
+                let result: Result<String, any Error>
+                do { result = .success(try await recording.finish()) } catch { result = .failure(error) }
+                // The microphone is given back only once the recording has stopped.
+                await lease.release(id)
+                race.resolve(result)
+                await end()
+            }
+            return try await race.value()
         }
 
         func transcribedSoFar() -> String {
@@ -131,17 +138,41 @@ struct SharedMicrophone: DictationEngine {
     }
 }
 
-/// Set once a recording's background time ran out.
-private final class Expiry: @unchecked Sendable {
+/// The first of finishing and running out of time.
+private final class Race: @unchecked Sendable {
     private let lock = NSLock()
-    private var value = false
-    var isSet: Bool { lock.withLock { value } }
-    func set() { lock.withLock { value = true } }
+    private var result: Result<String, any Error>?
+    private var waiting: CheckedContinuation<String, any Error>?
+
+    func resolve(_ outcome: Result<String, any Error>) {
+        let continuation: CheckedContinuation<String, any Error>? = lock.withLock {
+            guard result == nil else { return nil }
+            result = outcome
+            defer { waiting = nil }
+            return waiting
+        }
+        continuation?.resume(with: outcome)
+    }
+
+    func value() async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            let ready: Result<String, any Error>? = lock.withLock {
+                if result == nil { waiting = continuation }
+                return result
+            }
+            if let ready { continuation.resume(with: ready) }
+        }
+    }
 }
 
 /// Background time for one transcription, ended once.
 @MainActor final class BackgroundTime {
     private var task = UIBackgroundTaskIdentifier.invalid
+
+    static func keep(expired: @escaping @MainActor @Sendable () -> Void) -> (@MainActor @Sendable () -> Void) {
+        let time = begin(expired: expired)
+        return { time.end() }
+    }
 
     static func begin(expired: @escaping @MainActor () -> Void) -> BackgroundTime {
         let time = BackgroundTime()

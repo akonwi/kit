@@ -151,10 +151,14 @@ final class SessionDictation {
             dictation.cancel()
             return
         }
-        // The microphone keeps the app running while the words are transcribed.
+        // The app keeps running until the words are in the draft, and the
+        // draft is written, even if the app was left meanwhile.
+        let background = BackgroundTime.begin {}
         Task {
             defer {
                 if !open.contains(id), !dictation.isActive { dictations[id] = nil }
+                drafts.write()
+                background.end()
             }
             guard let words = await dictation.finish() else { return }
             let composer = open.contains(id) ? composers[id]?.composer : nil

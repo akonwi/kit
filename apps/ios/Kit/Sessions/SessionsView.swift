@@ -118,7 +118,9 @@ struct SessionsView: View {
         }
         // A recording ends in its draft when the app or this tab is left.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { dictations.interrupted() }
+            guard phase == .background else { return }
+            dictations.interrupted()
+            store.drafts.write()
         }
         .onDisappear { dictations.interrupted() }
         // Set on the stack so pushed sessions see it.
