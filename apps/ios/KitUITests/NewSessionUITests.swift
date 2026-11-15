@@ -16,7 +16,7 @@ final class NewSessionUITests: XCTestCase {
         guard let folder = ProcessInfo.processInfo.environment["KIT_NEW_SESSION_FOLDER"], !folder.isEmpty else {
             throw XCTSkip("Run script/test_new_session.sh against an isolated server with a folder it can start in.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
 

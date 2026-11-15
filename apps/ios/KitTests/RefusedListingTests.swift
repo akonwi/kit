@@ -42,7 +42,8 @@ private struct RevokedNetwork: SessionsNetwork {
 struct RefusedListingTests {
     @Test func aServerThatNoLongerKnowsThisIPhoneAsksToPairAgain() async throws {
         let studio = SavedServer(name: "studio", kind: .url, address: "https://studio.example.ts.net")
-        let store = SessionsStore(network: try RevokedNetwork(), seen: SeenSessions(defaults: UserDefaults(suiteName: UUID().uuidString)!))
+        let store = SessionsStore(network: try RevokedNetwork(), seen: SeenSessions(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                      drafts: SessionDrafts(defaults: UserDefaults(suiteName: UUID().uuidString)!))
         await store.refresh([studio])
         #expect(store.problems.map(\.server) == ["studio"])
         #expect(store.problems.first?.state == .needsPairing(.refused))

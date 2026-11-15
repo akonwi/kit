@@ -22,14 +22,15 @@ final class SessionDictation {
     @ObservationIgnored private var composers: [SessionIdentity: WeakComposer] = [:]
     /// Closes what each open session's screen shows over its composer.
     @ObservationIgnored private var closers: [SessionIdentity: () -> Void] = [:]
-    /// Words for a session that was closed while they were transcribed.
-    @ObservationIgnored private var waiting: [SessionIdentity: String] = [:]
+    /// Each session's kept draft, where words for a closed session go.
+    @ObservationIgnored private let drafts: SessionDrafts
     /// Asks the screens to go back to a session's composer; the number
     /// changes with each ask.
     private(set) var returning: (session: SessionIdentity, count: Int)?
 
-    init(engine: any DictationEngine = DictationSupport.engine) {
+    init(engine: any DictationEngine = DictationSupport.engine, drafts: SessionDrafts) {
         self.engine = engine
+        self.drafts = drafts
     }
 
     /// The session's composer dictation, once its screen has appeared.
@@ -56,13 +57,18 @@ final class SessionDictation {
     // MARK: Screens
 
     /// A session's screen appeared with its composer, and how to close what
-    /// it shows over the composer. Words for the session that waited while it
-    /// was closed go in the draft.
+    /// it shows over the composer. The composer starts with the session's
+    /// kept draft, and keeps it as it changes.
     func attach(_ composer: SessionComposer, for id: SessionIdentity, closeOver: @escaping () -> Void) {
         composers[id] = WeakComposer(composer: composer)
         closers[id] = closeOver
         if dictations[id] == nil { dictations[id] = Dictation(engine: engine) }
-        if let words = waiting.removeValue(forKey: id) { add(words, to: composer) }
+        if composer.draftChanged == nil {
+            // A composer that starts with words, such as a failed fork's message, keeps them.
+            if composer.draft.isEmpty { composer.draft = drafts.text(for: id) } else { drafts.save(composer.draft, for: id) }
+            let drafts = drafts
+            composer.draftChanged = { drafts.save($0, for: id) }
+        }
     }
 
     func composerAppeared(_ id: SessionIdentity) {
@@ -161,7 +167,7 @@ final class SessionDictation {
     }
 
     private func wait(_ words: String, for id: SessionIdentity) {
-        waiting[id] = waiting[id].map { DictationText.join($0, words) } ?? words
+        drafts.append(words, for: id)
     }
 
     private struct WeakComposer {

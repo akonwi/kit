@@ -18,7 +18,7 @@ final class ChangesUITests: XCTestCase {
               let commit = environment["KIT_CHANGES_COMMIT"], !commit.isEmpty else {
             throw XCTSkip("Run script/test_changes.sh against an isolated server with a session in a git repository.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch

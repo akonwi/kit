@@ -106,7 +106,7 @@ final class SubagentsUITests: XCTestCase {
 
     @MainActor
     private func open() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch

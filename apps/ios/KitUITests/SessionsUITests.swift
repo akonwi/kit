@@ -13,7 +13,7 @@ final class SessionsUITests: XCTestCase {
         guard let titles = ProcessInfo.processInfo.environment["KIT_SESSION_TITLES"], !titles.isEmpty else {
             throw XCTSkip("Run script/test_sessions.sh against an isolated server with sessions.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         attach(app, "Sessions")
@@ -39,7 +39,7 @@ final class SessionsUITests: XCTestCase {
               let title = titles.split(separator: "|").first.map(String.init) else {
             throw XCTSkip("Run script/test_sessions.sh against an isolated server with sessions.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch.tap()

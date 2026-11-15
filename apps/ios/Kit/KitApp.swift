@@ -4,8 +4,18 @@ import SwiftUI
 @main
 struct KitApp: App {
     @State private var store = ServerStore.live()
-    @State private var sessions = SessionsStore.live()
-    @State private var dictation = SessionDictation()
+    @State private var sessions: SessionsStore
+    @State private var dictation: SessionDictation
+
+    init() {
+        #if DEBUG
+        // UI tests start without the drafts earlier tests left.
+        if ProcessInfo.processInfo.environment["KIT_FORGET_DRAFTS"] == "1" { SessionDrafts().forgetAll() }
+        #endif
+        let sessions = SessionsStore.live()
+        _sessions = State(initialValue: sessions)
+        _dictation = State(initialValue: SessionDictation(drafts: sessions.drafts))
+    }
 
     var body: some Scene {
         WindowGroup {

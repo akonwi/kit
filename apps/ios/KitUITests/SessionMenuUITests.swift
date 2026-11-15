@@ -17,7 +17,7 @@ final class SessionMenuUITests: XCTestCase {
         guard let title = ProcessInfo.processInfo.environment["KIT_MENU_SESSION"], !title.isEmpty else {
             throw XCTSkip("Run script/test_session_menu.sh against an isolated server with a session.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
@@ -91,7 +91,7 @@ final class SessionMenuUITests: XCTestCase {
         guard let title = ProcessInfo.processInfo.environment["KIT_MENU_SESSION"], !title.isEmpty else {
             throw XCTSkip("Run script/test_session_menu.sh against an isolated server with a session.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
 

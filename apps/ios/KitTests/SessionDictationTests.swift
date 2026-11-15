@@ -11,9 +11,11 @@ import Testing
 struct SessionDictationTests {
     let session = SessionIdentity(server: "studio", session: "s")
     let other = SessionIdentity(server: "studio", session: "other")
+    let drafts = SessionDrafts(defaults: UserDefaults(suiteName: UUID().uuidString)!)
 
     func dictations(delay: Duration = .milliseconds(10)) -> SessionDictation {
-        SessionDictation(engine: SharedMicrophone(ScriptedDictationEngine(transcript: "check the build", delay: delay)))
+        SessionDictation(engine: SharedMicrophone(ScriptedDictationEngine(transcript: "check the build", delay: delay)),
+                         drafts: drafts)
     }
 
     /// Opens the session with its composer on screen and starts recording.
@@ -135,6 +137,59 @@ struct SessionDictationTests {
         #expect(await finished.value == "words")
         second.cancel()
         await idle(second)
+    }
+
+    // MARK: Drafts
+
+    @Test func aTypedDraftIsThereWhenTheSessionOpensAgain() {
+        let dictations = dictations()
+        let composer = SessionComposerTests.composer()
+        dictations.attach(composer, for: session) {}
+        composer.draft = "Half a thought"
+
+        let reopened = SessionComposerTests.composer()
+        dictations.attach(reopened, for: session) {}
+        #expect(reopened.draft == "Half a thought")
+
+        reopened.draft = ""
+        let again = SessionComposerTests.composer()
+        dictations.attach(again, for: session) {}
+        #expect(again.draft == "")
+    }
+
+    /// A composer that starts with words, such as a failed fork's message,
+    /// keeps them over the kept draft.
+    @Test func aComposerThatStartsWithWordsKeepsThem() {
+        let dictations = dictations()
+        drafts.save("Older draft", for: session)
+        let composer = SessionComposerTests.composer()
+        composer.draft = "The fork's first message"
+        dictations.attach(composer, for: session) {}
+        #expect(composer.draft == "The fork's first message")
+        #expect(drafts.text(for: session) == "The fork's first message")
+    }
+
+    /// Words for a closed session follow its typed draft.
+    @Test func wordsForAClosedSessionFollowItsDraft() async {
+        let dictations = dictations()
+        let composer = SessionComposerTests.composer()
+        let dictation = await recording(dictations, composer: composer)
+        composer.draft = "Then"
+        dictations.opened([])
+        await idle(dictation)
+        #expect(drafts.text(for: session) == "Then check the build")
+    }
+
+    @Test func draftsGoWithTheirSessions() {
+        drafts.save("kept", for: session)
+        drafts.save("gone", for: other)
+        drafts.save("elsewhere", for: SessionIdentity(server: "vps", session: "other"))
+        drafts.listed("studio", sessions: ["s"])
+        #expect(drafts.text(for: session) == "kept")
+        #expect(drafts.text(for: other) == "")
+        #expect(drafts.text(for: SessionIdentity(server: "vps", session: "other")) == "elsewhere")
+        drafts.forget("studio")
+        #expect(drafts.text(for: session) == "")
     }
 
     // MARK: Background time

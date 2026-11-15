@@ -19,7 +19,7 @@ final class DockOverflowUITests: XCTestCase {
         guard let session = ProcessInfo.processInfo.environment["KIT_DOCK_SESSION"], !session.isEmpty else {
             throw XCTSkip("Run script/test_dock_overflow.sh against an isolated server with a session.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", session)).firstMatch

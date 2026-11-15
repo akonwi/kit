@@ -14,6 +14,18 @@ final class DictationUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Leaves no drafts behind for other suites.
+    override class func tearDown() {
+        // XCTest tears down on the main thread.
+        MainActor.assumeIsolated {
+            let app = XCUIApplication()
+            app.launchEnvironment["KIT_FORGET_DRAFTS"] = "1"
+            app.launch()
+            app.terminate()
+        }
+        super.tearDown()
+    }
+
     private func session() throws -> String {
         guard let title = ProcessInfo.processInfo.environment["KIT_DICTATION_SESSION"], !title.isEmpty else {
             throw XCTSkip("Run script/test_dictation.sh against an isolated server with a session in a git repository.")
@@ -22,8 +34,11 @@ final class DictationUITests: XCTestCase {
     }
 
     @MainActor
-    private func open(_ title: String, transcript: String = heard, access: String? = nil) -> XCUIApplication {
+    private func open(_ title: String, transcript: String = heard, access: String? = nil,
+                      keepingDrafts: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
+        // Drafts are kept between launches; each test starts without them.
+        if !keepingDrafts { app.launchEnvironment["KIT_FORGET_DRAFTS"] = "1" }
         app.launchEnvironment["KIT_DICTATION_TRANSCRIPT"] = transcript
         app.launchEnvironment["KIT_DICTATION_DELAY"] = "1.5"
         if let access { app.launchEnvironment["KIT_DICTATION_ACCESS"] = access }
@@ -225,6 +240,27 @@ final class DictationUITests: XCTestCase {
         XCTAssertTrue(composer(app).waitForExistence(timeout: 10))
         XCTAssertEqual(composer(app).value as? String, heard)
         attach(app, "Words waited in the draft")
+    }
+
+    /// A typed draft is there when the session opens again, even after the
+    /// app is closed.
+    @MainActor
+    func testATypedDraftIsKept() throws {
+        let title = try session()
+        let typed = "Half a thought \(Int(Date().timeIntervalSince1970) % 100_000)"
+        var app = open(title)
+        let field = composer(app)
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        field.tap()
+        field.typeText(typed)
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 5))
+        app.terminate()
+
+        app = open(title, keepingDrafts: true)
+        XCTAssertTrue(composer(app).waitForExistence(timeout: 15))
+        XCTAssertEqual(composer(app).value as? String, typed)
+        attach(app, "Draft kept")
     }
 
     @MainActor

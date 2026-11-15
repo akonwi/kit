@@ -10,7 +10,7 @@ final class PairingUITests: XCTestCase {
     /// Runs first, on a fresh install, so it starts at first run.
     @MainActor
     func testFirstRunScansOrPastes() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
 
         let scan = app.buttons["Scan pairing code"]
@@ -41,7 +41,7 @@ final class PairingUITests: XCTestCase {
         }
         let host = try XCTUnwrap(URLComponents(string: link)?.host)
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launchEnvironment["KIT_PAIRING_LINK"] = link
         app.launch()
 

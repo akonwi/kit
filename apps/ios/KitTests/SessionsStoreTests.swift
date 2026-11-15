@@ -285,13 +285,13 @@ struct SessionsStoreTests {
         let network = FakeSessionsNetwork()
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         network.set(studio, sessions: [SessionTesting.session("a", at: 100)], activity: ["a": .awaitingResponse])
-        await SessionsStore(network: network, seen: SeenSessions(defaults: defaults)).refresh([studio])
+        await SessionsStore(network: network, seen: SeenSessions(defaults: defaults), drafts: SessionDrafts(defaults: defaults)).refresh([studio])
 
         network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
-        let reopened = SessionsStore(network: network, seen: SeenSessions(defaults: defaults))
+        let reopened = SessionsStore(network: network, seen: SeenSessions(defaults: defaults), drafts: SessionDrafts(defaults: defaults))
         await reopened.refresh([studio])
         #expect(reopened.rows.map(\.unseen) == [true])
-        let again = SessionsStore(network: network, seen: SeenSessions(defaults: defaults))
+        let again = SessionsStore(network: network, seen: SeenSessions(defaults: defaults), drafts: SessionDrafts(defaults: defaults))
         await again.refresh([studio])
         #expect(again.rows.map(\.unseen) == [true])
     }
@@ -352,7 +352,8 @@ enum SessionTesting {
     }
 
     @MainActor static func store(_ network: FakeSessionsNetwork) -> SessionsStore {
-        SessionsStore(network: network, seen: SeenSessions(defaults: UserDefaults(suiteName: UUID().uuidString)!))
+        SessionsStore(network: network, seen: SeenSessions(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                      drafts: SessionDrafts(defaults: UserDefaults(suiteName: UUID().uuidString)!))
     }
 }
 

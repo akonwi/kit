@@ -25,7 +25,7 @@ final class ScratchpadUITests: XCTestCase {
         let seed = "# Plan\n\n## Done\n- [x] Keep the cursor"
         try server.set(seed)
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch

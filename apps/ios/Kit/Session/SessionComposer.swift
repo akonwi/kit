@@ -30,8 +30,14 @@ final class SessionComposer {
     private let client: any SessionSendClient
 
     var draft = "" {
-        didSet { if draft != oldValue { noticeDismissed = true } }
+        didSet {
+            guard draft != oldValue else { return }
+            noticeDismissed = true
+            draftChanged?(draft)
+        }
     }
+    /// Keeps the draft when it changes, so it's there when the session opens again.
+    @ObservationIgnored var draftChanged: ((String) -> Void)?
     /// Attachments that came back with queued messages moved into the draft.
     /// They go out again with the next send.
     private(set) var restoredAttachmentIDs: [String] = []

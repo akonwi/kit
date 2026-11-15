@@ -14,7 +14,7 @@ final class FiguresUITests: XCTestCase {
         guard let title = ProcessInfo.processInfo.environment["KIT_FIGURES_SESSION"], !title.isEmpty else {
             throw XCTSkip("Run script/test_figures.sh against an isolated server with a session.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch

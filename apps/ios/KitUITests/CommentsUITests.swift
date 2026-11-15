@@ -17,7 +17,7 @@ final class CommentsUITests: XCTestCase {
         guard let title = environment["KIT_COMMENTS_SESSION"], !title.isEmpty else {
             throw XCTSkip("Run script/test_comments.sh against an isolated server with a session in a git repository.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
@@ -127,7 +127,7 @@ final class CommentsUITests: XCTestCase {
         guard let title = ProcessInfo.processInfo.environment["KIT_COMMENTS_SESSION"], !title.isEmpty else {
             throw XCTSkip("Run script/test_changed_comment.sh against an isolated server.")
         }
-        let app = XCUIApplication()
+        let app = XCUIApplication.withoutDrafts()
         app.launch()
         XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15))
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch.tap()

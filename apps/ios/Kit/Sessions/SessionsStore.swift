@@ -223,6 +223,8 @@ final class SessionsStore {
 
     let network: any SessionsNetwork
     private let seen: SeenSessions
+    /// Each session's composer draft, kept while its server lists it.
+    let drafts: SessionDrafts
     private let now: () -> Date
 
     /// At most this many sessions get a preview at once.
@@ -230,9 +232,11 @@ final class SessionsStore {
     /// How often a working session's preview is fetched again.
     static let workingPreviewInterval: TimeInterval = 15
 
-    init(network: any SessionsNetwork, seen: SeenSessions = SeenSessions(), now: @escaping () -> Date = { Date() }) {
+    init(network: any SessionsNetwork, seen: SeenSessions = SeenSessions(), drafts: SessionDrafts = SessionDrafts(),
+         now: @escaping () -> Date = { Date() }) {
         self.network = network
         self.seen = seen
+        self.drafts = drafts
         self.now = now
     }
 
@@ -309,6 +313,7 @@ final class SessionsStore {
         for name in listings.keys where !servers.contains(name) {
             listings[name] = nil
             seen.forget(name)
+            drafts.forget(name)
         }
         await withTaskGroup(of: Void.self) { group in
             for server in saved {
@@ -349,6 +354,7 @@ final class SessionsStore {
             let name = server.name
             seen.listed(name, sessions: list.map { ($0.id, SessionFormat.date($0.lastActivity ?? $0.date), statuses[$0.id, default: .idle] != .idle) },
                         showing: { self.onScreen == SessionIdentity(server: name, session: $0) })
+            drafts.listed(name, sessions: Set(list.map(\.id)))
             listings[server.name]?.sessions = list
             listings[server.name]?.activity = statuses
             listings[server.name]?.waitingSince = since
