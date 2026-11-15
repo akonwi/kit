@@ -3,7 +3,7 @@
 # each launch milestone took (see Sources/Kit/Support/LaunchMetrics.swift).
 #
 #   apps/macos/script/measure_launch.sh --app PATH [--runs N] [--state FILE|none]
-#     [--floor] [--cold] [--json FILE] [--timeout SECONDS]
+#     [--floor] [--baseline PATH] [--cold] [--json FILE] [--timeout SECONDS]
 #
 # Times are from the `open` call, which stands in for the Dock click, to each
 # milestone; the launch ends at firstContentFrame.
@@ -13,6 +13,9 @@
 #   for a launch with no saved windows.
 # --floor also launches an empty SwiftUI app (launch_floor.swift) before each
 #   of the bundle's launches, as the floor this Mac sets under its current load.
+# --baseline also launches another build of the bundle, held to the same rules,
+#   before each of its launches, and reports the difference run by run, so a
+#   change is measured under the same load as what it changes.
 # --cold runs `sudo purge` before each launch to drop the file cache, and asks
 #   for a password.
 #
@@ -27,38 +30,52 @@ APP=""
 RUNS=10
 COLD=0
 FLOOR=0
+BASELINE=""
 JSON=""
 STATE=""
 TIMEOUT=30
-usage() { echo "usage: $0 --app PATH [--runs N] [--state FILE|none] [--floor] [--cold] [--json FILE] [--timeout SECONDS]" >&2; exit 2; }
+usage() { echo "usage: $0 --app PATH [--runs N] [--state FILE|none] [--floor] [--baseline PATH] [--cold] [--json FILE] [--timeout SECONDS]" >&2; exit 2; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app) APP="$2"; shift 2 ;;
     --runs) RUNS="$2"; shift 2 ;;
     --cold) COLD=1; shift ;;
     --floor) FLOOR=1; shift ;;
+    --baseline) BASELINE="$2"; shift 2 ;;
     --json) JSON="$2"; shift 2 ;;
     --state) STATE="$2"; shift 2 ;;
     --timeout) TIMEOUT="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
-[[ -n "$APP" && -d "$APP" ]] || { echo "No bundle at '$APP'" >&2; usage; }
 [[ "$RUNS" =~ ^[1-9][0-9]*$ ]] || usage
-APP="$(cd "$APP" && pwd)"
-PLIST="$APP/Contents/Info.plist"
-BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")"
-DEV_HOME="$(/usr/libexec/PlistBuddy -c 'Print :KitDevHome' "$PLIST" 2>/dev/null || true)"
-[[ "$BUNDLE_ID" =~ ^com\.akonwi\.kit\.dev\.[A-Za-z0-9-]+$ ]] || {
-  echo "Refusing $BUNDLE_ID: build with KIT_MACOS_BUNDLE_ID=com.akonwi.kit.dev.NAME" >&2; exit 2; }
-[[ -n "$DEV_HOME" && "$DEV_HOME" != "$HOME/.kit" ]] || {
-  echo "Refusing a bundle without a channel home: build with KIT_MACOS_CHANNEL=NAME" >&2; exit 2; }
+# Checks a bundle may be relaunched, and prints its identifier and home.
+check_bundle() {
+  [[ -n "$1" && -d "$1" ]] || { echo "No bundle at '$1'" >&2; usage; }
+  local plist="$1/Contents/Info.plist" id home
+  id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")"
+  home="$(/usr/libexec/PlistBuddy -c 'Print :KitDevHome' "$plist" 2>/dev/null || true)"
+  [[ "$id" =~ ^com\.akonwi\.kit\.dev\.[A-Za-z0-9-]+$ ]] || {
+    echo "Refusing $id: build with KIT_MACOS_BUNDLE_ID=com.akonwi.kit.dev.NAME" >&2; exit 2; }
+  [[ -n "$home" && "$home" != "$HOME/.kit" ]] || {
+    echo "Refusing a bundle without a channel home: build with KIT_MACOS_CHANNEL=NAME" >&2; exit 2; }
+  echo "$id" "$home"
+}
+read -r BUNDLE_ID DEV_HOME < <(check_bundle "$APP")
+APP="$(cd -P "$APP" && pwd)"
 [[ -f "$DEV_HOME/run/server.json" ]] || echo "warning: no server is registered in $DEV_HOME" >&2
+BASELINE_ID=""
+if [[ -n "$BASELINE" ]]; then
+  read -r BASELINE_ID _ < <(check_bundle "$BASELINE")
+  BASELINE="$(cd -P "$BASELINE" && pwd)"
+fi
 [[ -z "$STATE" || "$STATE" == none || -f "$STATE" ]] || { echo "No state file at '$STATE'" >&2; exit 2; }
 
 FLOOR_APP=""
 if [[ "$FLOOR" == 1 ]]; then
-  FLOOR_APP="${TMPDIR:-/tmp}/kit-launch-floor/Floor.app"
+  FLOOR_DIR="${TMPDIR:-/tmp}/kit-launch-floor"
+  mkdir -p "$FLOOR_DIR"
+  FLOOR_APP="$(cd -P "$FLOOR_DIR" && pwd)/Floor.app"
   if [[ ! -x "$FLOOR_APP/Contents/MacOS/Floor" || "$SCRIPT_DIR/launch_floor.swift" -nt "$FLOOR_APP/Contents/MacOS/Floor" ]]; then
     mkdir -p "$FLOOR_APP/Contents/MacOS"
     xcrun swiftc -O -parse-as-library "$SCRIPT_DIR/launch_floor.swift" -o "$FLOOR_APP/Contents/MacOS/Floor"
@@ -79,12 +96,23 @@ PLIST
 fi
 [[ "$COLD" == 0 ]] || sudo -v
 
-exec python3 - "$APP" "$RUNS" "$COLD" "$TIMEOUT" "$JSON" "$DEV_HOME" "$BUNDLE_ID" "$STATE" "$FLOOR_APP" <<'PY'
+exec python3 - "$APP" "$RUNS" "$COLD" "$TIMEOUT" "$JSON" "$DEV_HOME" "$BUNDLE_ID" "$STATE" "$FLOOR_APP" "$BASELINE" "$BASELINE_ID" <<'PY'
 import json, os, shutil, statistics, subprocess, sys, tempfile, time
 
 app, runs, cold, timeout, json_out, home = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "1", float(sys.argv[4]), sys.argv[5], sys.argv[6]
-bundle_id, state, floor_app = sys.argv[7], sys.argv[8], sys.argv[9]
-saved_windows = os.path.expanduser(f"~/Library/Application Support/{bundle_id}/windows.json")
+bundle_id, state, floor_app, baseline, baseline_id = sys.argv[7], sys.argv[8], sys.argv[9], sys.argv[10], sys.argv[11]
+
+def saved_windows(identifier):
+    return os.path.expanduser(f"~/Library/Application Support/{identifier}/windows.json")
+
+def restore_state(identifier):
+    path = saved_windows(identifier)
+    if state == "none":
+        if os.path.exists(path):
+            os.remove(path)
+    elif state:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        shutil.copyfile(state, path)
 order = ["processStart", "main", "appInit", "delegateInit", "willFinishLaunching", "windowContent", "didFinishLaunching",
          "firstWindow", "windowVisible", "serverConnected", "sessionDelivered", "sessionShown", "contentReady",
          "firstContentFrame", "composerFocused"]
@@ -98,6 +126,7 @@ phases = [("LaunchServices → exec", None, "processStart"), ("exec → main (dy
           ("content ready → frame", "contentReady", "firstContentFrame")]
 
 def executable(bundle):
+    bundle = os.path.realpath(bundle)
     with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as f:
         import plistlib
         return os.path.join(bundle, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
@@ -162,37 +191,44 @@ def pct(values, p):
 def stats(values):
     return {"min": min(values), "median": statistics.median(values), "p90": pct(values, 0.9), "n": len(values)}
 
-for bundle in filter(None, [app, floor_app]):
+for bundle in filter(None, [app, floor_app, baseline]):
     if pids(bundle):
         sys.exit(f"{bundle} is already running; quit it first")
 
 print(f"bundle {app}\nhome   {home}\nruns   {runs} ({'cold: sudo purge before each' if cold else 'warm'})"
-      + (f", each after a launch of {floor_app}" if floor_app else ""), file=sys.stderr)
-results, floors = [], []
+      + (f", each after a launch of {floor_app}" if floor_app else "")
+      + (f", each after a launch of {baseline}" if baseline else ""), file=sys.stderr)
+results, floors, baselines = [], [], []
 report_dir = tempfile.mkdtemp(prefix="kit-launch-")
 for run in range(runs):
     if floor_app:
         floors.append(launch(floor_app, os.path.join(report_dir, f"floor{run}.json")))
-    if state == "none":
-        if os.path.exists(saved_windows):
-            os.remove(saved_windows)
-    elif state:
-        os.makedirs(os.path.dirname(saved_windows), exist_ok=True)
-        shutil.copyfile(state, saved_windows)
+    if baseline:
+        restore_state(baseline_id)
+        baselines.append(launch(baseline, os.path.join(report_dir, f"baseline{run}.json")))
+    restore_state(bundle_id)
     times = launch(app, os.path.join(report_dir, f"run{run}.json"))
     results.append(times)
     line = f"run {run + 1}: firstContentFrame {times.get('firstContentFrame', float('nan')):.0f} ms"
     if floor_app:
         line += f" (floor {floors[-1].get('firstContentFrame', float('nan')):.0f} ms)"
+    if baseline:
+        line += f" (baseline {baselines[-1].get('firstContentFrame', float('nan')):.0f} ms)"
     print(line, file=sys.stderr)
 
 summary = {}
-print(f"\n{'milestone (ms from open)':<26}{'min':>8}{'median':>8}{'p90':>8}{'n':>4}")
+header = f"\n{'milestone (ms from open)':<26}{'min':>8}{'median':>8}{'p90':>8}{'n':>4}"
+print(header + (f"{'base med':>10}{'Δ med':>8}" if baseline else ""))
 for name in order:
     values = [r[name] for r in results if name in r]
     if values:
         summary[name] = s = stats(values)
-        print(f"{name:<26}{s['min']:>8.0f}{s['median']:>8.0f}{s['p90']:>8.0f}{s['n']:>4}")
+        line = f"{name:<26}{s['min']:>8.0f}{s['median']:>8.0f}{s['p90']:>8.0f}{s['n']:>4}"
+        if baseline:
+            pairs = [(r[name], b[name]) for r, b in zip(results, baselines) if name in r and name in b]
+            if pairs:
+                line += f"{statistics.median([b for _, b in pairs]):>10.0f}{statistics.median([a - b for a, b in pairs]):>+8.0f}"
+        print(line)
 
 print(f"\n{'phase (ms)':<34}{'min':>8}{'median':>8}{'p90':>8}")
 for label, a, b in phases:
@@ -211,5 +247,6 @@ if floors:
 if json_out:
     with open(json_out, "w") as f:
         json.dump({"bundle": app, "cold": cold, "runs": results, "summary": summary,
-                   "floorRuns": floors, "floor": floor_summary}, f, indent=2)
+                   "floorRuns": floors, "floor": floor_summary,
+                   "baseline": baseline or None, "baselineRuns": baselines}, f, indent=2)
 PY
