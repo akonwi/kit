@@ -245,15 +245,21 @@ enum SessionTabLoading {
     }
 }
 
-/// Reattaches tabs when the window's tabs change, or a server connects,
-/// reconnects, or restarts.
+/// Reattaches tabs when the window's tabs or selection change, a server
+/// connects, reconnects, or restarts, or background tabs may attach.
 private struct AttachmentKey: Equatable {
     let tabs: [UUID]
+    let selected: UUID
+    /// Whether background tabs attach: the selected tab is settled, or they
+    /// have waited long enough.
+    let background: Bool
     /// Connected servers, each with its connection, route, and running instance.
     let connected: [String]
 
     @MainActor init(model: SessionWindowModel) {
         tabs = model.tabs.map(\.id)
+        selected = model.selectedTab.id
+        background = model.attachesBackgroundTabs || model.selectedTabSettled
         connected = model.servers.connections.compactMap { connection in
             guard connection.status.isConnected, let identity = connection.status.identity else { return nil }
             return "\(connection.name) \(ObjectIdentifier(connection).hashValue) \(connection.route) \(identity.instance)"

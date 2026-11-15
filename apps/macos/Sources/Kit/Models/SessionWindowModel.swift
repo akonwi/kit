@@ -684,8 +684,54 @@ final class SessionWindowModel: Identifiable {
 
     /// Attaches every session tab whose server is connected, so background
     /// tabs report their status, and resumes watches that gave up.
+    ///
+    /// When a window opens, its selected tab attaches first, and the others
+    /// wait until that tab's session has opened, or its launcher has listed
+    /// its sessions, so their snapshots don't hold up the one on screen. They
+    /// wait `backgroundAttachLimit` at most; after that, and from then on,
+    /// every tab attaches at once.
     func attachAll() {
-        for tab in tabs { store(for: tab) }
+        let selected = selectedTab
+        store(for: selected)
+        if !attachesBackgroundTabs {
+            guard selectedTabSettled else {
+                scheduleBackgroundAttach()
+                return
+            }
+            attachesBackgroundTabs = true
+            backgroundAttach?.cancel()
+        }
+        for tab in tabs where tab !== selected { store(for: tab) }
+    }
+
+    /// Whether every tab attaches, rather than the selected one alone.
+    private(set) var attachesBackgroundTabs = false
+    /// How long background tabs wait for the selected tab when a window opens.
+    static let backgroundAttachLimit: Duration = .seconds(2)
+    @ObservationIgnored private var backgroundAttach: Task<Void, Never>?
+
+    /// Whether the selected tab has what it shows, or can't get it now: its
+    /// session has opened or failed to, its launcher has listed its sessions,
+    /// or its server can't be reached. A server still connecting isn't settled.
+    var selectedTabSettled: Bool {
+        let tab = selectedTab
+        guard let connection = tab.connection else { return true }
+        switch connection.status {
+        case .connecting, .reconnecting: return false
+        case .connected: break
+        case .unreachable, .incompatible, .needsPairing, .signInRequired, .hostKeyChanged, .serverStopped: return true
+        }
+        if tab.isLauncher { return connection.catalog.loaded }
+        guard let store = tab.store else { return false }
+        return store.opening != .loading
+    }
+
+    private func scheduleBackgroundAttach() {
+        guard backgroundAttach == nil else { return }
+        backgroundAttach = Task { @MainActor [weak self, sleeper] in
+            do { try await sleeper(Self.backgroundAttachLimit) } catch { return }
+            self?.attachesBackgroundTabs = true
+        }
     }
 
     private func observeStatus(of tab: SessionTab, store: SessionStore) {
@@ -780,6 +826,7 @@ final class SessionWindowModel: Identifiable {
 
     /// Detaches every session when the window closes.
     func closeAll() {
+        backgroundAttach?.cancel()
         for tab in tabs { release(tab) }
     }
 

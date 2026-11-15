@@ -577,6 +577,75 @@ struct ServerStatePresentationTests {
         model.closeAll()
     }
 
+    @Test func aWindowAttachesItsSelectedTabBeforeTheOthers() async throws {
+        let delay = ManualSleeper()
+        let servers = servers { Self.identity }
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        let local = { SessionIdentity(server: "local", session: $0) }
+        let saved = TileArrangement(root: .tile(.init(panes: ["conversation", "scratchpad"], selected: "scratchpad")),
+                                    focused: 0, zoomed: false)
+        let model = SessionWindowModel(id: UUID(), servers: servers, sessions: [local("a"), local("b"), local("c")],
+                                       selected: local("b"), layouts: [local("c"): saved], sleep: delay.sleep)
+        defer { model.closeAll() }
+        try await eventually { servers.local.status.isConnected }
+        model.attachAll()
+        // The selected tab attaches alone while its session opens; the
+        // others keep their restored layouts until they attach.
+        #expect(model.tabs.map { $0.store != nil } == [false, true, false])
+        #expect(!model.selectedTabSettled)
+        #expect(model.layouts == [local("c"): saved])
+        try await delay.waitForSleeps(1)
+        #expect(delay.durations == [SessionWindowModel.backgroundAttachLimit])
+        // This server can't open it; once it has tried, the others attach,
+        // and a restored tab gets its layout.
+        try await eventually { model.selectedTabSettled }
+        model.attachAll()
+        #expect(model.tabs.map { $0.store != nil } == [true, true, true])
+        #expect(model.tabs[2].store?.ui.workspace.arrangement == saved)
+        #expect(model.attachesBackgroundTabs)
+    }
+
+    @Test func backgroundTabsAttachOnceTheyHaveWaitedLongEnough() async throws {
+        let delay = ManualSleeper()
+        let servers = servers { Self.identity }
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        let local = { SessionIdentity(server: "local", session: $0) }
+        let model = SessionWindowModel(id: UUID(), servers: servers, sessions: [local("a"), local("b")],
+                                       selected: local("a"), sleep: delay.sleep)
+        defer { model.closeAll() }
+        try await eventually { servers.local.status.isConnected }
+        model.attachAll()
+        #expect(model.tabs.map { $0.store != nil } == [true, false])
+        try await delay.waitForSleeps(1)
+        delay.elapse()
+        try await eventually { model.attachesBackgroundTabs }
+        model.attachAll()
+        #expect(model.tabs.map { $0.store != nil } == [true, true])
+    }
+
+    @Test func aLauncherHoldsBackgroundTabsUntilItListsItsSessions() async throws {
+        let listing = HeldListing()
+        let servers = ServerDirectory(home: URL(fileURLWithPath: "/tmp/kit-home"), saved: { [] }) { name, connector in
+            ServerConnection(client: ServerClient(serverID: name, connector: connector), catalogClient: listing) { Self.identity }
+        }
+        let model = SessionWindowModel(id: UUID(), servers: servers,
+                                       sessions: [SessionIdentity(server: "local", session: "a")], sleep: ManualSleeper().sleep)
+        defer { model.closeAll() }
+        model.openLauncher()
+        #expect(servers.local.status == .connecting)
+        #expect(!model.selectedTabSettled)
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        try await eventually { servers.local.status.isConnected }
+        try await eventually { await listing.waiting }
+        #expect(!model.selectedTabSettled)
+        await listing.release()
+        try await eventually { servers.local.catalog.loaded }
+        #expect(model.selectedTabSettled)
+    }
+
     @Test func renamingAServerMovesItsTabs() {
         let servers = servers { Self.identity }
         let model = SessionWindowModel(id: UUID(), servers: servers,
@@ -653,5 +722,27 @@ struct ServerStatePresentationTests {
         #expect(model.store(for: tab) === store)
         #expect(store.connectionState == .disconnected)
         model.closeAll()
+    }
+}
+
+/// A catalog whose first listing waits until the test releases it.
+private actor HeldListing: SessionClient {
+    nonisolated let serverID = "local"
+    nonisolated let isDemo = false
+    private var held: CheckedContinuation<Void, Never>?
+    private var released = false
+    var waiting: Bool { held != nil }
+
+    func sessions() async throws -> [SessionExcerpt] {
+        if !released { await withCheckedContinuation { held = $0 } }
+        return []
+    }
+    func snapshot(_ id: String) async throws -> SessionExcerpt { throw ClientError.missingSession }
+    func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
+
+    func release() {
+        released = true
+        held?.resume()
+        held = nil
     }
 }
