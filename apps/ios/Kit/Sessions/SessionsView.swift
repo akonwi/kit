@@ -6,6 +6,7 @@ import SwiftUI
 struct SessionsView: View {
     @Environment(ServerStore.self) private var servers
     @Environment(SessionsStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     @State private var filter = SessionsStore.Filter.all
     /// The open session, when one is.
     @State private var path: [SessionIdentity] = []
@@ -81,7 +82,10 @@ struct SessionsView: View {
             }
             .overlay { if let deleting, deleting.actions.deleteError == nil { DeletingOverlay() } }
             .refreshable { await store.refresh(saved) }
-            .task(id: saved.map(\.address)) {
+            // Polls while the app is in front, and lists again as soon as it
+            // comes back, so the list isn't as it was when the app was left.
+            .task(id: Polling(addresses: saved.map(\.address), active: scenePhase == .active)) {
+                guard scenePhase == .active else { return }
                 while !Task.isCancelled {
                     await store.refresh(saved)
                     try? await Task.sleep(for: Self.refreshInterval)
@@ -100,6 +104,12 @@ struct SessionsView: View {
     }
 
     private var saved: [SavedServer] { servers.entries.map(\.server) }
+
+    /// What restarts the list's polling: other servers, or the app coming to the front.
+    private struct Polling: Equatable {
+        let addresses: [String]
+        let active: Bool
+    }
 
     /// Opens the new session form on the server of the latest session.
     private func startSession() {
