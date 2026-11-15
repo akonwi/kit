@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A session tab's outline while its server connects or its session opens:
@@ -10,7 +11,6 @@ struct SessionSkeleton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// What the tab waits for, read to VoiceOver.
     let label: String
-    @State private var faded = false
 
     /// The assistant's lines under the user's message, as fractions of the
     /// column, so the outline reads as prose.
@@ -26,7 +26,7 @@ struct SessionSkeleton: View {
                 let width = TranscriptLayout.rowWidth(pane: proxy.size.width, fullWidth: fullWidth)
                 // A session opens at its latest turn, just above the composer.
                 VStack(alignment: .leading, spacing: 12) {
-                    RoundedRectangle(cornerRadius: 4).fill(placeholder).frame(height: 54)
+                    placeholder(cornerRadius: 4).frame(height: 54)
                         .padding(.bottom, 12)
                     ForEach(Self.lines.indices, id: \.self) { index in
                         bar(width: width * Self.lines[index], height: 9)
@@ -47,18 +47,66 @@ struct SessionSkeleton: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { faded = true }
-        }
     }
 
     /// An empty composer's height.
     static let composerHeight: CGFloat = 70
 
-    private var placeholder: Color { theme.hover.opacity(faded ? 0.55 : 1) }
+    private func placeholder(cornerRadius: CGFloat) -> some View {
+        SkeletonPlaceholder(color: NSColor(theme.hover), cornerRadius: cornerRadius, pulses: !reduceMotion)
+    }
 
     private func bar(width: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: height / 2).fill(placeholder).frame(width: width, height: height)
+        placeholder(cornerRadius: height / 2).frame(width: width, height: height)
+    }
+}
+
+/// One of the outline's shapes, fading to `SkeletonPlaceholder.faded` and
+/// back. Core Animation runs the fade in the render server, so a window
+/// waiting for its session spends no main-thread time on it; every
+/// placeholder fades in step with the others.
+struct SkeletonPlaceholder: NSViewRepresentable {
+    let color: NSColor
+    let cornerRadius: CGFloat
+    let pulses: Bool
+
+    /// The opacity the placeholders fade to.
+    static let faded: Float = 0.55
+    /// How long one fade takes; the placeholders fade out and back in.
+    static let period: CFTimeInterval = 1.1
+    /// The fade's key on each placeholder's layer.
+    static let animationKey = "pulse"
+    /// When every placeholder's fade began, so they stay in step.
+    @MainActor private static let start = CACurrentMediaTime()
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        guard let layer = view.layer else { return }
+        layer.backgroundColor = color.cgColor
+        layer.cornerRadius = cornerRadius
+        if !pulses {
+            layer.removeAnimation(forKey: Self.animationKey)
+        } else if layer.animation(forKey: Self.animationKey) == nil {
+            layer.add(Self.pulse(beginTime: layer.convertTime(Self.start, from: nil)), forKey: Self.animationKey)
+        }
+    }
+
+    /// The fade, begun at `beginTime` in its layer's time.
+    static func pulse(beginTime: CFTimeInterval) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 1
+        animation.toValue = faded
+        animation.duration = period
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.beginTime = beginTime
+        animation.isRemovedOnCompletion = false
+        return animation
     }
 }
