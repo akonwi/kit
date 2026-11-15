@@ -50,6 +50,7 @@ import Testing
             ("delta from=\"2025\" to=\"2026\" change=\"percent\" better=\"up\"", "- docs: 8,200 → 12,400\n- copy: 5,100 → 4,100"),
             ("score", "- Performance: 4/5\n- **Docs: 2.5/5**"),
             ("stack scale=\"shared\"", "- marketing: 48 js, 22 css, 30 images\n- api: 8 js, 4 css, 8 images"),
+            ("stack", "- Kit: 75ms dyld, 547ms appkit, 90ms window, 53ms server, 342ms snapshot, 198ms build, 7ms fonts"),
             ("checklist", "- [x] Port the figure renderer to the Mac\n- [ ] **Web adoption branch** — in review"),
         ]
         for (info, body) in figures {

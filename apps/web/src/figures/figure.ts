@@ -846,7 +846,12 @@ function score(info: Info, body: string): Result<Figure> {
 
 const STACK_MAX_ROWS = 12;
 const STACK_MIN_SEGMENTS = 2;
+// The most segments drawn. Rows with more keep the largest
+// STACK_MAX_SEGMENTS - 1 and fold the rest into a last segment named `other`.
 const STACK_MAX_SEGMENTS = 4;
+const STACK_OTHER = "other";
+// The longest legend name for the folded segment, in characters.
+const STACK_MAX_OTHER = 32;
 
 interface Segment {
   name: string;
@@ -868,6 +873,14 @@ function segment(text: string): Result<Segment> {
   return ok({ name, written, value: value.value });
 }
 
+interface StackRow {
+  item: FigureItem;
+  names: string[];
+  values: number[];
+  total: number;
+  shapes: G.Shape[];
+}
+
 function stack(info: Info, body: string): Result<Figure> {
   const unknown = G.checkAttributes(info, ["title", "scale"]);
   if (unknown) return passOn(unknown);
@@ -876,7 +889,7 @@ function stack(info: Info, body: string): Result<Figure> {
   if (!listed.ok) return listed;
   const bold = G.checkOneBold(listed.value);
   if (bold) return passOn(bold);
-  const rows: { item: FigureItem; names: string[]; total: number; shapes: G.Shape[] }[] = [];
+  const rows: StackRow[] = [];
   for (const each of listed.value) {
     const pair = G.labelValue(each.text);
     if (!pair) return fail(`a stack row is \`label: value name, …\`, got \`${G.clip(each.text)}\``);
@@ -887,9 +900,10 @@ function stack(info: Info, body: string): Result<Figure> {
       segments.push(parsed.value);
     }
     if (each.details.length) return fail("a stack row takes no indented lines");
-    if (segments.length < STACK_MIN_SEGMENTS || segments.length > STACK_MAX_SEGMENTS)
+    if (segments.length < STACK_MIN_SEGMENTS)
       return fail(
-        `a stack row has ${STACK_MIN_SEGMENTS} to ${STACK_MAX_SEGMENTS} segments, got ${segments.length}`,
+        `a stack row has at least ${STACK_MIN_SEGMENTS} segments, got ${segments.length}; ` +
+          "one value per row belongs in a bars figure",
       );
     const total = segments.reduce((sum, each) => sum + each.value, 0);
     const shapes = segments.map((each) => G.shape(each.written));
@@ -900,9 +914,9 @@ function stack(info: Info, body: string): Result<Figure> {
         note: each.note,
         accent: each.bold,
         muted: each.italic,
-        parts: segments.map((each) => G.permille(each.value, total)),
       }),
       names: segments.map((each) => each.name),
+      values: segments.map((each) => each.value),
       total,
       shapes,
     });
@@ -912,19 +926,79 @@ function stack(info: Info, body: string): Result<Figure> {
   if (rows.length > STACK_MAX_ROWS) return fail(`a stack figure has at most ${STACK_MAX_ROWS} rows`);
   const headings = rows[0]?.names ?? [];
   const different = rows.find((row) => row.names.join("\u0000") !== headings.join("\u0000"));
-  if (different)
+  if (different) {
+    const many = rows.some((row) => row.names.length > STACK_MAX_SEGMENTS);
     return fail(
-      `every stack row has the segments \`${G.clip(headings.join(", "))}\` in order, unlike \`${G.clip(different.item.label)}\``,
+      `every stack row has the segments \`${G.clip(headings.join(", "))}\` in order, unlike \`${G.clip(different.item.label)}\`` +
+        (many ? `; a breakdown into more than ${STACK_MAX_SEGMENTS} parts belongs in a bars figure` : ""),
     );
+  }
   const unit = rows[0]?.shapes[0];
   const unlike = unit && rows.find((row) => !row.shapes.every((each) => G.sameUnit(each, unit)));
   if (unlike) return fail(`every stack value is in the same unit, unlike \`${G.clip(unlike.item.label)}\``);
   const largest = Math.max(0, ...rows.map((row) => row.total));
+  const fold = headings.length > STACK_MAX_SEGMENTS;
+  const keep = kept(
+    headings,
+    headings.map((_, index) => rows.reduce((sum, row) => sum + (row.values[index] ?? 0), 0)),
+  );
   const made = rows.map((row) => ({
     ...row.item,
+    parts: shares(row.values, row.total, keep, fold),
     scale: scale === "shared" ? G.permille(row.total, largest) : row.total > 0 ? 1000 : 0,
   }));
-  return ok(figure("stack", info, made, { headings }));
+  return ok(figure("stack", info, made, { headings: drawnNames(headings, keep, fold) }));
+}
+
+/**
+ * Which of the segments named names a stack keeps when its rows have more
+ * than STACK_MAX_SEGMENTS: the STACK_MAX_SEGMENTS - 1 with the largest sums
+ * across the rows, the earlier on a tie. A segment named `other` is never
+ * kept, as the rest fold into it.
+ */
+function kept(names: string[], sums: number[]): boolean[] {
+  return names.map((name, index) => {
+    const sum = sums[index] ?? 0;
+    const ahead = sums.filter(
+      (each, rival) => names[rival] !== STACK_OTHER && (each > sum || (each === sum && rival < index)),
+    ).length;
+    return name !== STACK_OTHER && ahead < STACK_MAX_SEGMENTS - 1;
+  });
+}
+
+/** A row's segments in thousandths of its total, those not kept folded into one last segment when fold is set. */
+function shares(values: number[], total: number, keep: boolean[], fold: boolean): number[] {
+  if (!fold) return values.map((each) => G.permille(each, total));
+  const rest = values.reduce((sum, each, index) => (keep[index] ? sum : sum + each), 0);
+  return [
+    ...values.filter((_, index) => keep[index]).map((each) => G.permille(each, total)),
+    G.permille(rest, total),
+  ];
+}
+
+/**
+ * The folded segment's name: `other`, then the folded names after it in
+ * parentheses, as many whole names as fit in STACK_MAX_OTHER characters and
+ * then `…`. A folded segment already named `other` isn't listed.
+ */
+function otherName(folded: string[]): string {
+  const listed = folded.filter((name) => name !== STACK_OTHER);
+  if (listed.length === 0) return STACK_OTHER;
+  const all = `${STACK_OTHER} (${listed.join(", ")})`;
+  if ([...all].length <= STACK_MAX_OTHER) return all;
+  let shown = "";
+  for (const name of listed) {
+    const next = shown === "" ? name : `${shown}, ${name}`;
+    if ([...`${STACK_OTHER} (${next}, …)`].length > STACK_MAX_OTHER) break;
+    shown = next;
+  }
+  return shown === "" ? `${STACK_OTHER} (…)` : `${STACK_OTHER} (${shown}, …)`;
+}
+
+/** The segment names a stack draws: names, or when fold is set those kept and then the folded segment's. */
+function drawnNames(names: string[], keep: boolean[], fold: boolean): string[] {
+  if (!fold) return names;
+  return [...names.filter((_, index) => keep[index]), otherName(names.filter((_, index) => !keep[index]))];
 }
 
 // tree: nested `- ` items, two spaces per level, drawn with guides from each

@@ -1,0 +1,19 @@
+figure stack
+title ""
+headings "p","q","r","other (s, t)"
+item label="a" value="25" note="" accent=false muted=false scale=1000 share="" spark= parts=200,200,200,400
+drawn 38 7
+┌────────────────────────────────────┐
+│                                    │
+│  a  █████▓▓▓▓▓▒▒▒▒░░░░░░░░░░  25   │
+│                                    │
+│  █ p   ▓ q   ▒ r   ░ other (s, t)  │
+│                                    │
+└────────────────────────────────────┘
+ffffffffffffffffffffffffffffffffffffff
+f                                    f
+f  x  xxxxxxxxxxxxxxxxxxxxxxxx  xx   f
+f                                    f
+f  m m   m m   m m   m mmmmm mmm mm  f
+f                                    f
+ffffffffffffffffffffffffffffffffffffff

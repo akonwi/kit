@@ -348,8 +348,21 @@ Before and after:
 
 - 1–12 rows of `label: value name, value name, …`, the segments split at
   `, ` and each at its first space, so a unit is written without one, as in
-  `48kb js`. Every row has the same segment names in the same order, 2–4 of
-  them. Values must be >= 0, all in the same unit.
+  `48kb js`. Every row has the same segment names in the same order, at
+  least 2 of them. Values must be >= 0, all in the same unit.
+- A stack compares a few parts across rows. More than 4 parts, or one total
+  broken into many parts, belongs in a `bars` figure, one row per part. A
+  figure with a one-segment row isn't drawn, and the reason points to
+  `bars`. Neither is one whose rows have more than 4 segments and differ in
+  their names or order; its reason points to `bars` too.
+- Rows with more than 4 segments are folded to 4: the 3 segments with the
+  largest sums across all rows are kept, in the order written, and the rest
+  are added into a last segment named `other`, so every row keeps the same
+  segments and its total is unchanged. A segment already named `other` is
+  never kept; it is added into the fold. The legend names the fold
+  `other (…)` with the folded names in the order written, as many whole
+  names as fit in 32 characters and then `…`, as in
+  `other (dyld, window, server, …)`; a written `other` isn't listed.
 - Each row's total is computed and shown after the track, written like the
   row's values: the most decimals any has (at most 6), `,` groups if any
   has them, and the first value's `$` and unit.

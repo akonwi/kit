@@ -1,0 +1,1 @@
+not drawn: every stack row has the segments `dyld, appkit, window, se…` in order, unlike `warm`; a breakdown into more than 4 parts belongs in a bars figure

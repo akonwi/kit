@@ -1,0 +1,1 @@
+not drawn: a stack row has at least 2 segments, got 1; one value per row belongs in a bars figure

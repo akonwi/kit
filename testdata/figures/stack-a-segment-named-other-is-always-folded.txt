@@ -1,0 +1,19 @@
+figure stack
+title ""
+headings "appkit","snapshot","build","other (window)"
+item label="Kit" value="1777ms" note="" accent=false muted=false scale=1000 share="" spark= parts=307,192,111,388
+drawn 56 7
+┌──────────────────────────────────────────────────────┐
+│                                                      │
+│  Kit  ███████▓▓▓▓▓▒▒▒░░░░░░░░░  1777ms               │
+│                                                      │
+│  █ appkit   ▓ snapshot   ▒ build   ░ other (window)  │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+f                                                      f
+f  xxx  xxxxxxxxxxxxxxxxxxxxxxxx  xxxxxx               f
+f                                                      f
+f  m mmmmmm   m mmmmmmmm   m mmmmm   m mmmmm mmmmmmmm  f
+f                                                      f
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffff

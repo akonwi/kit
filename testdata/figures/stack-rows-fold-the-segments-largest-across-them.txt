@@ -1,0 +1,22 @@
+figure stack
+title "Startup"
+headings "appkit","window","snapshot","other (dyld, server)"
+item label="cold" value="1010ms" note="" accent=false muted=false scale=1000 share="" spark= parts=514,59,306,118
+item label="warm" value="540ms" note="" accent=true muted=false scale=534 share="" spark= parts=259,481,166,92
+drawn 63 8
+┌─ Startup ───────────────────────────────────────────────────┐
+│                                                             │
+│  cold  ████████████▓▓▒▒▒▒▒▒▒░░░  1010ms                     │
+│  warm  ███▓▓▓▓▓▓▓▒▒░···········   540ms                     │
+│                                                             │
+│  █ appkit   ▓ window   ▒ snapshot   ░ other (dyld, server)  │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+ff TTTTTTT ffffffffffffffffffffffffffffffffffffffffffffffffffff
+f                                                             f
+f  xxxx  mmmmmmmmmmmmmmmmmmmmmmmm  mmmmmm                     f
+f  XXXX  aaaaaaaaaaaaakkkkkkkkkkk   XXXXX                     f
+f                                                             f
+f  m mmmmmm   m mmmmmm   m mmmmmmmm   m mmmmm mmmmmm mmmmmmm  f
+f                                                             f
+fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff

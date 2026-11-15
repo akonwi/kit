@@ -6,6 +6,7 @@ use kit/tui/figure/grammar
 use kit/tui/figure/model
 use kit/tui/format
 use go:strings
+use go:unicode/utf8
 
 // `stack`: rows split into the same named segments, each row filling the
 // track or, with `scale="shared"`, scaled to the largest total, with a
@@ -21,7 +22,14 @@ let max_label = 32
 
 let min_segments = 2
 
+// The most segments drawn. Rows with more keep the largest max_segments - 1
+// and fold the rest into a last segment named `other`.
 let max_segments = 4
+
+let other = "other"
+
+// The longest legend name for the folded segment, in characters.
+let max_other = 32
 
 // The shade each segment is drawn in, in order.
 let shades = ["█", "▓", "▒", "░"]
@@ -84,16 +92,11 @@ private fn row(each: grammar::Item) Row!Str {
       made.note = each.note
       made.accent = each.bold
       made.muted = each.italic
-      let shares = &mut List::new<Int>()
-      for each_segment in segments {
-        shares.push(grammar::permille(each_segment.value, total))
-      }
-      made.parts = shares.*
       match {
         each.details.size() > 0 => Result::err("a stack row takes no indented lines"),
-        segments.size() < min_segments or segments.size() > max_segments => {
+        segments.size() < min_segments => {
           Result::err(
-            "a stack row has {min_segments} to {max_segments} segments, got {segments.size()}",
+            "a stack row has at least {min_segments} segments, got {segments.size()}; one value per row belongs in a bars figure",
           )
         },
         _ => {
@@ -119,6 +122,121 @@ private fn names(row: Row) [Str] {
   result.*
 }
 
+// Which of the segments named names a stack keeps when its rows have more
+// than max_segments: the max_segments - 1 with the largest sums across the
+// rows, the earlier on a tie. A segment named `other` is never kept, as the
+// rest fold into it.
+private fn kept(rows: [Row], names: [Str]) [Bool] {
+  let sums = &mut List::new<Float64>()
+  mut index = 0
+  while index < names.size() {
+    mut sum = 0.0
+    for each in rows {
+      sum =+ match each.segments.at(index) {
+        part => part.value,
+        _ => 0.0,
+      }
+    }
+    sums.push(sum)
+    index =+ 1
+  }
+  let result = &mut List::new<Bool>()
+  index = 0
+  for name in names {
+    let sum = sums.at(index).or(0.0)
+    mut ahead = 0
+    mut rival = 0
+    for each in sums {
+      if names.at(rival).or("") != other and (each > sum or each == sum and rival < index) {
+        ahead =+ 1
+      }
+      rival =+ 1
+    }
+    result.push(name != other and ahead < max_segments - 1)
+    index =+ 1
+  }
+  result.*
+}
+
+// A row's segments in thousandths of its total, those not kept folded into
+// one last segment when fold is set.
+private fn shares(row: Row, keep: [Bool], fold: Bool) [Int] {
+  let result = &mut List::new<Int>()
+  mut rest = 0.0
+  mut index = 0
+  for part in row.segments {
+    if fold and not keep.at(index).or(false) {
+      rest =+ part.value
+    } else {
+      result.push(grammar::permille(part.value, row.total))
+    }
+    index =+ 1
+  }
+  if fold {
+    result.push(grammar::permille(rest, row.total))
+  }
+  result.*
+}
+
+// The folded segment's name: `other`, then the folded names after it in
+// parentheses, as many whole names as fit in max_other characters and then
+// `…`. A folded segment already named `other` isn't listed.
+private fn other_name(folded: [Str]) Str {
+  let listed = &mut List::new<Str>()
+  for name in folded {
+    if name != other {
+      listed.push(name)
+    }
+  }
+  let all = "{other} ({strings::Join(listed, ", ")})"
+  match {
+    listed.size() == 0 => other,
+    utf8::RuneCountInString(all) <= max_other => all,
+    _ => {
+      mut shown = ""
+      mut full = false
+      for name in listed {
+        let next = match shown == "" {
+          true => name,
+          false => "{shown}, {name}",
+        }
+        if (not full) and utf8::RuneCountInString("{other} ({next}, …)") <= max_other {
+          shown = next
+        } else {
+          full = true
+        }
+      }
+      match shown == "" {
+        true => "{other} (…)",
+        false => "{other} ({shown}, …)",
+      }
+    },
+  }
+}
+
+// The segment names a stack draws: names, or when fold is set those kept
+// and then the folded segment's.
+private fn drawn_names(names: [Str], keep: [Bool], fold: Bool) [Str] {
+  match fold {
+    true => {
+      let result = &mut List::new<Str>()
+      let folded = &mut List::new<Str>()
+      mut index = 0
+      for name in names {
+        if keep.at(index).or(false) {
+          result.push(name)
+        } else {
+          folded.push(name)
+        }
+        index =+ 1
+      }
+      result.push(other_name(folded.*))
+      result.*
+    },
+    false => names,
+  }
+}
+
 fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title", "scale"])
   let scale = grammar::attribute(info, "scale")
@@ -134,6 +252,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     _ => none,
   }
   mut largest = 0.0
+  mut many = false
   mut different = ""
   mut unlike = ""
   let first_shape = grammar::shape(
@@ -151,14 +270,20 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     if each.total > largest {
       largest = each.total
     }
+    if each.segments.size() > max_segments {
+      many = true
+    }
     if strings::Join(&mut names(each), ", ") != strings::Join(headings, ", ") and different == "" {
       different = each.item.label
     }
   }
+  let fold = headings.size() > max_segments
+  let keep = kept(rows.*, headings)
   let made = &mut List::new<model::Item>()
   for each in rows {
     mut each = each
     let item = &mut each.item
+    item.parts = shares(each, keep, fold)
     item.scale = match scale == "shared" {
       true => grammar::permille(each.total, largest),
       false => {
@@ -175,8 +300,12 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     rows.size() == 0 => Result::err("the figure has no rows"),
     rows.size() > max_rows => Result::err("a stack figure has at most {max_rows} rows"),
     different != "" => {
+      let hint = match many {
+        true => "; a breakdown into more than {max_segments} parts belongs in a bars figure",
+        false => "",
+      }
       Result::err(
-        "every stack row has the segments `{grammar::clip(strings::Join(headings, ", "))}` in order, unlike `{grammar::clip(different)}`",
+        "every stack row has the segments `{grammar::clip(strings::Join(headings, ", "))}` in order, unlike `{grammar::clip(different)}`{hint}",
       )
     },
     unlike != "" => {
@@ -184,7 +313,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     },
     _ => {
       let figure = &mut model::figure("stack", grammar::attribute(info, "title"), made.*)
-      figure.headings = headings
+      figure.headings = drawn_names(headings, keep, fold)
       Result::ok(figure.*)
     },
   }

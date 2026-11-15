@@ -168,7 +168,13 @@ enum Score {
 /// track or, with `scale="shared"`, scaled to the largest total.
 enum Stack {
     static let maxRows = 12
-    static let segments = 2...4
+    static let minSegments = 2
+    /// The most segments drawn. Rows with more keep the largest
+    /// `maxSegments - 1` and fold the rest into a last segment named `other`.
+    static let maxSegments = 4
+    static let other = "other"
+    /// The longest legend name for the folded segment, in characters.
+    static let maxOther = 32
 
     private struct Segment {
         let name: String
@@ -200,7 +206,7 @@ enum Stack {
         case .success(let parsed): items = parsed
         }
         if let failure = Grammar.checkOneBold(items) { return .failure(failure) }
-        var rows: [(item: Figure.Item, names: [String], total: Double, shapes: [Grammar.Shape])] = []
+        var rows: [(item: Figure.Item, names: [String], values: [Double], total: Double, shapes: [Grammar.Shape])] = []
         for each in items {
             guard let (label, written) = Grammar.labelValue(each.text) else {
                 return .failure(NotDrawn("a stack row is `label: value name, …`, got `\(Grammar.clip(each.text))`"))
@@ -213,35 +219,79 @@ enum Stack {
                 }
             }
             if !each.details.isEmpty { return .failure(NotDrawn("a stack row takes no indented lines")) }
-            guard segments.contains(parsed.count) else {
-                return .failure(NotDrawn("a stack row has \(segments.lowerBound) to \(segments.upperBound) segments, got \(parsed.count)"))
+            guard parsed.count >= minSegments else {
+                return .failure(NotDrawn("a stack row has at least \(minSegments) segments, got \(parsed.count); one value per row belongs in a bars figure"))
             }
             let total = parsed.reduce(0) { $0 + $1.value }
-            var item = Figure.Item(label: label, value: Grammar.written(total, Grammar.common(parsed.map { Grammar.shape($0.written) }), signed: false),
+            let item = Figure.Item(label: label, value: Grammar.written(total, Grammar.common(parsed.map { Grammar.shape($0.written) }), signed: false),
                                    note: each.note, accent: each.bold, muted: each.italic)
-            item.parts = parsed.map { Grammar.permille($0.value, total) }
-            rows.append((item, parsed.map(\.name), total, parsed.map { Grammar.shape($0.written) }))
+            rows.append((item, parsed.map(\.name), parsed.map(\.value), total, parsed.map { Grammar.shape($0.written) }))
         }
         if !scale.isEmpty && scale != "shared" { return .failure(NotDrawn("`scale` is `shared`")) }
         if rows.isEmpty { return .failure(NotDrawn("the figure has no rows")) }
         if rows.count > maxRows { return .failure(NotDrawn("a stack figure has at most \(maxRows) rows")) }
         let headings = rows[0].names
         if let different = rows.first(where: { $0.names != headings }) {
+            let many = rows.contains { $0.names.count > maxSegments }
+            let hint = many ? "; a breakdown into more than \(maxSegments) parts belongs in a bars figure" : ""
             return .failure(NotDrawn(
-                "every stack row has the segments `\(Grammar.clip(headings.joined(separator: ", ")))` in order, unlike `\(Grammar.clip(different.item.label))`"))
+                "every stack row has the segments `\(Grammar.clip(headings.joined(separator: ", ")))` in order, unlike `\(Grammar.clip(different.item.label))`\(hint)"))
         }
         let unit = rows[0].shapes[0]
         if let unlike = rows.first(where: { !$0.shapes.allSatisfy { Grammar.sameUnit($0, unit) } }) {
             return .failure(NotDrawn("every stack value is in the same unit, unlike `\(Grammar.clip(unlike.item.label))`"))
         }
         let largest = rows.map(\.total).max() ?? 0
+        let fold = headings.count > maxSegments
+        let keep = kept(headings, headings.indices.map { index in rows.reduce(0) { $0 + $1.values[index] } })
         let made = rows.map { row in
             var item = row.item
+            item.parts = shares(row.values, row.total, keep, fold)
             item.scale = scale == "shared" ? Grammar.permille(row.total, largest) : row.total > 0 ? 1000 : 0
             return item
         }
         var figure = Figure(kind: .stack, title: info.attribute("title"), items: made)
-        figure.headings = headings
+        figure.headings = fold
+            ? headings.indices.filter { keep[$0] }.map { headings[$0] } + [otherName(headings.indices.filter { !keep[$0] }.map { headings[$0] })]
+            : headings
         return .success(figure)
+    }
+
+    /// Which of the segments named `names` a stack keeps when its rows have
+    /// more than `maxSegments`: the `maxSegments - 1` with the largest sums
+    /// across the rows, the earlier on a tie. A segment named `other` is
+    /// never kept, as the rest fold into it.
+    private static func kept(_ names: [String], _ sums: [Double]) -> [Bool] {
+        names.indices.map { index in
+            let ahead = sums.indices.filter { rival in
+                names[rival] != other && (sums[rival] > sums[index] || (sums[rival] == sums[index] && rival < index))
+            }.count
+            return names[index] != other && ahead < maxSegments - 1
+        }
+    }
+
+    /// A row's segments in thousandths of its total, those not kept folded
+    /// into one last segment when `fold` is set.
+    private static func shares(_ values: [Double], _ total: Double, _ keep: [Bool], _ fold: Bool) -> [Int] {
+        guard fold else { return values.map { Grammar.permille($0, total) } }
+        let rest = values.indices.filter { !keep[$0] }.reduce(0) { $0 + values[$1] }
+        return values.indices.filter { keep[$0] }.map { Grammar.permille(values[$0], total) } + [Grammar.permille(rest, total)]
+    }
+
+    /// The folded segment's name: `other`, then the folded names after it in
+    /// parentheses, as many whole names as fit in `maxOther` characters and
+    /// then `…`. A folded segment already named `other` isn't listed.
+    private static func otherName(_ folded: [String]) -> String {
+        let listed = folded.filter { $0 != other }
+        if listed.isEmpty { return other }
+        let all = "\(other) (\(listed.joined(separator: ", ")))"
+        if all.unicodeScalars.count <= maxOther { return all }
+        var shown = ""
+        for name in listed {
+            let next = shown.isEmpty ? name : "\(shown), \(name)"
+            if "\(other) (\(next), …)".unicodeScalars.count > maxOther { break }
+            shown = next
+        }
+        return shown.isEmpty ? "\(other) (…)" : "\(other) (\(shown), …)"
     }
 }

@@ -1,0 +1,19 @@
+figure stack
+title "Startup"
+headings "appkit","snapshot","build","other (dyld, window, server, …)"
+item label="Kit" value="1312ms" note="" accent=false muted=false scale=1000 share="" spark= parts=416,260,150,171
+drawn 73 7
+┌─ Startup ─────────────────────────────────────────────────────────────┐
+│                                                                       │
+│  Kit  ██████████▓▓▓▓▓▓▒▒▒▒░░░░  1312ms                                │
+│                                                                       │
+│  █ appkit   ▓ snapshot   ▒ build   ░ other (dyld, window, server, …)  │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+ff TTTTTTT ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+f                                                                       f
+f  xxx  xxxxxxxxxxxxxxxxxxxxxxxx  xxxxxx                                f
+f                                                                       f
+f  m mmmmmm   m mmmmmmmm   m mmmmm   m mmmmm mmmmmm mmmmmmm mmmmmmm mm  f
+f                                                                       f
+fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
