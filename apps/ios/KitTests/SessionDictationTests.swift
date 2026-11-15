@@ -12,8 +12,8 @@ struct SessionDictationTests {
     let session = SessionIdentity(server: "studio", session: "s")
     let other = SessionIdentity(server: "studio", session: "other")
 
-    func dictations() -> SessionDictation {
-        SessionDictation(engine: ScriptedDictationEngine(transcript: "check the build", delay: .milliseconds(10)))
+    func dictations(delay: Duration = .milliseconds(10)) -> SessionDictation {
+        SessionDictation(engine: SharedMicrophone(ScriptedDictationEngine(transcript: "check the build", delay: delay)))
     }
 
     /// Opens the session with its composer on screen and starts recording.
@@ -87,6 +87,54 @@ struct SessionDictationTests {
         dictations.interrupted()
         await idle(dictation)
         #expect(composer.draft == "check the build")
+    }
+
+    /// Leaving the app after ✓ or ↑ lets the words arrive.
+    @Test func leavingWhileTranscribingKeepsTheWords() async {
+        let dictations = dictations(delay: .milliseconds(150))
+        let composer = SessionComposerTests.composer()
+        let dictation = await recording(dictations, composer: composer)
+        dictations.stop()
+        while dictation.phase != .transcribing { await Task.yield() }
+        dictations.interrupted()
+        dictations.opened([])
+        await idle(dictation)
+        #expect(dictations.dictation(for: session) == nil)
+        let reopened = SessionComposerTests.composer()
+        dictations.opened([session])
+        dictations.attach(reopened, for: session) {}
+        #expect(reopened.draft == "check the build")
+        #expect(composer.draft == "")
+    }
+
+    /// A session closed while its mic gets ready doesn't start recording.
+    @Test func closingWhileGettingReadyDropsTheRecording() async {
+        let dictations = dictations(delay: .milliseconds(150))
+        dictations.opened([session])
+        dictations.attach(SessionComposerTests.composer(), for: session) {}
+        let dictation = dictations.dictation(for: session)!
+        let started = Task { await dictation.start() }
+        while !dictation.isPreparing { await Task.yield() }
+        dictations.opened([])
+        #expect(await started.value == false)
+        #expect(dictations.active == nil)
+    }
+
+    /// Every mic shares the microphone: one that starts while another
+    /// records is refused, and one that starts while another ends waits.
+    @Test func theMicrophoneIsLentToOneRecordingAtATime() async {
+        let microphone = SharedMicrophone(ScriptedDictationEngine(transcript: "words", delay: .milliseconds(50)))
+        let first = Dictation(engine: microphone), second = Dictation(engine: microphone)
+        #expect(await first.start())
+        #expect(await second.start() == false)
+        #expect(second.problem == .unavailable)
+
+        let finished = Task { await first.finish() }
+        while first.phase != .transcribing { await Task.yield() }
+        #expect(await second.start())
+        #expect(await finished.value == "words")
+        second.cancel()
+        await idle(second)
     }
 
     @Test func cancelThrowsTheWordsAway() async {

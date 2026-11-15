@@ -76,26 +76,33 @@ final class SessionDictation {
     }
 
     /// The sessions open in the Sessions tab changed. A recording whose
-    /// session closed ends, and its words wait in its draft.
+    /// session closed ends, and its words wait in its draft; one still
+    /// getting ready is dropped, since nothing was said yet. One that's
+    /// transcribing delivers its words when they come.
     func opened(_ sessions: Set<SessionIdentity>) {
         open = sessions
-        for id in dictations.keys where !sessions.contains(id) {
-            if dictations[id]?.phase == .recording { stop() }
-            else if dictations[id]?.isActive == false { dictations[id] = nil }
+        for (id, dictation) in dictations where !sessions.contains(id) {
+            switch dictation.phase {
+            case .recording: stop()
+            case .preparing: dictation.cancel()
+            case .transcribing: break
+            case .idle: dictations[id] = nil
+            }
         }
         composers = composers.filter { sessions.contains($0.key) && $0.value.composer != nil }
         closers = closers.filter { sessions.contains($0.key) }
     }
 
     /// The Sessions tab was left or the app went to the background: a
-    /// recording ends and its words go to the draft.
+    /// recording ends and its words go to the draft. One still getting ready
+    /// is dropped; one that's transcribing carries on.
     func interrupted() {
-        guard let id = active, dictations[id]?.phase == .recording else {
-            // Not yet recording: nothing was said.
-            if let id = active { dictations[id]?.cancel() }
-            return
+        guard let id = active, let dictation = dictations[id] else { return }
+        switch dictation.phase {
+        case .recording: stop()
+        case .preparing: dictation.cancel()
+        case .idle, .transcribing: break
         }
-        stop()
     }
 
     // MARK: The pill
@@ -139,14 +146,18 @@ final class SessionDictation {
             dictation.cancel()
             return
         }
-        // Transcribing can outlast the app's time in front.
-        let background = UIApplication.shared.beginBackgroundTask(withName: "Dictation")
+        // Transcribing can outlast the app's time in front. If iOS ends that
+        // time first, the words are dropped rather than the app.
+        let background = BackgroundTime()
+        background.begin { dictation.cancel() }
         Task {
-            defer { UIApplication.shared.endBackgroundTask(background) }
+            defer {
+                background.end()
+                if !open.contains(id), !dictation.isActive { dictations[id] = nil }
+            }
             guard let words = await dictation.finish() else { return }
             let composer = open.contains(id) ? composers[id]?.composer : nil
             deliver(words, id, composer)
-            if !open.contains(id), !dictation.isActive { dictations[id] = nil }
         }
     }
 
@@ -156,6 +167,26 @@ final class SessionDictation {
 
     private func wait(_ words: String, for id: SessionIdentity) {
         waiting[id] = waiting[id].map { DictationText.join($0, words) } ?? words
+    }
+
+    /// Background time for one transcription, ended once.
+    @MainActor private final class BackgroundTime {
+        private var task = UIBackgroundTaskIdentifier.invalid
+
+        func begin(expired: @escaping @MainActor () -> Void) {
+            task = UIApplication.shared.beginBackgroundTask(withName: "Dictation") { [self] in
+                MainActor.assumeIsolated {
+                    expired()
+                    end()
+                }
+            }
+        }
+
+        func end() {
+            guard task != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
     }
 
     private struct WeakComposer {

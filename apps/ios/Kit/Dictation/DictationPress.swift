@@ -4,7 +4,8 @@ import KitDictation
 /// The engine the app dictates with. In debug builds `KIT_DICTATION_TRANSCRIPT`
 /// in the launch environment swaps in a scripted one that "hears" that text,
 /// so the simulator and UI tests can dictate without a microphone;
-/// `KIT_DICTATION_ACCESS=denied` makes it refuse access.
+/// `KIT_DICTATION_ACCESS=denied` makes it refuse access. Every mic shares
+/// it, and it lends the microphone to one recording at a time.
 enum DictationSupport {
     static let engine: any DictationEngine = {
         #if DEBUG
@@ -12,10 +13,10 @@ enum DictationSupport {
         if let transcript = environment["KIT_DICTATION_TRANSCRIPT"] {
             let access: DictationAccess = environment["KIT_DICTATION_ACCESS"] == "denied" ? .denied : .granted
             let delay = Double(environment["KIT_DICTATION_DELAY"] ?? "").map { Duration.seconds($0) } ?? .milliseconds(300)
-            return ScriptedDictationEngine(transcript: transcript, access: access, delay: delay)
+            return SharedMicrophone(ScriptedDictationEngine(transcript: transcript, access: access, delay: delay))
         }
         #endif
-        return SpeechDictationEngine()
+        return SharedMicrophone(SpeechDictationEngine())
     }()
 
     /// What a field says when dictation gave nothing, other than
