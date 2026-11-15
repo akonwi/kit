@@ -28,9 +28,13 @@ final class SessionDictation {
     /// changes with each ask.
     private(set) var returning: (session: SessionIdentity, count: Int)?
 
-    init(engine: any DictationEngine = DictationSupport.engine, drafts: SessionDrafts) {
+    @ObservationIgnored private let keepRunning: SharedMicrophone.KeepRunning
+
+    init(engine: any DictationEngine = DictationSupport.engine, drafts: SessionDrafts,
+         keepRunning: @escaping SharedMicrophone.KeepRunning = BackgroundTime.keep) {
         self.engine = engine
         self.drafts = drafts
+        self.keepRunning = keepRunning
     }
 
     /// The session's composer dictation, once its screen has appeared.
@@ -152,15 +156,24 @@ final class SessionDictation {
             return
         }
         // The app keeps running until the words are in the draft, and the
-        // draft is written, even if the app was left meanwhile.
-        let background = BackgroundTime.begin {}
+        // draft is written, even if the app was left meanwhile. If that time
+        // runs out first, the words so far go in the draft, never sent, before it ends.
+        let delivered = Delivered()
+        let end = keepRunning { [self] in
+            let soFar = dictation.transcribedSoFar().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !delivered.done, !soFar.isEmpty else { return }
+            delivered.done = true
+            if open.contains(id), let composer = composers[id]?.composer { add(soFar, to: composer) } else { wait(soFar, for: id) }
+            drafts.write()
+        }
         Task {
             defer {
                 if !open.contains(id), !dictation.isActive { dictations[id] = nil }
                 drafts.write()
-                background.end()
+                end()
             }
-            guard let words = await dictation.finish() else { return }
+            guard let words = await dictation.finish(), !delivered.done else { return }
+            delivered.done = true
             let composer = open.contains(id) ? composers[id]?.composer : nil
             deliver(words, id, composer)
         }
@@ -172,6 +185,11 @@ final class SessionDictation {
 
     private func wait(_ words: String, for id: SessionIdentity) {
         drafts.append(words, for: id)
+    }
+
+    /// Whether a recording's words went somewhere already.
+    private final class Delivered {
+        var done = false
     }
 
     private struct WeakComposer {

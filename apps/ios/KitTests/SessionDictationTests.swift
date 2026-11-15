@@ -240,6 +240,27 @@ struct SessionDictationTests {
         await next.cancel()
     }
 
+    /// When the time runs out, the words so far are in the draft, and
+    /// written, before the time ends; the late answer isn't added again.
+    @Test func runningOutOfTimeKeepsTheWordsSoFarInTheDraft() async throws {
+        let time = FakeBackgroundTime()
+        let dictations = SessionDictation(engine: SharedMicrophone(SlowEngine()) { _ in { } }, drafts: drafts) { expired in
+            time.expired = expired
+            return { time.ended += 1 }
+        }
+        let composer = SessionComposerTests.composer()
+        let dictation = await recording(dictations, composer: composer)
+        dictations.composerDisappeared(session)
+        dictations.opened([])
+        while time.expired == nil { await Task.yield() }
+        time.expired?()
+        #expect(drafts.text(for: session) == "What was said so far")
+        dictation.cancel()
+        await idle(dictation)
+        while time.ended == 0 { await Task.yield() }
+        #expect(drafts.text(for: session) == "What was said so far")
+    }
+
     @Test func cancelThrowsTheWordsAway() async {
         let dictations = dictations()
         let composer = SessionComposerTests.composer()

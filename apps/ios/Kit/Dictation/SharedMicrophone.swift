@@ -118,9 +118,9 @@ struct SharedMicrophone: DictationEngine {
             Task {
                 let result: Result<String, any Error>
                 do { result = .success(try await recording.finish()) } catch { result = .failure(error) }
+                race.resolve(result)
                 // The microphone is given back only once the recording has stopped.
                 await lease.release(id)
-                race.resolve(result)
                 await end()
             }
             return try await race.value()

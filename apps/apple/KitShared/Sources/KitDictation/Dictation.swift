@@ -125,6 +125,12 @@ public final class Dictation {
         }
     }
 
+    /// The words transcribed so far while recording or transcribing, for
+    /// keeping what was said when finishing can't run to the end.
+    public func transcribedSoFar() -> String {
+        recording?.transcribedSoFar() ?? ""
+    }
+
     /// Throws the recording away. Nothing is transcribed.
     public func cancel() {
         guard phase != .idle else { return }
