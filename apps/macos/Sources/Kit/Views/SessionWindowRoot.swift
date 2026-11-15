@@ -18,6 +18,7 @@ struct SessionWindowRoot: View {
     @State private var firstRun = false
 
     var body: some View {
+        let _ = LaunchMetrics.mark(.windowContent)
         let model = windows.model(for: request)
         // First run signs in this Mac's server; other servers sign in from their launchers.
         let launcher = model.servers.local

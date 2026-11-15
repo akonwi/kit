@@ -123,6 +123,7 @@ final class SessionWindowRegistry: NSObject {
             return
         }
         guard model.window !== window else { return }
+        LaunchMetrics.mark(.firstWindow)
         model.window = window
         model.trafficLights = TrafficLightPlacement(window: window)
         // The close button asks first if closing would end running commands.

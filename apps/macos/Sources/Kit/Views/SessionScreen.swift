@@ -79,6 +79,7 @@ struct SessionScreen: View {
             if let identity = notification.object as? SessionIdentity { state.sessionDeleted(identity) }
         }
         .onChange(of: state.selectedID) { onSelection(state.selectedID) }
+        .onChange(of: tiled, initial: true) { _, shown in if shown { LaunchMetrics.mark(.sessionShown) } }
         .onChange(of: ForkFirstTurnFailures.shared.revision) { state.applyForkFirstTurnFailure() }
         .font(.kit(size: 13))
         .foregroundStyle(theme.text)

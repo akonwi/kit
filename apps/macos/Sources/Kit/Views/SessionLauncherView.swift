@@ -179,6 +179,9 @@ struct SessionLauncherContent: View {
             }
         }
         .onChange(of: selection.query) { selection.highlightedID = results.first?.id }
+        .onChange(of: connected && !connecting, initial: true) { _, listed in
+            if listed { LaunchMetrics.mark(.contentReady) }
+        }
         .onKeyPress(.pageDown) { selection.move(5, in: results); return .handled }
         .onKeyPress(.pageUp) { selection.move(-5, in: results); return .handled }
         .onKeyPress(.downArrow) { selection.move(1, in: results); return .handled }

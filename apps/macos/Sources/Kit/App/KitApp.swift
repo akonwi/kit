@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         sessionWindows = SessionWindowRegistry(servers: ServerDirectory())
         super.init()
+        LaunchMetrics.mark(.delegateInit)
     }
     init(sessionWindows: SessionWindowRegistry) {
         self.sessionWindows = sessionWindows
@@ -28,7 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sessionWindows.terminating = true
         return .terminateNow
     }
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        LaunchMetrics.mark(.willFinishLaunching)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LaunchMetrics.mark(.didFinishLaunching)
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -55,6 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum KitMain {
     static func main() {
         if let status = Askpass.runIfRequested() { exit(status) }
+        MainActor.assumeIsolated {
+            LaunchMetrics.mark(.main)
+            LaunchMetrics.observeWindows()
+        }
         KitApp.main()
     }
 }
@@ -75,6 +85,7 @@ struct KitApp: App {
         }
         _themeLibrary = State(initialValue: library)
         TerminalTheme.shared.library = library
+        LaunchMetrics.mark(.appInit)
     }
 
     var body: some Scene {

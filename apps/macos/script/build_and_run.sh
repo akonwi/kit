@@ -23,8 +23,16 @@ DEV_HOME=""
 if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" == 1 ]]; then
   BUNDLE_ID=com.akonwi.kit; BUNDLE_NAME=Kit; ICON_NAME=Kit
   [[ -z "$CHANNEL" ]] || { echo "A release build names no channel" >&2; exit 2; }
+  [[ -z "${KIT_MACOS_BUNDLE_ID:-}" ]] || { echo "A release build keeps its bundle identifier" >&2; exit 2; }
 else
   BUNDLE_ID=com.akonwi.kit.dev; BUNDLE_NAME="Kit Dev"; ICON_NAME=KitDev
+  # A development bundle may take an identity of its own, such as one that
+  # launch measurements relaunch, so its preferences and saved windows stay
+  # apart from the Kit Dev in everyday use.
+  if [[ -n "${KIT_MACOS_BUNDLE_ID:-}" ]]; then
+    [[ "$KIT_MACOS_BUNDLE_ID" =~ ^com\.akonwi\.kit\.dev\.[A-Za-z0-9-]+$ ]] || { echo "KIT_MACOS_BUNDLE_ID must be com.akonwi.kit.dev.NAME" >&2; exit 2; }
+    BUNDLE_ID="$KIT_MACOS_BUNDLE_ID"
+  fi
 fi
 if [[ -n "$CHANNEL" ]]; then
   # One directory name, so a channel can't escape the state directory.

@@ -571,6 +571,7 @@ final class SessionReplica {
         current = merged
         unavailable = false
         delivered = true
+        LaunchMetrics.mark(.sessionDelivered)
         onReceive?(merged)
         connectionState = .connected
         if refreshVCS { startVCSStream() }

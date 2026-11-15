@@ -308,6 +308,7 @@ final class ServerConnection: Identifiable {
                 let identity = try result.get()
                 let restarted = status.identity?.instance != identity.instance
                 status = .connected(identity)
+                if isLocal { LaunchMetrics.mark(.serverConnected) }
                 if machine != identity.machine { machine = identity.machine }
                 delay = schedule.firstRetry
                 wait = schedule.check

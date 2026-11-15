@@ -453,6 +453,11 @@ final class ComposerTextView: NSTextView {
         }
         return urls.isEmpty ? nil : urls
     }
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result { LaunchMetrics.mark(.composerFocused) }
+        return result
+    }
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result { mentions?.close(); history?.close(); mentionChanged?() }

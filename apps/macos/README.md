@@ -243,6 +243,40 @@ some create temporary sessions and invoke model or shell work. Ordinary tests
 use synthetic clients. `Fixtures/Themes` contains Flexoki import-regression
 inputs used by `ThemeTests`, not app resources.
 
+### Launch time
+
+The launch target is half a Dock bounce: from clicking the Dock icon to the
+first frame with real content, the selected session's transcript or the
+launcher's session list, in about 350 ms. One bounce takes about 700 ms on
+macOS 26, measured frame by frame from a screen recording of an app that
+keeps the Dock bouncing.
+
+The app marks its launch milestones as Points of Interest signposts
+(subsystem `com.akonwi.kit.launch`), which Instruments shows beside a Time
+Profiler or App Launch recording. `script/measure_launch.sh` launches a
+bundle repeatedly and reports each milestone's minimum, median, and 90th
+percentile, in milliseconds from the `open` call that stands in for the
+click. Measure a Release build with its own identity and channel, so the
+repeated launches never touch `~/.kit`, an installed Kit, or a Kit Dev in
+everyday use, with that channel's server running:
+
+```sh
+KIT_MACOS_BUNDLE_ID=com.akonwi.kit.dev.launch KIT_MACOS_CHANNEL=launch \
+  KIT_MACOS_CONFIGURATION=Release KIT_MACOS_APP_BUNDLE="$PWD/apps/macos/dist/KitLaunch.app" \
+  apps/macos/script/build_and_run.sh --build
+apps/macos/script/measure_launch.sh --app apps/macos/dist/KitLaunch.app --runs 10 \
+  --state windows.json
+```
+
+`--state` copies a saved `windows.json` into place before each launch, so
+every launch restores the same tabs; `--state none` launches without saved
+windows. `--floor` launches an empty SwiftUI app (`script/launch_floor.swift`)
+before each of the bundle's launches and reports both, since the Mac's load
+moves every launch; the empty app's time is the floor Kit's is held against.
+`--cold` drops the file cache with `sudo purge` before each launch.
+The script quits the bundle between launches and makes it the active app
+each time.
+
 ## References
 
 - [Session API and SDK development](../../docs/api-development.md)

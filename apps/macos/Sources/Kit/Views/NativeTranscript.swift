@@ -244,6 +244,8 @@ struct NativeTranscript: NSViewRepresentable {
         let pending = pendingMeasurements
         pendingMeasurements.removeAll()
         guard !stopped else { return }
+        // The first measured rows are the transcript's first real content.
+        defer { if !messages.isEmpty { LaunchMetrics.mark(.contentReady) } }
         let saved = insertionAnchor ?? anchor()
         var changed = IndexSet()
         for (id, value) in pending {
@@ -449,6 +451,7 @@ struct NativeTranscript: NSViewRepresentable {
         else if !diff.isEmpty, let saved { restore(saved) }
         publishVisibility()
         updateHistoryRelease(turnFinished: turnFinished)
+        if messages.isEmpty { LaunchMetrics.mark(.contentReady) }
         // Rows reconfigured under the pointer may no longer show its link.
         if linkHover.hovered != nil {
             DispatchQueue.main.async { [weak self] in
