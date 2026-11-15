@@ -91,11 +91,13 @@ struct SessionsView: View {
                     try? await Task.sleep(for: Self.refreshInterval)
                 }
             }
-            .onChange(of: path.last, initial: true) { _, open in store.onScreen = open }
             .onChange(of: filterChoices) { _, choices in
                 if !choices.contains(filter) { filter = .all }
             }
         }
+        // On the stack, which stays on screen while sessions are pushed, so a
+        // linked session pushed over another is the one on screen.
+        .onChange(of: path.last, initial: true) { _, open in store.onScreen = open }
         // Set on the stack so pushed sessions see it.
         .environment(\.openSession, OpenSessionAction { path = [$0] } push: { id in
             // A session already open goes back to it rather than open twice.
