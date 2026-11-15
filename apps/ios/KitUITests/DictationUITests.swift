@@ -3,7 +3,9 @@ import XCTest
 /// Dictation in the composer and the comment box, with the app's scripted
 /// microphone, on the paired server of an isolated Kit home: a tap sends
 /// once ↑ is tapped, a hold sends when let go, sliding left cancels, refused
-/// access offers Settings, silence says so, and a comment fills with the words. Run by script/test_dictation.sh, which
+/// access offers Settings, silence says so, a comment fills with the words,
+/// and a recording keeps going on the session's other screens and waits in
+/// its draft when the session is left. Run by script/test_dictation.sh, which
 /// names a session whose folder is a git repository with uncommitted changes.
 final class DictationUITests: XCTestCase {
     static let heard = "Run the reconnect test 20 times in a row"
@@ -153,6 +155,87 @@ final class DictationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["diff-comment-save"].isEnabled)
         attach(app, "Comment filled")
         app.buttons["diff-comment-cancel"].tap()
+    }
+
+    /// A tapped recording keeps going on the session's scratchpad, where a
+    /// pill shows it: tapping the pill goes back to the composer, and ✓ puts
+    /// the words in the draft.
+    @MainActor
+    func testARecordingKeepsGoingOverTheSession() throws {
+        let heard = "Look at the scratchpad \(Int(Date().timeIntervalSince1970) % 100_000)"
+        let app = open(try session(), transcript: heard)
+        let mic = app.buttons["dictate"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 15))
+        mic.tap()
+        XCTAssertTrue(waitFor(mic, label: "Send dictation", timeout: 5))
+
+        openScratchpad(app)
+        let pill = app.buttons["recording-pill"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["dictation-timer"].exists == false, "The composer's strip isn't on the scratchpad")
+        attach(app, "Pill on the scratchpad")
+
+        pill.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["dictation-strip"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitFor(mic, label: "Send dictation", timeout: 5), "Still recording, as a tapped one")
+        XCTAssertTrue(waitForAbsence(pill, timeout: 5))
+        attach(app, "Back at the composer")
+
+        // Changes has the session's composer, so it shows the recording there.
+        let menu = app.buttons["session-menu"]
+        menu.tap()
+        let changes = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Changes")).firstMatch
+        XCTAssertTrue(changes.waitForExistence(timeout: 5))
+        changes.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["changes-summary"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["dictation-strip"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitFor(app.buttons["dictate"], label: "Send dictation", timeout: 5))
+        XCTAssertFalse(pill.exists, "The composer on Changes shows the recording")
+        attach(app, "Recording on Changes")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(waitFor(mic, label: "Send dictation", timeout: 5))
+
+        openScratchpad(app)
+        let draft = app.buttons["recording-pill-draft"]
+        XCTAssertTrue(draft.waitForExistence(timeout: 5))
+        draft.tap()
+        XCTAssertTrue(waitForAbsence(pill, timeout: 10))
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(composer(app).waitForExistence(timeout: 10))
+        XCTAssertEqual(composer(app).value as? String, heard)
+        attach(app, "Words in the draft")
+    }
+
+    /// Going back to the list ends a recording, and its words wait in the
+    /// session's draft.
+    @MainActor
+    func testLeavingTheSessionKeepsTheWordsInItsDraft() throws {
+        let title = try session()
+        let heard = "Keep these words \(Int(Date().timeIntervalSince1970) % 100_000)"
+        let app = open(title, transcript: heard)
+        let mic = app.buttons["dictate"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 15))
+        mic.tap()
+        XCTAssertTrue(waitFor(mic, label: "Send dictation", timeout: 5))
+
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 5))
+        sleep(3)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch.tap()
+        XCTAssertTrue(composer(app).waitForExistence(timeout: 10))
+        XCTAssertEqual(composer(app).value as? String, heard)
+        attach(app, "Words waited in the draft")
+    }
+
+    @MainActor
+    private func openScratchpad(_ app: XCUIApplication) {
+        let menu = app.buttons["session-menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        let item = app.buttons["scratchpad"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.tap()
+        XCTAssertTrue(app.textViews["scratchpad-editor"].waitForExistence(timeout: 10))
     }
 
     /// An empty field reads as its placeholder.

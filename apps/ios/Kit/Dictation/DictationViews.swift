@@ -244,7 +244,7 @@ struct DictationStrip: View {
 }
 
 /// Five bars that follow the microphone's level.
-private struct DictationLevel: View {
+struct DictationLevel: View {
     let level: Double
     private let weights: [Double] = [0.35, 0.7, 1, 0.6, 0.35]
 
@@ -265,6 +265,7 @@ private struct DictationLevel: View {
 /// A mic inside a field that takes a tap: the dock's text answer and the
 /// comment box. While it records, the field shows a strip and a ✓.
 struct FieldDictation<Field: View>: View {
+    @Environment(SessionDictation.self) private var sessions: SessionDictation?
     let dictation: Dictation
     let enabled: Bool
     /// Puts the words in the field.
@@ -283,6 +284,9 @@ struct FieldDictation<Field: View>: View {
         }
     }
 
+    /// A session's composer records; the microphone is taken.
+    private var sessionRecording: Bool { sessions?.active != nil }
+
     private var mic: some View {
         Button {
             Task { _ = await dictation.start() }
@@ -293,14 +297,15 @@ struct FieldDictation<Field: View>: View {
                 } else {
                     Image(systemName: "mic.fill")
                         .font(.system(size: 17))
-                        .foregroundStyle(enabled ? Theme.text : Theme.muted)
+                        .foregroundStyle(enabled && !sessionRecording ? Theme.text : Theme.muted)
                 }
             }
             .frame(width: 32, height: 32)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!enabled || dictation.isActive)
+        // The microphone is taken while a session's composer records.
+        .disabled(!enabled || dictation.isActive || sessionRecording)
         .accessibilityLabel("Dictate")
         .accessibilityIdentifier("dictate-field")
     }

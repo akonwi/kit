@@ -26,11 +26,17 @@ struct ComposerBar: View {
         nonmutating set { composer.commandSearch = newValue }
     }
     @State private var recents: [String] = []
-    @State private var dictation = Dictation(engine: DictationSupport.engine)
+    @Environment(SessionDictation.self) private var dictations
+    /// Stands in until the session's screen has set up its dictation.
+    @State private var unattached = Dictation(engine: DictationSupport.engine)
     @State private var press = DictationPress()
     /// Dictated words are on their way. The strip stays until the server
     /// answers, so the words don't show in the field just before they go.
     @State private var sendingDictation = false
+
+    /// The session's dictation, shared by its screens' composers so a
+    /// recording keeps going on screens over the session.
+    private var dictation: Dictation { dictations.dictation(for: feed.identity) ?? unattached }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -66,6 +72,11 @@ struct ComposerBar: View {
                 // The list gives way first, so the field stays above the keyboard.
                 capsule
                     .layoutPriority(1)
+                    .onAppear {
+                        dictations.composerAppeared(feed.identity)
+                        press.adopt(recording: dictation.phase == .recording)
+                    }
+                    .onDisappear { dictations.composerDisappeared(feed.identity) }
             }
         }
         .padding(.horizontal, 12)
@@ -121,7 +132,8 @@ struct ComposerBar: View {
     /// place, and the mic stays where it was pressed.
     private var capsule: some View {
         let listening = dictation.phase == .recording || dictation.phase == .transcribing || sendingDictation
-        let mic = dictation.isActive || composer.canDictate
+        // One session records at a time.
+        let mic = dictation.isActive || (composer.canDictate && dictations.canStart(feed.identity))
         let micOnly = dictation.isActive || composer.dictatesInSendSlot
         return HStack(alignment: .bottom, spacing: 4) {
             if listening {
@@ -189,9 +201,11 @@ struct ComposerBar: View {
         .padding(.vertical, 8)
         .frame(minHeight: 56)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .dictationLifecycle(dictation)
         .onChange(of: dictation.isActive) { _, active in
             if active { focused = false }
+        }
+        .onChange(of: dictation.phase == .recording) { _, recording in
+            if recording, press.mode == .none { press.adopt(recording: true) }
         }
         .onChange(of: composer.keyboardDismissals) { focused = false }
         // Sent or refused: a refused message's words are in the field to fix.

@@ -6,6 +6,7 @@ import SwiftUI
 struct SessionsView: View {
     @Environment(ServerStore.self) private var servers
     @Environment(SessionsStore.self) private var store
+    @Environment(SessionDictation.self) private var dictations
     @Environment(\.scenePhase) private var scenePhase
     @State private var filter = SessionsStore.Filter.all
     /// The open session, when one is.
@@ -95,9 +96,31 @@ struct SessionsView: View {
                 if !choices.contains(filter) { filter = .all }
             }
         }
+        // A recording whose composer isn't on screen shows over every screen of the stack.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let away = dictations.away {
+                RecordingPill(dictation: away.dictation, title: store.title(of: away.session),
+                              stop: dictations.stop, send: dictations.send, cancel: dictations.cancel,
+                              open: dictations.returnToComposer)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.25), value: dictations.away?.session)
         // On the stack, which stays on screen while sessions are pushed, so a
         // linked session pushed over another is the one on screen.
         .onChange(of: path.last, initial: true) { _, open in store.onScreen = open }
+        .onChange(of: path, initial: true) { _, path in dictations.opened(Set(path)) }
+        .onChange(of: dictations.returning?.count) {
+            guard let id = dictations.returning?.session, let open = path.lastIndex(of: id) else { return }
+            path.removeSubrange(path.index(after: open)...)
+        }
+        // A recording ends in its draft when the app or this tab is left.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { dictations.interrupted() }
+        }
+        .onDisappear { dictations.interrupted() }
         // Set on the stack so pushed sessions see it.
         .environment(\.openSession, OpenSessionAction { path = [$0] } push: { id in
             // A session already open goes back to it rather than open twice.

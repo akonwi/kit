@@ -5,12 +5,14 @@ import SwiftUI
 struct KitApp: App {
     @State private var store = ServerStore.live()
     @State private var sessions = SessionsStore.live()
+    @State private var dictation = SessionDictation()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(store)
                 .environment(sessions)
+                .environment(dictation)
                 .tint(Theme.accent)
         }
     }

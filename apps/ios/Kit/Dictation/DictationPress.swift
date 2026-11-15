@@ -119,6 +119,16 @@ struct DictationPress: Equatable {
         return .cancel
     }
 
+    /// A recording that's going without a press on this mic, such as one
+    /// started on another of the session's screens, is a tapped one: ↑ sends
+    /// it. Otherwise the mic is reset.
+    mutating func adopt(recording: Bool) {
+        guard pressedAt == nil else { return }
+        mode = recording ? .tap : .none
+        cancelArmed = false
+        startedRecording = false
+    }
+
     /// Dictation went back to idle some other way: ✕, a failed start, or the words arrived.
     mutating func reset() {
         mode = .none

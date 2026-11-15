@@ -11,6 +11,7 @@ struct SessionScreen: View {
     }
 
     @Environment(SessionsStore.self) private var sessions
+    @Environment(SessionDictation.self) private var dictations
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openSession) private var openSession
@@ -242,6 +243,15 @@ struct SessionScreen: View {
             // A run may create or mention sessions; list them for their titles.
             .onChange(of: feed.session?.activeRunID == nil) { _, idle in
                 if idle { refreshList() }
+            }
+            .onAppear {
+                // The recording pill goes back to the composer, from under what's over it.
+                let changes = $showingChanges, scratchpad = $showingScratchpad, file = $openedFile
+                dictations.attach(composer, for: feed.identity) {
+                    changes.wrappedValue = false
+                    scratchpad.wrappedValue = false
+                    file.wrappedValue = nil
+                }
             }
             .onDisappear { markSeen() }
     }
