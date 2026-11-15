@@ -199,13 +199,13 @@ struct SessionsStoreTests {
         network.set(studio, sessions: [SessionTesting.session("a", at: 100)], activity: ["a": .running])
         let store = SessionTesting.store(network)
         await store.refresh([studio])
-        store.show(id)
+        store.onScreen = id
         network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
         await store.refresh([studio])
         #expect(store.rows.map(\.unseen) == [false])
 
-        store.markSeen(id, working: false)
-        store.hide(id)
+        store.markSeen(id, changed: Date(timeIntervalSince1970: 1_800_000_100), working: false)
+        store.onScreen = nil
         await store.refresh([studio])
         #expect(store.rows.map(\.unseen) == [false])
     }
@@ -219,13 +219,47 @@ struct SessionsStoreTests {
         network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
         let store = SessionTesting.store(network)
         await store.refresh([studio])
-        store.show(id)
+        store.onScreen = id
         store.markSeen(id, changed: Date(timeIntervalSince1970: 1_800_000_150), working: true)
-        store.hide(id)
+        store.onScreen = nil
 
         network.set(studio, sessions: [SessionTesting.session("a", at: 150)])
         await store.refresh([studio])
         #expect(store.rows.map(\.unseen) == [true])
+    }
+
+    /// A screen that hasn't yet seen the turn the list saw start can't say
+    /// the session is idle.
+    @Test func aScreenBehindTheListLeavesItWorking() async {
+        let network = FakeSessionsNetwork()
+        let id = SessionIdentity(server: "studio", session: "a")
+        network.set(studio, sessions: [SessionTesting.session("a", at: 150)], activity: ["a": .running])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio])
+        store.markSeen(id, changed: Date(timeIntervalSince1970: 1_800_000_100), working: false)
+
+        network.set(studio, sessions: [SessionTesting.session("a", at: 150)])
+        await store.refresh([studio])
+        #expect(store.rows.map(\.unseen) == [true])
+    }
+
+    /// A listing that answers after a newer one doesn't replace it.
+    @Test func anOlderListingThatAnswersLateIsDropped() async {
+        let network = FakeSessionsNetwork()
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)], activity: ["a": .running])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio])
+
+        network.hold(studio)
+        let older = Task { await store.refresh([studio]) }
+        await network.waitForHeld()
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)], activity: ["a": .awaitingResponse])
+        await store.refresh([studio])
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
+        network.release(studio)
+        await older.value
+        #expect(store.rows.map(\.status) == [.awaitingResponse])
+        #expect(store.rows.map(\.unseen) == [false])
     }
 
     /// Which sessions finished is kept, so it survives the app being closed.
@@ -337,7 +371,39 @@ final class FakeSessionsNetwork: SessionsNetwork, @unchecked Sendable {
         try lock.withLock { try lists[server.name]?.get() ?? Listing(sessions: [], activity: [:], waitingSince: [:], legacy: false) }
     }
 
+    private var holding: Set<String> = []
+    private var held: [String: CheckedContinuation<Void, Never>] = [:]
+    private var heldWaiter: CheckedContinuation<Void, Never>?
+
+    /// Holds the server's next listing until `release`; it answers with
+    /// the sessions set by then.
+    func hold(_ server: SavedServer) {
+        lock.withLock { _ = holding.insert(server.name) }
+    }
+
+    /// Waits until a held listing has been asked for.
+    func waitForHeld() async {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                if held.isEmpty { heldWaiter = continuation } else { continuation.resume() }
+            }
+        }
+    }
+
+    func release(_ server: SavedServer) {
+        lock.withLock { held.removeValue(forKey: server.name) }?.resume()
+    }
+
     func sessionsByAttention(on server: SavedServer) async throws -> AttentionListing {
+        if lock.withLock({ holding.remove(server.name) != nil }) {
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    held[server.name] = continuation
+                    heldWaiter?.resume()
+                    heldWaiter = nil
+                }
+            }
+        }
         let listing = try list(server)
         if listing.legacy { return .unordered(listing.sessions) }
         let listed = listing.sessions.map { session in

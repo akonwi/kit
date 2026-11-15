@@ -214,9 +214,12 @@ final class SessionsStore {
     private(set) var loaded = false
     /// Changes whenever a session is marked seen, so rows are read again.
     private var seenRevision = 0
-    /// Sessions on screen, counted, since a linked session can be pushed
-    /// over another.
-    @ObservationIgnored private var showing: [SessionIdentity: Int] = [:]
+    /// The session on screen, if one is. Its turn ending doesn't mark it
+    /// finished, even while its changes, a file, or its scratchpad is open.
+    @ObservationIgnored var onScreen: SessionIdentity?
+    /// Each server's latest listing request, so an older one that answers
+    /// later doesn't replace what a newer one listed.
+    @ObservationIgnored private var listing: [String: Int] = [:]
 
     let network: any SessionsNetwork
     private let seen: SeenSessions
@@ -325,6 +328,8 @@ final class SessionsStore {
 
     private func list(_ server: SavedServer) async {
         let network = self.network
+        let request = listing[server.name, default: 0] + 1
+        listing[server.name] = request
         do {
             let list: [SessionExcerpt]
             var statuses: [String: SessionTabStatus] = [:]
@@ -340,17 +345,17 @@ final class SessionsStore {
                 list = sessions
                 statuses = try await network.activity(on: server)
             }
-            guard listings[server.name]?.server == server else { return }
+            guard listings[server.name]?.server == server, listing[server.name] == request else { return }
             let name = server.name
             seen.listed(name, sessions: list.map { ($0.id, SessionFormat.date($0.lastActivity ?? $0.date), statuses[$0.id, default: .idle] != .idle) },
-                        showing: { self.showing[SessionIdentity(server: name, session: $0), default: 0] > 0 })
+                        showing: { self.onScreen == SessionIdentity(server: name, session: $0) })
             listings[server.name]?.sessions = list
             listings[server.name]?.activity = statuses
             listings[server.name]?.waitingSince = since
             listings[server.name]?.listedAt = now()
             listings[server.name]?.problem = nil
         } catch {
-            guard !isCancellation(error), listings[server.name]?.server == server else { return }
+            guard !isCancellation(error), listings[server.name]?.server == server, listing[server.name] == request else { return }
             listings[server.name]?.problem = ServerState.from(error, at: now())
         }
     }
@@ -394,21 +399,13 @@ final class SessionsStore {
 
     /// Records that a session was shown as of its latest change. `working`
     /// is whether the screen saw it working or waiting on the user, if known.
+    /// A screen that hasn't caught up with what the list saw can't say the
+    /// session is idle, or a turn the list saw start would never be marked.
     func markSeen(_ id: SessionIdentity, changed: Date? = nil, working: Bool? = nil) {
         let latest = rows.first { $0.id == id }?.changed
-        seen.markSeen(id, at: max(changed ?? .distantPast, latest ?? .distantPast), working: working)
+        let behind = changed.map { shown in latest.map { shown < $0 } ?? false } ?? true
+        seen.markSeen(id, at: max(changed ?? .distantPast, latest ?? .distantPast),
+                      working: working == false && behind ? nil : working)
         seenRevision += 1
-    }
-
-    /// A session's screen appeared; while it's on screen, its turn ending
-    /// doesn't mark it finished.
-    func show(_ id: SessionIdentity) {
-        showing[id, default: 0] += 1
-    }
-
-    /// A session's screen went away.
-    func hide(_ id: SessionIdentity) {
-        guard let count = showing[id] else { return }
-        showing[id] = count > 1 ? count - 1 : nil
     }
 }

@@ -243,11 +243,7 @@ struct SessionScreen: View {
             .onChange(of: feed.session?.activeRunID == nil) { _, idle in
                 if idle { refreshList() }
             }
-            .onAppear { sessions.show(feed.identity) }
-            .onDisappear {
-                markSeen()
-                sessions.hide(feed.identity)
-            }
+            .onDisappear { markSeen() }
     }
 
     // MARK: Commands

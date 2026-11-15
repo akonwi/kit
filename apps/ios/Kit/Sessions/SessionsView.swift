@@ -91,6 +91,7 @@ struct SessionsView: View {
                     try? await Task.sleep(for: Self.refreshInterval)
                 }
             }
+            .onChange(of: path.last, initial: true) { _, open in store.onScreen = open }
             .onChange(of: filterChoices) { _, choices in
                 if !choices.contains(filter) { filter = .all }
             }
