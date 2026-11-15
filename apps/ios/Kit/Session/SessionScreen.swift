@@ -243,7 +243,11 @@ struct SessionScreen: View {
             .onChange(of: feed.session?.activeRunID == nil) { _, idle in
                 if idle { refreshList() }
             }
-            .onDisappear { markSeen() }
+            .onAppear { sessions.show(feed.identity) }
+            .onDisappear {
+                markSeen()
+                sessions.hide(feed.identity)
+            }
     }
 
     // MARK: Commands
@@ -303,8 +307,13 @@ struct SessionScreen: View {
         Task { await sessions.retry(server) }
     }
 
+    /// Marks the session seen as of what's shown, and whether it's working
+    /// or waiting on the user, so a turn that ends after it leaves the screen
+    /// marks it finished in the list.
     private func markSeen() {
-        sessions.markSeen(feed.identity, changed: feed.session.flatMap { SessionFormat.date($0.lastActivity ?? $0.date) })
+        let session = feed.session
+        sessions.markSeen(feed.identity, changed: session.flatMap { SessionFormat.date($0.lastActivity ?? $0.date) },
+                          working: session.map { $0.activeRunID != nil || !($0.pendingInteractions ?? []).isEmpty })
     }
 
     // MARK: Header

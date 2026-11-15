@@ -172,6 +172,78 @@ struct SessionsStoreTests {
         #expect(store.rows.first?.preview == nil)
     }
 
+    /// A turn moves a session's last activity when it starts, not when its
+    /// reply lands, so a session listed working and then idle is marked
+    /// finished, as a Mac tab is, and its reply is previewed.
+    @Test func aTurnThatEndsOffScreenMarksTheSessionFinished() async {
+        let network = FakeSessionsNetwork()
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)], activity: ["a": .running])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio])
+        #expect(store.rows.map(\.unseen) == [false])
+
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
+        await store.refresh([studio])
+        #expect(store.rows.map(\.unseen) == [true])
+        #expect(store.rows.map(\.stands) == [true])
+        #expect(network.snapshots == ["a", "a"])
+
+        store.markSeen(SessionIdentity(server: "studio", session: "a"))
+        #expect(store.rows.map(\.unseen) == [false])
+    }
+
+    /// A turn that ends while its session is on screen was seen.
+    @Test func aTurnThatEndsOnScreenIsSeen() async {
+        let network = FakeSessionsNetwork()
+        let id = SessionIdentity(server: "studio", session: "a")
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)], activity: ["a": .running])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio])
+        store.show(id)
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
+        await store.refresh([studio])
+        #expect(store.rows.map(\.unseen) == [false])
+
+        store.markSeen(id, working: false)
+        store.hide(id)
+        await store.refresh([studio])
+        #expect(store.rows.map(\.unseen) == [false])
+    }
+
+    /// A session left while it works, as when a message was sent from this
+    /// iPhone, is marked finished once it's listed idle, even if the list
+    /// never saw it working.
+    @Test func aSessionLeftWorkingIsMarkedFinishedWhenItsTurnEnds() async {
+        let network = FakeSessionsNetwork()
+        let id = SessionIdentity(server: "studio", session: "a")
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio])
+        store.show(id)
+        store.markSeen(id, changed: Date(timeIntervalSince1970: 1_800_000_150), working: true)
+        store.hide(id)
+
+        network.set(studio, sessions: [SessionTesting.session("a", at: 150)])
+        await store.refresh([studio])
+        #expect(store.rows.map(\.unseen) == [true])
+    }
+
+    /// Which sessions finished is kept, so it survives the app being closed.
+    @Test func finishedSessionsAreRemembered() async {
+        let network = FakeSessionsNetwork()
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)], activity: ["a": .awaitingResponse])
+        await SessionsStore(network: network, seen: SeenSessions(defaults: defaults)).refresh([studio])
+
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
+        let reopened = SessionsStore(network: network, seen: SeenSessions(defaults: defaults))
+        await reopened.refresh([studio])
+        #expect(reopened.rows.map(\.unseen) == [true])
+        let again = SessionsStore(network: network, seen: SeenSessions(defaults: defaults))
+        await again.refresh([studio])
+        #expect(again.rows.map(\.unseen) == [true])
+    }
+
     @Test func sessionsThatNeedYouGetPreviewsAndAFilter() async {
         let network = FakeSessionsNetwork()
         var waiting = SessionTesting.session("w", at: 100)
