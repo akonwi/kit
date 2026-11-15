@@ -113,6 +113,7 @@ def restore_state(identifier):
     elif state:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         shutil.copyfile(state, path)
+cpu = ["cpu:mainThread", "cpu:process"]
 order = ["processStart", "main", "appInit", "delegateInit", "willFinishLaunching", "windowContent", "didFinishLaunching",
          "firstWindow", "windowVisible", "serverConnected", "sessionDelivered", "sessionShown", "contentReady",
          "firstContentFrame", "composerFocused"]
@@ -174,6 +175,8 @@ def launch(bundle, report):
     times = {"processStart": launch_services}
     for name, ms in data["milestonesMs"].items():
         times[name] = launch_services + ms
+    for name, ms in data.get("cpuMs", {}).items():
+        times["cpu:" + name] = ms
     # Let the launch's own work finish before quitting, and the quit's
     # before the next launch, so launches don't overlap.
     time.sleep(1)
@@ -230,11 +233,29 @@ for name in order:
                 line += f"{statistics.median([b for _, b in pairs]):>10.0f}{statistics.median([a - b for a, b in pairs]):>+8.0f}"
         print(line)
 
-print(f"\n{'phase (ms)':<34}{'min':>8}{'median':>8}{'p90':>8}")
-for label, a, b in phases:
-    values = [r[b] - (r[a] if a else 0) for r in results if b in r and (a is None or a in r)]
+print(f"\n{'CPU time to first frame (ms)':<34}{'min':>8}{'median':>8}{'p90':>8}" + (f"{'base med':>10}{'Δ med':>8}" if baseline else ""))
+for name in cpu:
+    values = [r[name] for r in results if name in r]
     if values:
-        print(f"{label:<34}{min(values):>8.0f}{statistics.median(values):>8.0f}{pct(values, 0.9):>8.0f}")
+        summary[name] = s = stats(values)
+        line = f"{name[4:]:<34}{s['min']:>8.0f}{s['median']:>8.0f}{s['p90']:>8.0f}"
+        base = [b[name] for b in baselines if name in b]
+        if base:
+            line += f"{statistics.median(base):>10.0f}{s['median'] - statistics.median(base):>+8.0f}"
+        print(line)
+
+def phase(runs, a, b):
+    return [r[b] - (r[a] if a else 0) for r in runs if b in r and (a is None or a in r)]
+
+print(f"\n{'phase (ms)':<34}{'min':>8}{'median':>8}{'p90':>8}" + (f"{'base med':>10}{'Δ med':>8}" if baseline else ""))
+for label, a, b in phases:
+    values = phase(results, a, b)
+    if values:
+        line = f"{label:<34}{min(values):>8.0f}{statistics.median(values):>8.0f}{pct(values, 0.9):>8.0f}"
+        base = phase(baselines, a, b)
+        if base:
+            line += f"{statistics.median(base):>10.0f}{statistics.median(values) - statistics.median(base):>+8.0f}"
+        print(line)
 
 floor_summary = None
 if floors:

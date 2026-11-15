@@ -71,7 +71,41 @@ enum LaunchMetrics {
         if milestone == .main { launchInterval = signposter.beginInterval("Launch") }
         signposter.emitEvent("Launch milestone", "\(milestone.rawValue, privacy: .public)")
         if milestone == .contentReady { awaitCommit() }
-        if milestone == .firstContentFrame { finish() }
+        if milestone == .firstContentFrame {
+            cpuAtFirstFrame = cpuTimes()
+            finish()
+        }
+    }
+
+    /// The main thread's and the whole process's CPU time at the first
+    /// content frame, in ms. Unlike the wall-clock milestones, these don't
+    /// include waiting for the server or for other processes, so they show
+    /// the app's own launch work steadily on a loaded Mac.
+    private static var cpuAtFirstFrame: (main: Double, process: Double)?
+
+    private static func cpuTimes() -> (main: Double, process: Double) {
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<integer_t>.size)
+        let thread = mach_thread_self()
+        defer { mach_port_deallocate(mach_task_self_, thread) }
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+            }
+        }
+        let main = result == KERN_SUCCESS ? milliseconds(info.user_time) + milliseconds(info.system_time) : 0
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        let process = milliseconds(usage.ru_utime) + milliseconds(usage.ru_stime)
+        return (main, process)
+    }
+
+    private static func milliseconds(_ time: time_value_t) -> Double {
+        Double(time.seconds) * 1_000 + Double(time.microseconds) / 1_000
+    }
+
+    private static func milliseconds(_ time: timeval) -> Double {
+        Double(time.tv_sec) * 1_000 + Double(time.tv_usec) / 1_000
     }
 
     /// Marks `windowVisible` when the first window comes on screen.
@@ -113,7 +147,10 @@ enum LaunchMetrics {
         guard let reportPath else { return }
         var milestones: [String: Double] = [:]
         for (milestone, time) in reached { milestones[milestone.rawValue] = ((time - processStart) * 1_000_000).rounded() / 1_000 }
-        let report: [String: Any] = ["pid": Int(getpid()), "processStart": processStart, "milestonesMs": milestones]
+        var report: [String: Any] = ["pid": Int(getpid()), "processStart": processStart, "milestonesMs": milestones]
+        if let cpu = cpuAtFirstFrame {
+            report["cpuMs"] = ["mainThread": (cpu.main * 1_000).rounded() / 1_000, "process": (cpu.process * 1_000).rounded() / 1_000]
+        }
         // The report is written off the main thread once the launch is over.
         DispatchQueue.global(qos: .utility).async {
             guard let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) else { return }
