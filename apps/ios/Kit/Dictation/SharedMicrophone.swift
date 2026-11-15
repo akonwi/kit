@@ -7,7 +7,8 @@ import UIKit
 /// microphone from when it's prepared until it's finished or thrown away.
 /// One that's ending is waited for, so its teardown can't stop the next;
 /// one that's still recording refuses the next as unavailable. Transcribing
-/// gets background time, so words aren't lost when the app is left.
+/// gets background time, so it finishes when the app is left; if iOS ends
+/// that time first, the words transcribed so far are kept.
 struct SharedMicrophone: DictationEngine {
     let engine: any DictationEngine
     private let lease = Lease()
@@ -72,6 +73,7 @@ struct SharedMicrophone: DictationEngine {
         let recording: any DictationRecording
         let id: UUID
         let lease: Lease
+        private let expiry = Expiry()
 
         init(recording: any DictationRecording, id: UUID, lease: Lease) {
             self.recording = recording
@@ -95,9 +97,7 @@ struct SharedMicrophone: DictationEngine {
 
         func finish() async throws -> String {
             await lease.ending(id)
-            // If iOS takes the time back first, the words are dropped rather than the app.
-            let recording = recording
-            let background = await BackgroundTime.begin { Task { await recording.cancel() } }
+            let background = await BackgroundTime.begin { [self] in expire() }
             defer { Task { @MainActor in background.end() } }
             do {
                 let words = try await recording.finish()
@@ -105,8 +105,22 @@ struct SharedMicrophone: DictationEngine {
                 return words
             } catch {
                 await lease.release(id)
+                let soFar = recording.transcribedSoFar()
+                if expiry.isSet, !soFar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return soFar }
                 throw error
             }
+        }
+
+        /// The app's background time ran out before finishing did: it stops,
+        /// and `finish` gives the words transcribed so far.
+        func expire() {
+            expiry.set()
+            let recording = recording
+            Task { await recording.cancel() }
+        }
+
+        func transcribedSoFar() -> String {
+            recording.transcribedSoFar()
         }
 
         func cancel() async {
@@ -115,6 +129,14 @@ struct SharedMicrophone: DictationEngine {
             await lease.release(id)
         }
     }
+}
+
+/// Set once a recording's background time ran out.
+private final class Expiry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
 }
 
 /// Background time for one transcription, ended once.

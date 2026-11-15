@@ -60,13 +60,30 @@ private final class SpeechRecording: DictationRecording, @unchecked Sendable {
         self.format = format
         self.level = level
         (input, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
+        let soFar = SoFar()
         transcript = Task {
             var text = ""
             for try await result in transcriber.results {
                 text = DictationText.join(text, String(result.text.characters))
+                soFar.set(text)
             }
             return text
         }
+        self.soFarText = soFar
+    }
+
+    /// The phrases transcribed so far, shared with the transcript's task.
+    private final class SoFar: @unchecked Sendable {
+        private let lock = NSLock()
+        private var text = ""
+        func set(_ value: String) { lock.withLock { text = value } }
+        func get() -> String { lock.withLock { text } }
+    }
+
+    private let soFarText: SoFar
+
+    func transcribedSoFar() -> String {
+        soFarText.get()
     }
 
     static func make(installing: @escaping @Sendable () -> Void,

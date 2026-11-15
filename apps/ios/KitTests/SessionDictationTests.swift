@@ -137,6 +137,20 @@ struct SessionDictationTests {
         await idle(second)
     }
 
+    // MARK: Background time
+
+    /// When the app's background time runs out mid-transcription, the
+    /// words transcribed so far are kept.
+    @Test func runningOutOfTimeKeepsTheWordsSoFar() async throws {
+        let microphone = SharedMicrophone(SlowEngine())
+        let recording = try await microphone.prepare(installing: {}, level: { _ in })
+        try recording.start()
+        let finished = Task { try await recording.finish() }
+        try await Task.sleep(for: .milliseconds(20))
+        (recording as? SharedMicrophone.LentRecording)?.expire()
+        #expect(try await finished.value == "What was said so far")
+    }
+
     @Test func cancelThrowsTheWordsAway() async {
         let dictations = dictations()
         let composer = SessionComposerTests.composer()
@@ -167,5 +181,26 @@ struct SessionDictationTests {
         #expect(press.ended(at: .now, recording: true) == .none)
         #expect(press.began(at: .now, idle: false) == .none)
         #expect(press.ended(at: .now, recording: true) == .send)
+    }
+}
+
+/// A recording whose finishing never ends on its own, with some words
+/// transcribed.
+private struct SlowEngine: DictationEngine {
+    func requestAccess() async -> DictationAccess { .granted }
+    func prepare(installing: @escaping @Sendable () -> Void,
+                 level: @escaping @Sendable (Double) -> Void) async throws -> any DictationRecording {
+        SlowRecording()
+    }
+
+    final class SlowRecording: DictationRecording, @unchecked Sendable {
+        private let canceled = AsyncStream<Void>.makeStream()
+        func start() throws {}
+        func finish() async throws -> String {
+            for await _ in canceled.stream {}
+            throw CancellationError()
+        }
+        func cancel() async { canceled.continuation.finish() }
+        func transcribedSoFar() -> String { "What was said so far" }
     }
 }

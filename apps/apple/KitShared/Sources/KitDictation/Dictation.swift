@@ -193,6 +193,13 @@ public protocol DictationRecording: AnyObject, Sendable {
     func finish() async throws -> String
     /// Stops the microphone and drops what was said.
     func cancel() async
+    /// The words transcribed so far, for keeping what was said when
+    /// finishing can't run to the end.
+    func transcribedSoFar() -> String
+}
+
+extension DictationRecording {
+    public func transcribedSoFar() -> String { "" }
 }
 
 /// Joins what was said phrase by phrase.
