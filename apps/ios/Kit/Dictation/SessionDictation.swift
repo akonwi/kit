@@ -1,7 +1,6 @@
 import KitClient
 import KitDictation
 import Observation
-import UIKit
 
 /// The composer's dictation for each open session, kept outside its screen
 /// so a recording keeps going while the session's changes, files,
@@ -146,13 +145,9 @@ final class SessionDictation {
             dictation.cancel()
             return
         }
-        // Transcribing can outlast the app's time in front. If iOS ends that
-        // time first, the words are dropped rather than the app.
-        let background = BackgroundTime()
-        background.begin { dictation.cancel() }
+        // The microphone keeps the app running while the words are transcribed.
         Task {
             defer {
-                background.end()
                 if !open.contains(id), !dictation.isActive { dictations[id] = nil }
             }
             guard let words = await dictation.finish() else { return }
@@ -167,26 +162,6 @@ final class SessionDictation {
 
     private func wait(_ words: String, for id: SessionIdentity) {
         waiting[id] = waiting[id].map { DictationText.join($0, words) } ?? words
-    }
-
-    /// Background time for one transcription, ended once.
-    @MainActor private final class BackgroundTime {
-        private var task = UIBackgroundTaskIdentifier.invalid
-
-        func begin(expired: @escaping @MainActor () -> Void) {
-            task = UIApplication.shared.beginBackgroundTask(withName: "Dictation") { [self] in
-                MainActor.assumeIsolated {
-                    expired()
-                    end()
-                }
-            }
-        }
-
-        func end() {
-            guard task != .invalid else { return }
-            UIApplication.shared.endBackgroundTask(task)
-            task = .invalid
-        }
     }
 
     private struct WeakComposer {

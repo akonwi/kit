@@ -1,11 +1,13 @@
 import Foundation
 import KitDictation
+import UIKit
 
 /// Lends the microphone to one recording at a time, whichever mic started
 /// it: the composer's, an answer's, or a comment's. A recording holds the
 /// microphone from when it's prepared until it's finished or thrown away.
 /// One that's ending is waited for, so its teardown can't stop the next;
-/// one that's still recording refuses the next as unavailable.
+/// one that's still recording refuses the next as unavailable. Transcribing
+/// gets background time, so words aren't lost when the app is left.
 struct SharedMicrophone: DictationEngine {
     let engine: any DictationEngine
     private let lease = Lease()
@@ -31,15 +33,19 @@ struct SharedMicrophone: DictationEngine {
     }
 
     /// Who holds the microphone, and who waits for it to be given back.
+    /// Only the latest mic waits: an earlier one waiting is refused, so a
+    /// mic given up while it waited can't take the microphone ahead of it.
     actor Lease {
         private var holder: UUID?
         private var ending = false
-        private var waiting: [CheckedContinuation<Void, Never>] = []
+        private var waiting: CheckedContinuation<Bool, Never>?
 
         func acquire() async throws -> UUID {
             while holder != nil {
                 guard ending else { throw DictationProblem.unavailable }
-                await withCheckedContinuation { waiting.append($0) }
+                waiting?.resume(returning: false)
+                let turn = await withCheckedContinuation { waiting = $0 }
+                guard turn else { throw DictationProblem.unavailable }
             }
             let id = UUID()
             holder = id
@@ -56,9 +62,8 @@ struct SharedMicrophone: DictationEngine {
             guard holder == id else { return }
             holder = nil
             ending = false
-            let resumed = waiting
-            waiting = []
-            for continuation in resumed { continuation.resume() }
+            waiting?.resume(returning: true)
+            waiting = nil
         }
     }
 
@@ -74,10 +79,14 @@ struct SharedMicrophone: DictationEngine {
             self.lease = lease
         }
 
-        /// A recording dropped without ending still gives the microphone back.
+        /// A recording dropped without ending stops, then gives the
+        /// microphone back.
         deinit {
-            let lease = lease, id = id
-            Task { await lease.release(id) }
+            let lease = lease, id = id, recording = recording
+            Task {
+                await recording.cancel()
+                await lease.release(id)
+            }
         }
 
         func start() throws {
@@ -86,6 +95,10 @@ struct SharedMicrophone: DictationEngine {
 
         func finish() async throws -> String {
             await lease.ending(id)
+            // If iOS takes the time back first, the words are dropped rather than the app.
+            let recording = recording
+            let background = await BackgroundTime.begin { Task { await recording.cancel() } }
+            defer { Task { @MainActor in background.end() } }
             do {
                 let words = try await recording.finish()
                 await lease.release(id)
@@ -101,5 +114,27 @@ struct SharedMicrophone: DictationEngine {
             await recording.cancel()
             await lease.release(id)
         }
+    }
+}
+
+/// Background time for one transcription, ended once.
+@MainActor final class BackgroundTime {
+    private var task = UIBackgroundTaskIdentifier.invalid
+
+    static func begin(expired: @escaping @MainActor () -> Void) -> BackgroundTime {
+        let time = BackgroundTime()
+        time.task = UIApplication.shared.beginBackgroundTask(withName: "Dictation") { [time] in
+            MainActor.assumeIsolated {
+                expired()
+                time.end()
+            }
+        }
+        return time
+    }
+
+    func end() {
+        guard task != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(task)
+        task = .invalid
     }
 }
