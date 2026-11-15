@@ -28,6 +28,8 @@ struct DiagramAnnotationLayer: View {
     let size: CGSize
     @Bindable var annotator: DiagramAnnotator
     let draft: DiagramAnnotationDraft
+    @State private var popover = AnchoredPopover()
+    @State private var anchor = DiagramAnchor()
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -54,22 +56,32 @@ struct DiagramAnnotationLayer: View {
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .allowsHitTesting(annotator.annotating)
-        .popover(isPresented: commentShown, attachmentAnchor: .rect(.rect(anchor)), arrowEdge: .bottom) {
-            if let selected = annotator.selected {
-                DiagramCommentBox(annotator: annotator, summary: summary(selected), add: add)
-            }
-        }
+        .background(DiagramAnchorView(anchor: anchor))
+        .onChange(of: annotator.selected) { presentComment() }
+        .onDisappear { popover.dismiss() }
         .accessibilityHidden(!annotator.annotating)
     }
 
-    private var commentShown: Binding<Bool> {
-        Binding(get: { annotator.selected != nil }, set: { shown in if !shown { annotator.deselect() } })
+    /// The comment box on the picked part, as the app's other popovers
+    /// open: a flat card below the part, or above it near the screen's
+    /// bottom. Closing it, by Esc or a click elsewhere, lets go of the part.
+    private func presentComment() {
+        guard let selected = annotator.selected else { popover.dismiss(); return }
+        let bounds = MermaidHighlight(selected, in: drawing, metrics: metrics).bounds
+        guard let frame = anchor.screenFrame(of: bounds), let window = anchor.view?.window else { return }
+        let roomBelow = frame.minY - (window.screen?.visibleFrame.minY ?? 0)
+        let annotator = annotator, draft = draft, source = source
+        let content = DiagramCommentBox(annotator: annotator, summary: summary(selected),
+                                        add: { annotator.commit(to: draft, source: source) })
+            .popoverCard(theme)
+        popover.show(anchor: frame, parent: window, edge: roomBelow < Self.roomForComment ? .above : .below,
+                     content: content) {
+            if annotator.selected == selected { annotator.deselect() }
+        }
     }
 
-    private var anchor: CGRect {
-        guard let selected = annotator.selected else { return .zero }
-        return MermaidHighlight(selected, in: drawing, metrics: metrics).bounds
-    }
+    /// The space below a part that the comment box needs to open there.
+    static let roomForComment: CGFloat = 180
 
     private func part(at point: CGPoint) -> Part? {
         MermaidHighlight.part(at: point, in: drawing, metrics: metrics)
@@ -77,10 +89,6 @@ struct DiagramAnnotationLayer: View {
 
     private func summary(_ part: Part) -> String {
         (try? DiagramAnnotationText.summary(source, part)) ?? ""
-    }
-
-    private func add() {
-        annotator.commit(to: draft, source: source)
     }
 
     /// The part the pointer is over, outlined; the picked part, outlined
@@ -105,6 +113,36 @@ struct DiagramAnnotationLayer: View {
             .offset(x: highlight.bounds.maxX - 5, y: highlight.bounds.minY - 4)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+}
+
+/// Where a diagram's annotation layer is on screen, for the comment box to
+/// open beside a part.
+@MainActor final class DiagramAnchor {
+    weak var view: NSView?
+
+    /// rect, in the layer's points from its top left, on screen.
+    func screenFrame(of rect: CGRect) -> NSRect? {
+        guard let view, let window = view.window else { return nil }
+        let local = NSRect(x: rect.minX, y: view.isFlipped ? rect.minY : view.bounds.height - rect.maxY,
+                           width: rect.width, height: rect.height)
+        return window.convertToScreen(view.convert(local, to: nil))
+    }
+}
+
+private struct DiagramAnchorView: NSViewRepresentable {
+    let anchor: DiagramAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PassThroughView()
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { anchor.view = view }
+
+    private final class PassThroughView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
 
