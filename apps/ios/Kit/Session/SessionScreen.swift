@@ -278,7 +278,7 @@ struct SessionScreen: View {
     /// Other folders this server's sessions use, for Change folder.
     private func recentFolders(excluding current: String) -> [String] {
         let server = feed.identity.server
-        let recent = NewSessionForm.places(servers: [server], rows: sessions.rows).first?.recent ?? []
+        let recent = NewSessionForm.places(servers: [server], rows: sessions.recentRows).first?.recent ?? []
         return recent.filter { $0 != current }
     }
 

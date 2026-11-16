@@ -142,8 +142,9 @@ struct SessionsView: View {
     /// Opens the new session form on the server of the latest session.
     private func startSession() {
         let network = store.network, store = store
-        let places = NewSessionForm.places(servers: store.servers, rows: store.rows)
-        newSession = NewSessionForm(places: places, server: store.rows.first?.server) { name in
+        let recent = store.recentRows
+        let places = NewSessionForm.places(servers: store.servers, rows: recent)
+        newSession = NewSessionForm(places: places, server: recent.first?.server) { name in
             guard let server = store.server(named: name) else { return UnpairedServer(name: name) }
             return network.client(for: server)
         }

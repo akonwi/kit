@@ -83,6 +83,8 @@ final class SeenSessions {
             finished = kept
         } else {
             finished = Dictionary((defaults.stringArray(forKey: Self.finishedSetKey) ?? []).map { ($0, 0) }) { first, _ in first }
+            // Kept in the new form before the old one is let go.
+            defaults.set(finished, forKey: Self.finishedKey)
             defaults.removeObject(forKey: Self.finishedSetKey)
         }
     }
@@ -283,20 +285,24 @@ final class SessionsStore {
     }
 
     /// The order across servers: sessions waiting on you, the one waiting
-    /// longest first; then idle ones with something you haven't seen, such
-    /// as a finished reply, the latest first; then working ones; then the
-    /// rest, latest activity first. A stale row's status is only as last
+    /// longest first; then idle ones with something you haven't seen,
+    /// finished replies first, the latest first; then working ones; then
+    /// the rest, latest activity first. A stale row's status is only as last
     /// seen, so it's ordered as idle. Sessions with the same ID on two
     /// servers fall back to the server's name.
     static func precedes(_ a: Row, _ b: Row) -> Bool {
         let first = group(a), second = group(b)
         if first != second { return first < second }
         if first == .unseen {
-            // When the turn was noticed ending, or else the last change.
-            let aTime = a.finishedAt ?? a.changed ?? .distantPast, bTime = b.finishedAt ?? b.changed ?? .distantPast
-            if aTime != bTime { return aTime > bTime }
-            if a.session.id != b.session.id { return a.session.id < b.session.id }
-            return a.server < b.server
+            // Finished replies by when this iPhone noticed them, the latest
+            // first, then other changes by the server's time; the two
+            // clocks aren't compared.
+            switch (a.finishedAt, b.finishedAt) {
+            case let (aTime?, bTime?) where aTime != bTime: return aTime > bTime
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: break
+            }
         }
         let aKey = key(a), bKey = key(b)
         if AttentionOrder.precedes(aKey, bKey) { return true }
@@ -322,6 +328,12 @@ final class SessionsStore {
         let status = row.stale ? .idle : row.status
         return AttentionOrder.Key(status: status, waitingSince: status == .awaitingResponse ? row.waitingSince : nil,
                                   updated: row.changed, id: row.session.id)
+    }
+
+    /// Every row, latest activity first, for what follows recent work
+    /// rather than what needs you, such as a new session's server and folder.
+    var recentRows: [Row] {
+        rows.sorted { ($0.changed ?? .distantPast) > ($1.changed ?? .distantPast) }
     }
 
     func rows(_ filter: Filter) -> [Row] {

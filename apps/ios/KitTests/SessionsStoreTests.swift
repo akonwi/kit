@@ -339,6 +339,21 @@ struct SessionsStoreTests {
         #expect(store.rows.map(\.unseen) == [true, true])
     }
 
+    /// A finished reply comes before other changes you haven't seen, such as
+    /// a session started elsewhere, whatever the server's time says.
+    @Test func finishedRepliesComeBeforeOtherChanges() async {
+        let network = FakeSessionsNetwork()
+        network.set(studio, sessions: [SessionTesting.session("done", at: 100)], activity: ["done": .running])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio])
+        network.set(studio, sessions: [SessionTesting.session("done", at: 100), SessionTesting.session("elsewhere", at: 900_000)])
+        await store.refresh([studio])
+        #expect(store.rows.map(\.session.id) == ["done", "elsewhere"])
+        #expect(store.rows.map(\.unseen) == [true, true])
+        // A new session's server and folder follow the latest activity.
+        #expect(store.recentRows.map(\.session.id) == ["elsewhere", "done"])
+    }
+
     /// Sessions marked finished before their times were kept stay marked.
     @Test func finishedMarksKeptBeforeTheirTimesStayMarked() async {
         let network = FakeSessionsNetwork()
