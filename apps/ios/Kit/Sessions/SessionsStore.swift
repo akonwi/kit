@@ -170,7 +170,7 @@ final class SeenSessions {
 
 /// Every paired server's sessions, merged into one list: sessions that need
 /// you first, the one waiting longest first; then finished replies and other
-/// changes you haven't seen, the latest first; then working sessions; then
+/// changes you haven't seen, the oldest first; then working sessions; then
 /// the rest, latest activity first. A server that can't be reached keeps the
 /// list it last gave, ordered as idle.
 @MainActor @Observable
@@ -286,7 +286,7 @@ final class SessionsStore {
 
     /// The order across servers: sessions waiting on you, the one waiting
     /// longest first; then idle ones with something you haven't seen,
-    /// finished replies first, the latest first; then working ones; then
+    /// finished replies first, the oldest first; then working ones; then
     /// the rest, latest activity first. A stale row's status is only as last
     /// seen, so it's ordered as idle. Sessions with the same ID on two
     /// servers fall back to the server's name.
@@ -294,14 +294,18 @@ final class SessionsStore {
         let first = group(a), second = group(b)
         if first != second { return first < second }
         if first == .unseen {
-            // Finished replies by when this iPhone noticed them, the latest
-            // first, then other changes by the server's time; the two
-            // clocks aren't compared.
+            // Finished replies by when this iPhone noticed them, then other
+            // changes by the server's time, the oldest first, as sessions
+            // waiting on you are; the two clocks aren't compared.
             switch (a.finishedAt, b.finishedAt) {
-            case let (aTime?, bTime?) where aTime != bTime: return aTime > bTime
+            case let (aTime?, bTime?) where aTime != bTime: return aTime < bTime
             case (.some, nil): return true
             case (nil, .some): return false
-            default: break
+            default:
+                let aTime = a.changed ?? .distantPast, bTime = b.changed ?? .distantPast
+                if aTime != bTime { return aTime < bTime }
+                if a.session.id != b.session.id { return a.session.id < b.session.id }
+                return a.server < b.server
             }
         }
         let aKey = key(a), bKey = key(b)

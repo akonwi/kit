@@ -319,8 +319,9 @@ struct SessionsStoreTests {
     }
 
     /// Finished replies are ordered by when they were noticed finishing, the
-    /// latest first, not by when their turns started.
-    @Test func theLatestFinishedReplyComesFirst() async {
+    /// oldest first, as sessions waiting on you are, not by when their turns
+    /// started.
+    @Test func theOldestFinishedReplyComesFirst() async {
         let network = FakeSessionsNetwork()
         let clock = Clock()
         let store = SessionsStore(network: network, seen: SeenSessions(defaults: UserDefaults(suiteName: UUID().uuidString)!),
@@ -335,7 +336,7 @@ struct SessionsStoreTests {
         clock.now = Date(timeIntervalSince1970: 1_800_002_000)
         network.set(studio, sessions: sessions)
         await store.refresh([studio])
-        #expect(store.rows.map(\.session.id) == ["started-first", "started-later"])
+        #expect(store.rows.map(\.session.id) == ["started-later", "started-first"])
         #expect(store.rows.map(\.unseen) == [true, true])
     }
 
