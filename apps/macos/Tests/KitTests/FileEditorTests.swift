@@ -1,6 +1,7 @@
 import AppKit
 import CodeEditLanguages
 @preconcurrency import CodeEditSourceEditor
+import CodeEditTextView
 import Testing
 import SwiftUI
 import Observation
@@ -111,6 +112,31 @@ struct FileEditorTests {
         #expect(refreshed.textView.string.hasSuffix("- remote note"))
         #expect(refreshed.textView.selectedRange() == NSRange(location: 30, length: 5))
         #expect(abs(refreshed.scrollView.contentView.bounds.origin.y - scroll) < 3)
+    }
+
+    @Test func scratchpadWrapsLinesInsideTheEditor() async throws {
+        let workspace = WorkspaceState(demo: false)
+        let source = Array(repeating: "wrap", count: 80).joined(separator: " ")
+        workspace.scratchpadState.observe(ScratchpadRecord(owner: "root", content: source,
+            revision: 1, updatedAt: "2026-09-20T12:00:00Z"))
+        let host = NSHostingController(rootView: ScratchpadHarness(workspace: workspace))
+        host.sizingOptions = []
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 320, height: 240))
+        window.contentViewController = host; window.setContentSize(NSSize(width: 320, height: 240))
+        window.orderFront(nil)
+        defer { window.close() }
+        func editor(_ view: NSView) -> TextViewController? {
+            if let value = view.nextResponder as? TextViewController { return value }
+            return view.subviews.compactMap(editor).first
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        let controller = try #require(editor(host.view))
+        let visible = controller.scrollView.contentView.convert(controller.scrollView.contentView.bounds, to: nil)
+        let rows = controller.textView.subviews.compactMap { $0 as? LineFragmentView }
+            .filter { $0.lineFragment != nil }.map { $0.convert($0.bounds, to: nil) }
+        // 80 words of 5 characters wrap onto many rows, and each row ends inside the text area.
+        #expect(rows.count > 1)
+        for row in rows { #expect(row.maxX <= visible.maxX, "row \(row) ends past the editor at \(visible.maxX)") }
     }
 
     @Test func languagesFollowFilenameAndExtension() {
