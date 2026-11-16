@@ -6,10 +6,13 @@ import Foundation
 /// it's the app's own storage. Device tokens are in the app's Keychain
 /// group, which extensions share by entitlement.
 enum SharedStorage {
-    /// The app group's identifier, from Info.plist.
+    /// The app group's identifier, from Info.plist, when the build is signed
+    /// for it: its folder is there. Settings and files both go to the group
+    /// or both stay with the app.
     static let group: String? = {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "KitAppGroup") as? String,
-              !group.isEmpty, !group.contains("$(") else { return nil }
+              !group.isEmpty, !group.contains("$("),
+              FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) != nil else { return nil }
         return group
     }()
 
@@ -32,8 +35,8 @@ enum SharedStorage {
     static let movedFiles = ["servers.json"]
 
     /// Moves what the app kept for itself into the group, once, so pairings,
-    /// drafts, and what's been seen carry over. Something already in the
-    /// group is kept. The app calls this before reading any of it.
+    /// drafts, and what's been seen carry over. The app calls this before
+    /// reading any of it.
     static func moveIntoGroup() {
         guard group != nil, defaults != .standard else { return }
         move(keys: movedKeys, from: .standard, to: defaults)
@@ -41,27 +44,44 @@ enum SharedStorage {
         move(files: movedFiles, from: own, to: directory)
     }
 
+    /// Moves each setting into the group. One the group has too, as when an
+    /// extension saved there before the app moved its own, is merged: a
+    /// dictionary keeps the group's entry where both have one, and a list
+    /// keeps what either has.
     static func move(keys: [String], from old: UserDefaults, to new: UserDefaults) {
         for key in keys {
             guard let value = old.object(forKey: key) else { continue }
-            if new.object(forKey: key) == nil { new.set(value, forKey: key) }
+            new.set(new.object(forKey: key).map { merge(group: $0, own: value) } ?? value, forKey: key)
             old.removeObject(forKey: key)
         }
     }
 
+    static func merge(group: Any, own: Any) -> Any {
+        if let group = group as? [String: Any], let own = own as? [String: Any] {
+            return own.merging(group) { _, group in group }
+        }
+        if let group = group as? [String], let own = own as? [String] {
+            return group + own.filter { !group.contains($0) }
+        }
+        return group
+    }
+
+    /// Moves each file into the group unless the group has one. It's copied
+    /// beside where it goes, then renamed into place, so a move cut short
+    /// leaves no partial file; the original goes once the copy is in place.
     static func move(files: [String], from old: URL, to new: URL) {
         let manager = FileManager.default
         for name in files {
             let source = old.appendingPathComponent(name), destination = new.appendingPathComponent(name)
-            guard manager.fileExists(atPath: source.path) else { continue }
-            guard !manager.fileExists(atPath: destination.path) else { continue }
+            guard manager.fileExists(atPath: source.path), !manager.fileExists(atPath: destination.path) else { continue }
+            let copy = new.appendingPathComponent(".\(name).\(UUID().uuidString)")
             do {
                 try manager.createDirectory(at: new, withIntermediateDirectories: true)
-                // Copied, then removed, so a failure leaves the original in place.
-                try manager.copyItem(at: source, to: destination)
+                try manager.copyItem(at: source, to: copy)
+                try manager.moveItem(at: copy, to: destination)
                 try? manager.removeItem(at: source)
             } catch {
-                continue
+                try? manager.removeItem(at: copy)
             }
         }
     }
