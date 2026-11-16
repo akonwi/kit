@@ -161,6 +161,10 @@ struct NativeTranscript: NSViewRepresentable {
 
     private func configure(_ cell: NativeTranscriptCell, row: Int) {
         cell.overhang = scrollerWidth
+        // The first rows are built at the pane's width as it is then; the
+        // viewport's first report compares with it, so rows built at the
+        // right width aren't built again.
+        if paneWidth == 0 { paneWidth = scroll.frame.width }
         let message = messages[row]
         let generation = widthGeneration
         let token = UUID()

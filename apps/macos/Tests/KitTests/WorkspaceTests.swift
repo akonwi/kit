@@ -17,6 +17,27 @@ struct WorkspaceTests {
         #expect(workspace.panes == [.conversation])
     }
 
+    @Test func hiddenPanesAreBuiltOnceShownAndStayBuilt() {
+        let workspace = WorkspaceState()
+        workspace.open(.scratchpad)
+        let terminal = workspace.openTerminal(directory: "/tmp")
+        workspace.open(.file("View.swift"))
+        // Only the file is on screen. The scratchpad hasn't been, so it
+        // waits; the conversation and the terminal are always built.
+        #expect(workspace.builtPanes() == [.conversation, .terminal(terminal.id), .file("View.swift")])
+
+        workspace.select(.scratchpad)
+        #expect(workspace.builtPanes() == [.conversation, .scratchpad, .terminal(terminal.id), .file("View.swift")])
+        workspace.select(.conversation)
+        #expect(workspace.builtPanes() == [.conversation, .scratchpad, .terminal(terminal.id), .file("View.swift")])
+
+        // A pane closed is built again when it next opens.
+        workspace.close(.scratchpad)
+        #expect(workspace.builtPanes() == [.conversation, .terminal(terminal.id), .file("View.swift")])
+        workspace.open(.scratchpad)
+        #expect(workspace.builtPanes() == [.conversation, .terminal(terminal.id), .file("View.swift"), .scratchpad])
+    }
+
     @Test func reviewNotesSurviveTabsAndAreConsumedBySend() {
         let state = SessionStore(fixture: Fixture(sessions: []))
         state.ui.workspace.selectedFile = "View.swift"

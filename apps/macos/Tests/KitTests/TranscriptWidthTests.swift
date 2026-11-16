@@ -83,6 +83,41 @@ import Testing
         #expect(abs(after.inset - before.inset) <= 1)
     }
 
+    /// A transcript first shown at its pane's width builds and measures its
+    /// rows once: noticing the pane's size afterwards doesn't rebuild them.
+    @Test func rowsFirstShownAtThePanesWidthAreBuiltOnce() async throws {
+        let prose = String(repeating: "A long paragraph that wraps differently at each width. ", count: 30)
+        let input = NativeTranscript(messages: (0..<12).map { TranscriptMessage(id: "m\($0)", role: "assistant", text: prose, tools: []) },
+            hasHistory: false, historyLoading: false, historyError: nil, active: false,
+            presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
+            resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: MicaTheme(dark: false))
+        let adapter = NativeTranscriptCoordinator(input)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1200, height: 500))
+        window.contentView = adapter.scroll
+        window.orderFront(nil)
+        defer { adapter.stop(); window.close() }
+        adapter.receive(input)
+        adapter.scroll.layoutSubtreeIfNeeded()
+        func configurations() -> [Int: UUID] {
+            let range = adapter.table.rows(in: adapter.scroll.contentView.bounds)
+            var rows: [Int: UUID] = [:]
+            for row in range.location..<NSMaxRange(range) {
+                if let cell = adapter.table.view(atColumn: 0, row: row, makeIfNecessary: false) as? NativeTranscriptCell {
+                    rows[row] = cell.configuration
+                }
+            }
+            return rows
+        }
+        let first = configurations()
+        try #require(!first.isEmpty)
+        try await eventually { adapter.table.bounds.height > 2_000 }
+        try await Task.sleep(for: .milliseconds(100))
+        let settled = configurations()
+        for (row, configuration) in first where settled[row] != nil {
+            #expect(settled[row] == configuration, "row \(row)")
+        }
+    }
+
     /// A pane that stays wider than the reading column, as while the session
     /// sidebar is dragged, keeps its rows as they are: they only recentre. A
     /// pane that narrows the column builds and measures its rows again.

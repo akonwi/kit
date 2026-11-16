@@ -45,8 +45,8 @@ struct WorkspaceLayout: View {
                 }
                 // Pane identity is independent of its tile. Moving, splitting,
                 // or zooming changes geometry and visibility without
-                // remounting editors.
-                ForEach(workspace.panes) { pane in
+                // remounting editors. A pane is built once first shown.
+                ForEach(workspace.builtPanes()) { pane in
                     let tile = workspace.tile(containing: pane)
                     let content = Self.contentFrame(tile.flatMap { frames[$0] } ?? .zero)
                     let visible = workspace.isVisible(pane)

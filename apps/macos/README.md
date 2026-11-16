@@ -245,11 +245,19 @@ inputs used by `ThemeTests`, not app resources.
 
 ### Launch time
 
-The launch target is half a Dock bounce: from clicking the Dock icon to the
-first frame with real content, the selected session's transcript or the
-launcher's session list, in about 350 ms. One bounce takes about 700 ms on
-macOS 26, measured frame by frame from a screen recording of an app that
-keeps the Dock bouncing.
+The launch target is half a Dock bounce, about 350 ms from clicking the Dock
+icon. One bounce takes about 700 ms on macOS 26, measured frame by frame from
+a screen recording of an app that keeps the Dock bouncing. Two points are
+measured against it:
+
+- **Interactive**: AppKit has finished launching, a window is on screen with
+  what Kit knows without its servers (its tabs and the selected tab's bar,
+  outline, or launcher), and the main thread has gone idle, so a click or a
+  shortcut is handled at once. Until the first content frame, the report
+  also gives the main run loop's longest pass, the longest a click could
+  wait to be handled.
+- **First content frame**: the selected session's transcript, with its rows
+  measured, or the launcher's session list.
 
 The app marks its launch milestones as Points of Interest signposts
 (subsystem `com.akonwi.kit.launch`), which Instruments shows beside a Time
@@ -273,6 +281,7 @@ every launch restores the same tabs; `--state none` launches without saved
 windows. `--floor` launches an empty SwiftUI app (`script/launch_floor.swift`)
 before each of the bundle's launches and reports both, since the Mac's load
 moves every launch; the empty app's time is the floor Kit's is held against.
+The empty app is interactive and shows its content in the same frame.
 `--cold` drops the file cache with `sudo purge` before each launch.
 The script quits the bundle between launches and makes it the active app
 each time.

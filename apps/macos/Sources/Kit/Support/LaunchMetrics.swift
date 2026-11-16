@@ -6,9 +6,15 @@ import os
 /// for Instruments and, when `KIT_LAUNCH_REPORT` names a file, as a JSON
 /// report `script/measure_launch.sh` reads.
 ///
-/// The launch ends at the first frame with real content: the selected
-/// session's transcript with its rows measured, or the launcher's session
-/// list. Each milestone is recorded once, the first time it is reached.
+/// The app is interactive once AppKit has finished launching, a window is
+/// on screen with what Kit knows locally (its tabs, the selected tab's bar
+/// and outline or the launcher), and the main thread has gone idle after
+/// drawing it, so a click or a shortcut is handled at once. The launch
+/// ends at the first frame with real content: the selected session's
+/// transcript with its rows measured, or the launcher's session list.
+/// Between the two, the report records the main run loop's longest pass,
+/// the longest a click could have waited to be handled. Each milestone is
+/// recorded once, the first time it is reached.
 @MainActor
 enum LaunchMetrics {
     enum Milestone: String, CaseIterable, Sendable {
@@ -28,6 +34,9 @@ enum LaunchMetrics {
         case firstWindow
         /// A session window became visible on screen.
         case windowVisible
+        /// AppKit had finished launching, a window was visible, and the main
+        /// thread then went idle: the app handles input at once.
+        case interactive
         /// The local server answered its handshake.
         case serverConnected
         /// A session tab's store received its first snapshot.
@@ -45,6 +54,8 @@ enum LaunchMetrics {
     private static let signposter = OSSignposter(subsystem: "com.akonwi.kit.launch", category: .pointsOfInterest)
     private static var launchInterval: OSSignpostIntervalState?
     private static var reached: [Milestone: Double] = [:]
+    /// The main thread's CPU time when each milestone was reached, in ms.
+    private static var mainThreadCPU: [Milestone: Double] = [:]
     private static var finished = false
     private static var windowObserver: NSObjectProtocol?
     private static let reportPath = ProcessInfo.processInfo.environment["KIT_LAUNCH_REPORT"].flatMap { $0.isEmpty ? nil : $0 }
@@ -68,12 +79,74 @@ enum LaunchMetrics {
     static func mark(_ milestone: Milestone) {
         guard !finished, reached[milestone] == nil else { return }
         reached[milestone] = now()
+        // Every milestone is marked on the main thread.
+        if reportPath != nil { mainThreadCPU[milestone] = cpuTimes().main }
         if milestone == .main { launchInterval = signposter.beginInterval("Launch") }
         signposter.emitEvent("Launch milestone", "\(milestone.rawValue, privacy: .public)")
+        if milestone == .didFinishLaunching || milestone == .windowVisible,
+           reached[.didFinishLaunching] != nil, reached[.windowVisible] != nil {
+            awaitIdle()
+        }
+        if milestone == .interactive, reportPath != nil {
+            passes = PassTracker()
+            // A launch that never shows content, such as first run, stops
+            // watching after a while.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                MainActor.assumeIsolated {
+                    _ = passes?.stop()
+                    passes = nil
+                }
+            }
+        }
         if milestone == .contentReady { awaitCommit() }
         if milestone == .firstContentFrame {
             cpuAtFirstFrame = cpuTimes()
+            longestPass = passes?.stop()
+            passes = nil
             finish()
+        }
+    }
+
+    /// Watches the main run loop from interactive to the first content
+    /// frame, for its longest pass, when a report was asked for.
+    private static var passes: PassTracker?
+    /// The main run loop's longest pass between interactive and the first
+    /// content frame, in ms.
+    private static var longestPass: Double?
+
+    /// Measures each pass of the main run loop. Input that arrives during a
+    /// pass is handled in the next one, so the longest pass is the longest
+    /// a click or a key press could have waited.
+    @MainActor
+    private final class PassTracker {
+        private var observer: CFRunLoopObserver?
+        /// When the pass in progress started; nil while the run loop waits.
+        private var since: Double? = now()
+        private var longest = 0.0
+
+        init() {
+            let activities: CFRunLoopActivity = [.beforeTimers, .beforeWaiting, .afterWaiting]
+            observer = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, true, Int.max) { [weak self] _, activity in
+                MainActor.assumeIsolated { self?.observe(activity) }
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        }
+
+        private func observe(_ activity: CFRunLoopActivity) {
+            let time = LaunchMetrics.now()
+            if let since { longest = max(longest, time - since) }
+            // A pass starts as the run loop checks its timers or wakes, and
+            // ends at the next pass or when it waits.
+            since = activity == .beforeWaiting ? nil : time
+        }
+
+        /// Stops watching and returns the longest pass, in ms, counting the
+        /// one in progress.
+        func stop() -> Double {
+            if let observer { CFRunLoopObserverInvalidate(observer) }
+            observer = nil
+            if let since { longest = max(longest, LaunchMetrics.now() - since) }
+            return longest * 1_000
         }
     }
 
@@ -121,6 +194,16 @@ enum LaunchMetrics {
         }
     }
 
+    /// Marks the app interactive the next time the main run loop is about
+    /// to wait for input, after committing what it drew.
+    private static func awaitIdle() {
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, 2_000_001) { observer, _ in
+            CFRunLoopObserverInvalidate(observer)
+            MainActor.assumeIsolated { mark(.interactive) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
     /// Marks the first frame once the current transaction has been committed.
     private static func awaitCommit() {
         // Core Animation commits in a before-waiting observer of order
@@ -150,7 +233,11 @@ enum LaunchMetrics {
         var report: [String: Any] = ["pid": Int(getpid()), "processStart": processStart, "milestonesMs": milestones]
         if let cpu = cpuAtFirstFrame {
             report["cpuMs"] = ["mainThread": (cpu.main * 1_000).rounded() / 1_000, "process": (cpu.process * 1_000).rounded() / 1_000]
+            var atMilestones: [String: Double] = [:]
+            for (milestone, ms) in mainThreadCPU { atMilestones[milestone.rawValue] = (ms * 1_000).rounded() / 1_000 }
+            report["mainThreadCPUMs"] = atMilestones
         }
+        if let longestPass { report["longestPassAfterInteractiveMs"] = (longestPass * 1_000).rounded() / 1_000 }
         // The report is written off the main thread once the launch is over.
         DispatchQueue.global(qos: .utility).async {
             guard let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) else { return }

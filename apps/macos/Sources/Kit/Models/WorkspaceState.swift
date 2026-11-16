@@ -64,6 +64,15 @@ enum WorkspacePane: Hashable, Identifiable {
         }
     }
     var closable: Bool { self != .conversation }
+    /// Whether the pane's view is built only once the pane is first on
+    /// screen. The conversation, terminals, and browsers are always built:
+    /// they hold the session's composer, shells, and pages.
+    var buildsWhenShown: Bool {
+        switch self {
+        case .conversation, .terminal, .browser: false
+        default: true
+        }
+    }
     /// Whether the pane is a Markdown file, which shows rendered.
     /// Whether the pane is a file tab: a workspace, host, or local file.
     var isFile: Bool {
@@ -131,6 +140,9 @@ final class WorkspaceState {
     private(set) var focusedTile: UUID
     /// The tile filling the workspace, if one is zoomed.
     private(set) var zoomedTile: UUID?
+    /// Panes that have been on screen. Not observed: it changes as panes
+    /// are shown, which re-renders the workspace already.
+    @ObservationIgnored private var shownPanes: Set<WorkspacePane> = []
     /// The tab being dragged, if any.
     var tabDrag: TabDrag?
     /// A tab whose drag was cancelled with Esc; its gesture ignores the rest
@@ -190,6 +202,16 @@ final class WorkspaceState {
     func isVisible(_ pane: WorkspacePane) -> Bool {
         guard let tile = tile(containing: pane) else { return false }
         return tiles[tile]?.selected == pane && visibleTiles.contains(tile)
+    }
+
+    /// The panes whose views are built, in `panes` order: those on screen,
+    /// those that have been, and those always built. A pane hidden since it
+    /// opened, such as a restored background tab, is built when first shown,
+    /// and stays built while it is open so showing it again keeps its state.
+    func builtPanes() -> [WorkspacePane] {
+        for pane in panes where isVisible(pane) { shownPanes.insert(pane) }
+        shownPanes.formIntersection(panes)
+        return panes.filter { !$0.buildsWhenShown || shownPanes.contains($0) }
     }
 
     func focus(tile: UUID) {

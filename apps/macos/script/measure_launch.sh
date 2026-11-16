@@ -6,7 +6,12 @@
 #     [--floor] [--baseline PATH] [--cold] [--json FILE] [--timeout SECONDS]
 #
 # Times are from the `open` call, which stands in for the Dock click, to each
-# milestone; the launch ends at firstContentFrame.
+# milestone. The app is usable at `interactive`: launched, a window on screen
+# with its local state, and the main thread idle. The launch ends at
+# firstContentFrame, the selected session's transcript or the launcher's list.
+# "longest pass" is the main run loop's longest pass between the two: input
+# that arrives during a pass is handled in the next, so it is the longest a
+# click could wait.
 #
 # --state copies FILE over the bundle's saved windows (windows.json) before
 #   each launch, so every launch restores the same tabs; "none" removes them,
@@ -113,14 +118,14 @@ def restore_state(identifier):
     elif state:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         shutil.copyfile(state, path)
-cpu = ["cpu:mainThread", "cpu:process"]
 order = ["processStart", "main", "appInit", "delegateInit", "willFinishLaunching", "windowContent", "didFinishLaunching",
-         "firstWindow", "windowVisible", "serverConnected", "sessionDelivered", "sessionShown", "contentReady",
+         "firstWindow", "windowVisible", "interactive", "serverConnected", "sessionDelivered", "sessionShown", "contentReady",
          "firstContentFrame", "composerFocused"]
 phases = [("LaunchServices → exec", None, "processStart"), ("exec → main (dyld, init)", "processStart", "main"),
           ("main → delegate", "main", "delegateInit"), ("delegate → willFinishLaunching", "delegateInit", "willFinishLaunching"),
           ("willFinish → didFinishLaunching", "willFinishLaunching", "didFinishLaunching"),
           ("didFinishLaunching → window", "didFinishLaunching", "windowVisible"),
+          ("window → interactive", "windowVisible", "interactive"),
           ("window → session delivered", "windowVisible", "sessionDelivered"),
           ("delivered → session shown", "sessionDelivered", "sessionShown"),
           ("session shown → content ready", "sessionShown", "contentReady"),
@@ -177,6 +182,10 @@ def launch(bundle, report):
         times[name] = launch_services + ms
     for name, ms in data.get("cpuMs", {}).items():
         times["cpu:" + name] = ms
+    for name, ms in data.get("mainThreadCPUMs", {}).items():
+        times["main-cpu:" + name] = ms
+    if "longestPassAfterInteractiveMs" in data:
+        times["longestPass"] = data["longestPassAfterInteractiveMs"]
     # Let the launch's own work finish before quitting, and the quit's
     # before the next launch, so launches don't overlap.
     time.sleep(1)
@@ -212,11 +221,14 @@ for run in range(runs):
     restore_state(bundle_id)
     times = launch(app, os.path.join(report_dir, f"run{run}.json"))
     results.append(times)
-    line = f"run {run + 1}: firstContentFrame {times.get('firstContentFrame', float('nan')):.0f} ms"
+    nan = float("nan")
+    line = (f"run {run + 1}: interactive {times.get('interactive', nan):.0f} ms, "
+            f"firstContentFrame {times.get('firstContentFrame', nan):.0f} ms")
     if floor_app:
-        line += f" (floor {floors[-1].get('firstContentFrame', float('nan')):.0f} ms)"
+        line += f" (floor {floors[-1].get('interactive', nan):.0f} ms)"
     if baseline:
-        line += f" (baseline {baselines[-1].get('firstContentFrame', float('nan')):.0f} ms)"
+        line += (f" (baseline {baselines[-1].get('interactive', nan):.0f}, "
+                 f"{baselines[-1].get('firstContentFrame', nan):.0f} ms)")
     print(line, file=sys.stderr)
 
 summary = {}
@@ -233,16 +245,21 @@ for name in order:
                 line += f"{statistics.median([b for _, b in pairs]):>10.0f}{statistics.median([a - b for a, b in pairs]):>+8.0f}"
         print(line)
 
-print(f"\n{'CPU time to first frame (ms)':<34}{'min':>8}{'median':>8}{'p90':>8}" + (f"{'base med':>10}{'Δ med':>8}" if baseline else ""))
-for name in cpu:
+main_cpu = [("main thread to interactive", "main-cpu:interactive"),
+            ("main thread to first frame", "cpu:mainThread"), ("process to first frame", "cpu:process")]
+print(f"\n{'CPU time (ms)':<34}{'min':>8}{'median':>8}{'p90':>8}" + (f"{'base med':>10}{'Δ med':>8}" if baseline else ""))
+for label, name in main_cpu:
     values = [r[name] for r in results if name in r]
     if values:
         summary[name] = s = stats(values)
-        line = f"{name[4:]:<34}{s['min']:>8.0f}{s['median']:>8.0f}{s['p90']:>8.0f}"
+        line = f"{label:<34}{s['min']:>8.0f}{s['median']:>8.0f}{s['p90']:>8.0f}"
         base = [b[name] for b in baselines if name in b]
         if base:
             line += f"{statistics.median(base):>10.0f}{s['median'] - statistics.median(base):>+8.0f}"
         print(line)
+floor_cpu = [f["main-cpu:interactive"] for f in floors if "main-cpu:interactive" in f]
+if floor_cpu:
+    print(f"{'empty app, main thread':<34}{min(floor_cpu):>8.0f}{statistics.median(floor_cpu):>8.0f}{pct(floor_cpu, 0.9):>8.0f}")
 
 def phase(runs, a, b):
     return [r[b] - (r[a] if a else 0) for r in runs if b in r and (a is None or a in r)]
@@ -257,14 +274,26 @@ for label, a, b in phases:
             line += f"{statistics.median(base):>10.0f}{statistics.median(values) - statistics.median(base):>+8.0f}"
         print(line)
 
+busy = [r["longestPass"] for r in results if "longestPass" in r]
+if busy:
+    summary["longestPass"] = s = stats(busy)
+    line = f"\n{'longest pass, interactive → frame':<34}{s['min']:>8.0f}{s['median']:>8.0f}{s['p90']:>8.0f}"
+    base = [b["longestPass"] for b in baselines if "longestPass" in b]
+    if base:
+        line += f"{statistics.median(base):>10.0f}{s['median'] - statistics.median(base):>+8.0f}"
+    print(line)
+
 floor_summary = None
 if floors:
-    floor_values = [r["firstContentFrame"] for r in floors]
+    # The empty app is interactive and shows its content in the same frame.
+    floor_values = [r["interactive"] for r in floors]
     floor_summary = stats(floor_values)
-    over = [r["firstContentFrame"] - f["firstContentFrame"] for r, f in zip(results, floors) if "firstContentFrame" in r]
     s = floor_summary
     print(f"\n{'empty SwiftUI app (floor)':<34}{s['min']:>8.0f}{s['median']:>8.0f}{s['p90']:>8.0f}")
-    print(f"{'bundle minus floor, per run':<34}{min(over):>8.0f}{statistics.median(over):>8.0f}{pct(over, 0.9):>8.0f}")
+    for name in ("interactive", "firstContentFrame"):
+        over = [r[name] - f["interactive"] for r, f in zip(results, floors) if name in r]
+        if over:
+            print(f"{name + ' minus floor, per run':<34}{min(over):>8.0f}{statistics.median(over):>8.0f}{pct(over, 0.9):>8.0f}")
 if json_out:
     with open(json_out, "w") as f:
         json.dump({"bundle": app, "cold": cold, "runs": results, "summary": summary,
