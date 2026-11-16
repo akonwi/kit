@@ -160,33 +160,14 @@ private struct ImageViewer: View {
     let file: URL?
     @Environment(\.dismiss) private var dismiss
     @State private var image: UIImage?
-    @State private var scale: CGFloat = 1
-    @State private var settledScale: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var settledOffset: CGSize = .zero
 
     var body: some View {
         NavigationStack {
             GeometryReader { _ in
-                Group {
-                    if let image {
-                        Image(uiImage: image).resizable().scaledToFit()
-                    } else if let preview = content.image {
-                        Image(decorative: preview, scale: 1).resizable().scaledToFit()
-                    }
-                }
-                .scaleEffect(scale)
-                .offset(offset)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(zoom.simultaneously(with: pan))
-                .onTapGesture(count: 2) {
-                    withAnimation(.snappy) {
-                        scale = scale > 1 ? 1 : 2.5
-                        settledScale = scale
-                        offset = .zero
-                        settledOffset = .zero
-                    }
+                if let image {
+                    ZoomableImage(image: Image(uiImage: image))
+                } else if let preview = content.image {
+                    ZoomableImage(image: Image(decorative: preview, scale: 1))
                 }
             }
             .background(.black)
@@ -211,6 +192,32 @@ private struct ImageViewer: View {
             let data = content.data
             image = await Task.detached(priority: .userInitiated) { UIImage(data: data) }.value
         }
+    }
+}
+
+/// An image fitted to its space: pinch or double-tap to zoom, drag to pan.
+struct ZoomableImage: View {
+    let image: Image
+    @State private var scale: CGFloat = 1
+    @State private var settledScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var settledOffset: CGSize = .zero
+
+    var body: some View {
+        image.resizable().scaledToFit()
+            .scaleEffect(scale)
+            .offset(offset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(zoom.simultaneously(with: pan))
+            .onTapGesture(count: 2) {
+                withAnimation(.snappy) {
+                    scale = scale > 1 ? 1 : 2.5
+                    settledScale = scale
+                    offset = .zero
+                    settledOffset = .zero
+                }
+            }
     }
 
     private var zoom: some Gesture {

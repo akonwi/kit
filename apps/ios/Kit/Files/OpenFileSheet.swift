@@ -2,12 +2,15 @@ import KitClient
 import SwiftUI
 
 /// Open File: every file in the session's project in one fuzzy list, with
-/// the keyboard up to narrow it. A tap opens the file.
+/// the keyboard up to narrow it. A tap opens the file. A path typed from
+/// `/` or `~/` opens that file, wherever it is on the session's server.
 struct OpenFileSheet: View {
     let files: WorkspaceFiles
     let client: any FileBrowsingClient
     let session: String
-    let open: (String) -> Void
+    /// The session's working directory, which relative paths start from.
+    let cwd: String?
+    let open: (OpenedFile) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @FocusState private var searching: Bool
@@ -16,16 +19,23 @@ struct OpenFileSheet: View {
         let matches = files.search(query)
         NavigationStack {
             VStack(spacing: 8) {
-            SearchField(query: $query, focused: $searching)
+            SearchField(query: $query, focused: $searching) { if let typed { open(typed) } }
             List {
+                if let typed {
+                    Button { open(typed) } label: { TypedPathRow(file: typed) }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                        .listRowBackground(Theme.surface)
+                        .accessibilityIdentifier("open-file-path")
+                }
                 ForEach(matches, id: \.self) { path in
-                    Button { open(path) } label: { FileRow(path: path) }
+                    Button { open(OpenedFile(path: path)) } label: { FileRow(path: path) }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                         .listRowBackground(Theme.surface)
                         .accessibilityIdentifier("open-file-row")
                 }
-                if let note = note(matches.count) {
+                if typed == nil, let note = note(matches.count) {
                     Text(note)
                         .font(.system(size: 13))
                         .foregroundStyle(Theme.muted)
@@ -68,6 +78,13 @@ struct OpenFileSheet: View {
         .accessibilityIdentifier("open-file")
     }
 
+    /// The file a typed path names, when the query is a path.
+    private var typed: OpenedFile? {
+        let path = query.trimmingCharacters(in: .whitespaces)
+        guard path.hasPrefix("/") || path.hasPrefix("~/") else { return nil }
+        return OpenedFile.at(path, cwd: cwd)
+    }
+
     /// What the list says under its files: none match, or the index stopped
     /// before the end.
     private func note(_ count: Int) -> String? {
@@ -88,19 +105,21 @@ struct OpenFileSheet: View {
 private struct SearchField: View {
     @Binding var query: String
     var focused: FocusState<Bool>.Binding
+    var submit: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.muted)
-            TextField("Search files", text: $query)
+            TextField("Search files or type a path", text: $query)
                 .font(.system(size: 17))
                 .foregroundStyle(Theme.text)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .focused(focused)
+                .onSubmit(submit)
                 .accessibilityIdentifier("open-file-search")
             if !query.isEmpty {
                 Button { query = "" } label: {
@@ -150,5 +169,34 @@ private struct FileRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(path)
+    }
+}
+
+/// A typed path: the file it opens, in the project or elsewhere on the server.
+private struct TypedPathRow: View {
+    let file: OpenedFile
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: file.onServer ? "arrow.up.forward.square" : "doc")
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.path)
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                Text(file.onServer ? "Open from the server" : "Open from this project")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.muted)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 58)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Open \(file.path)")
     }
 }

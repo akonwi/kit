@@ -169,9 +169,9 @@ struct SessionScreen: View {
             .sheet(item: $selecting) { SelectTextSheet(text: $0.text) }
             .sheet(isPresented: $showingChecks) { ChecksSheet(repository: repository) }
             .sheet(isPresented: $openingFile) {
-                OpenFileSheet(files: files, client: client, session: feed.identity.session) { file in
+                OpenFileSheet(files: files, client: client, session: feed.identity.session, cwd: feed.session?.cwd) { file in
                     openingFile = false
-                    openedFile = OpenedFile(path: file)
+                    openedFile = file
                 }
             }
             .environment(\.selectText) { selecting = SelectedText(text: $0) }
@@ -203,10 +203,8 @@ struct SessionScreen: View {
                 ScratchpadScreen(pad: scratchpad, client: client, feed: feed)
             }
             .navigationDestination(item: $openedFile) { file in
-                FileScreen(path: file.path, lines: file.lines, client: client, feed: feed, composer: composer,
-                           actions: actions, interactions: interactions) { path, lines in
-                    openedFile = OpenedFile(path: path, lines: lines)
-                }
+                FileScreen(path: file.path, lines: file.lines, onServer: file.onServer, client: client, feed: feed,
+                           composer: composer, actions: actions, interactions: interactions) { openedFile = $0 }
                 // Another file, or other lines, is another screen.
                 .id(file.id)
             }

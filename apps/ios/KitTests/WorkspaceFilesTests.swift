@@ -1,6 +1,7 @@
 import Foundation
 import KitClient
 import Testing
+import UIKit
 @testable import Kit
 
 @MainActor
@@ -96,6 +97,42 @@ struct FileReaderTests {
     }
 }
 
+/// A file outside the session's folder is read from its server, view-only.
+@MainActor
+struct HostFileReaderTests {
+    @Test func readsAFileElsewhereAsText() async throws {
+        let client = FakeFileClient(index: FileIndex(paths: []))
+        client.hostReads["~/notes.md"] = [.success(ViewedFile(path: "/home/me/notes.md", size: 3_000_000,
+                                                                content: .text("one\ntwo\n", truncated: true)))]
+        let reader = FileReader(path: "~/notes.md", onServer: true)
+        await reader.load(client: client, session: "s", cwd: "/repo")
+        #expect(reader.lines == ["one", "two"])
+        #expect(reader.readPath == "/home/me/notes.md")
+        #expect(reader.file == nil)
+        #expect(reader.truncationNotice == "Showing the first 2 lines of 3 MB.")
+        #expect(client.fileReads.isEmpty)
+    }
+
+    @Test func readsAnImageElsewhere() async throws {
+        let client = FakeFileClient(index: FileIndex(paths: []))
+        let png = try #require(UIImage(systemName: "star")?.pngData())
+        client.hostReads["/srv/logo.png"] = [.success(ViewedFile(path: "/srv/logo.png", size: Int64(png.count),
+                                                                   content: .image(png, mediaType: "image/png", width: 1, height: 1)))]
+        let reader = FileReader(path: "/srv/logo.png", onServer: true)
+        await reader.load(client: client, session: "s", cwd: "/repo")
+        #expect(reader.image != nil)
+        #expect(reader.text == nil)
+    }
+
+    @Test func anOlderServerSaysItCantOpenFilesElsewhere() async {
+        let client = FakeFileClient(index: FileIndex(paths: []))
+        client.hostReads["/etc/hosts"] = [.failure(ViewedFileError.serverNeedsUpdate)]
+        let reader = FileReader(path: "/etc/hosts", onServer: true)
+        await reader.load(client: client, session: "s", cwd: "/repo")
+        #expect(reader.error == "This server’s Kit is too old to open files outside the working directory.")
+    }
+}
+
 final class FakeFileClient: FileBrowsingClient, @unchecked Sendable {
     struct Read: Equatable {
         let path: String
@@ -110,6 +147,7 @@ final class FakeFileClient: FileBrowsingClient, @unchecked Sendable {
     private var _indexReads: [Bool] = []
     private var _reads: [String: [Result<WireWorkspaceFileRead, any Error>]] = [:]
     private var _fileReads: [Read] = []
+    private var _hostReads: [String: [Result<ViewedFile, any Error>]] = [:]
 
     init(index: FileIndex) {
         _index = index
@@ -126,6 +164,10 @@ final class FakeFileClient: FileBrowsingClient, @unchecked Sendable {
     var reads: [String: [Result<WireWorkspaceFileRead, any Error>]] {
         get { lock.withLock { _reads } }
         set { lock.withLock { _reads = newValue } }
+    }
+    var hostReads: [String: [Result<ViewedFile, any Error>]] {
+        get { lock.withLock { _hostReads } }
+        set { lock.withLock { _hostReads = newValue } }
     }
     var indexReads: [Bool] { lock.withLock { _indexReads } }
     var fileReads: [Read] { lock.withLock { _fileReads } }
@@ -148,6 +190,15 @@ final class FakeFileClient: FileBrowsingClient, @unchecked Sendable {
             guard var queue = _reads[path], !queue.isEmpty else { throw WorkspaceFileError.response(404) }
             let next = queue.removeFirst()
             _reads[path] = queue
+            return try next.get()
+        }
+    }
+
+    func readHostFile(_ session: String, path: String) async throws -> ViewedFile {
+        try lock.withLock {
+            guard var queue = _hostReads[path], !queue.isEmpty else { throw ViewedFileError.notFound }
+            let next = queue.removeFirst()
+            _hostReads[path] = queue
             return try next.get()
         }
     }

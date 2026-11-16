@@ -7,6 +7,9 @@ import SwiftUI
 /// tap on a line number starts a comment; a Markdown file shows rendered,
 /// with its source one tap away.
 ///
+/// A file elsewhere on the session's server (ADR 0050) shows the same way
+/// but view-only: no comments, and a supported image shows as an image.
+///
 /// The magnifier, or ⌘F, puts a find bar in the composer's place. It
 /// searches what shows: the lines, or the rendered Markdown's text. Done
 /// brings the composer back and leaves the current match marked.
@@ -14,6 +17,8 @@ struct FileScreen: View {
     let path: String
     /// The lines to bring into view and mark, counted from 1.
     var lines: FileLineRange?
+    /// Whether the file is outside the session's folder.
+    let onServer: Bool
     let client: ServerClient
     let feed: SessionFeed
     let composer: SessionComposer
@@ -26,7 +31,7 @@ struct FileScreen: View {
     /// comment's whose chip was tapped.
     @State private var focus: ClosedRange<Int>?
     /// Opens a file a link in a Markdown preview names, at its lines.
-    var openLink: (String, FileLineRange?) -> Void = { _, _ in }
+    var openLink: (OpenedFile) -> Void = { _ in }
     @AppStorage("fileWrapLines") private var wrapLines = false
     @State private var find = FileFind()
     @State private var viewport = FindViewport()
@@ -38,17 +43,19 @@ struct FileScreen: View {
     @State private var previewStarts: [Int] = []
     @Environment(\.scenePhase) private var scenePhase
 
-    init(path: String, lines: FileLineRange? = nil, client: ServerClient, feed: SessionFeed, composer: SessionComposer,
-         actions: SessionActions, interactions: SessionInteractions, openLink: @escaping (String, FileLineRange?) -> Void = { _, _ in }) {
+    init(path: String, lines: FileLineRange? = nil, onServer: Bool = false, client: ServerClient, feed: SessionFeed,
+         composer: SessionComposer, actions: SessionActions, interactions: SessionInteractions,
+         openLink: @escaping (OpenedFile) -> Void = { _ in }) {
         self.path = path
         self.lines = lines
+        self.onServer = onServer
         self.openLink = openLink
         self.client = client
         self.feed = feed
         self.composer = composer
         self.actions = actions
         self.interactions = interactions
-        _reader = State(initialValue: FileReader(path: path))
+        _reader = State(initialValue: FileReader(path: path, onServer: onServer))
         // Comments sit on lines, so a Markdown file opened at some shows its source.
         _source = State(initialValue: lines != nil)
         _focus = State(initialValue: lines.map { $0.start...$0.end })
@@ -66,11 +73,11 @@ struct FileScreen: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { header }
                     .sharedBackgroundVisibility(.hidden)
-                if reader.file?.content.isEmpty == false {
+                if reader.text?.content.isEmpty == false {
                     ToolbarItem(placement: .topBarTrailing) { findButton }
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
-                if markdown {
+                if markdown && reader.image == nil {
                     ToolbarItem(placement: .topBarTrailing) { PreviewSourceSwitch(source: $source) }
                         .sharedBackgroundVisibility(.hidden)
                 } else {
@@ -84,12 +91,14 @@ struct FileScreen: View {
                         FileFindBar(find: find, close: closeFind)
                     } else if !feed.unavailable {
                         ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed,
-                                    revealComment: reveal, revealable: { !$0.isDiff && $0.path == path }) { feed.reconnect() }
+                                    revealComment: reveal, revealable: { !onServer && !$0.isDiff && $0.path == path }) {
+                            feed.reconnect()
+                        }
                     }
                 }
             }
             // What find searches follows what shows.
-            .task(id: FindSource(revision: reader.file?.revision, preview: showsPreview, open: find.isOpen)) {
+            .task(id: FindSource(revision: reader.text?.revision, preview: showsPreview, open: find.isOpen)) {
                 updateFindPieces()
             }
             .task(id: find.isOpen ? find.request : nil) {
@@ -98,7 +107,7 @@ struct FileScreen: View {
             }
             .onChange(of: find.revealRequest) { revealMatch() }
             .onChange(of: source) { kept = nil }
-            .onChange(of: reader.file?.revision) { kept = nil }
+            .onChange(of: reader.text?.revision) { kept = nil }
             .onAppear {
                 find.visibleAnchor = { [viewport] in
                     if find.corpus == .rendered {
@@ -110,8 +119,8 @@ struct FileScreen: View {
             }
             .task { await load() }
             // Whether comments' lines changed is known when they're read.
-            .task(id: reader.file?.revision) {
-                guard reader.file != nil else { return }
+            .task(id: reader.text?.revision) {
+                guard reader.file != nil, !onServer else { return }
                 try? await annotations.refresh(client: client, session: session)
             }
             // Read again when a turn ends, since the agent may have changed it.
@@ -122,8 +131,8 @@ struct FileScreen: View {
                 guard scenePhase == .active else { return }
                 await feed.view()
             }
-            .task(id: reader.file?.revision) {
-                guard let file = reader.file, colored?.revision != file.revision,
+            .task(id: reader.text?.revision) {
+                guard let file = reader.text, colored?.revision != file.revision,
                       let language = DiffHighlighting.language(path) else { return }
                 let lines = reader.lines
                 guard let spans = await CodeColoring.spans(for: .init(source: lines.joined(separator: "\n"), language: language)),
@@ -163,7 +172,7 @@ struct FileScreen: View {
 
     /// Gives find the text that shows, while its bar is open.
     private func updateFindPieces() {
-        guard find.isOpen, let file = reader.file else { return }
+        guard find.isOpen, let file = reader.text else { return }
         find.searchedLines = FileFind.searchedLines(file.content, truncated: file.truncated)
         if showsPreview {
             let found = MarkdownFind.pieces(MarkdownContentCache.shared.content(for: file.content).blocks)
@@ -211,14 +220,22 @@ struct FileScreen: View {
     // MARK: Header
 
     private var header: some View {
-        let parts = ChangesFormat.split(path)
+        let parts = ChangesFormat.split(reader.readPath ?? path)
         return VStack(alignment: .leading, spacing: 1) {
             Text(parts.name)
                 .font(.system(size: 16, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if !parts.folder.isEmpty {
+            if onServer {
+                // Outside the session's folder: say whose machine it's on.
+                Text("\(feed.identity.server) · \(String(parts.folder.dropLast()))")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .accessibilityIdentifier("file-on-server")
+            } else if !parts.folder.isEmpty {
                 Text(String(parts.folder.dropLast()))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Theme.muted)
@@ -229,7 +246,7 @@ struct FileScreen: View {
         .frame(minWidth: 0, idealWidth: 10_000, maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
-        .accessibilityLabel(path)
+        .accessibilityLabel(onServer ? "\(reader.readPath ?? path), on \(feed.identity.server)" : path)
     }
 
     private var viewMenu: some View {
@@ -249,7 +266,15 @@ struct FileScreen: View {
 
     @ViewBuilder
     private var content: some View {
-        if let file = reader.file {
+        if let image = reader.image {
+            VStack(spacing: 0) {
+                if let error = reader.error {
+                    FileNote(text: "Couldn’t refresh. \(error)", warning: true)
+                }
+                ZoomableImage(image: Image(uiImage: image))
+                    .accessibilityIdentifier("file-image")
+            }
+        } else if let file = reader.text {
             VStack(spacing: 0) {
                 if let error = reader.error {
                     FileNote(text: "Couldn’t refresh. \(error)", warning: true)
@@ -265,9 +290,9 @@ struct FileScreen: View {
                                 .environment(\.openURL, OpenURLAction { url in
                                     guard FilePaths.path(fromLink: url) != nil else { return .systemAction }
                                     // A relative link starts from this file's folder.
-                                    let folder = (path as NSString).deletingLastPathComponent
+                                    let folder = ((reader.readPath ?? path) as NSString).deletingLastPathComponent
                                     guard let file = OpenedFile.linked(url, cwd: feed.session?.cwd, folder: folder) else { return .discarded }
-                                    openLink(file.path, file.lines)
+                                    openLink(file)
                                     return .handled
                                 })
                             if let notice = reader.truncationNotice { FileNote(text: notice).padding(.horizontal, -20) }
@@ -289,9 +314,25 @@ struct FileScreen: View {
                     .refreshable { await load() }
                     .accessibilityIdentifier("file-preview")
                     }
-                } else {
+                } else if onServer || reader.file == nil {
+                    // View-only: comments anchor to the session's own files.
                     ScrollViewReader { proxy in
-                        CommentableFile(file: file, lines: reader.lines,
+                        FileLines(lines: reader.lines, colored: colored?.revision == file.revision ? colored?.lines : nil,
+                                  wrap: wrapLines || markdown, marked: focus,
+                                  findMarks: marking(.source) ? { findMarks($0) } : { _ in [] },
+                                  reveal: findReveal, viewport: viewport,
+                                  tap: { _ in }, drag: { _ in }, drop: {}) { _ in EmptyView() }
+                        .refreshable { await load() }
+                        .task(id: "\(file.revision)|\(focus?.description ?? "")") {
+                            guard let focus, focus.lowerBound <= reader.lines.count else { return }
+                            proxy.scrollTo(focus.lowerBound, anchor: UnitPoint(x: 0, y: 0.35))
+                        }
+                        .accessibilityIdentifier("file-lines")
+                    }
+                    if let notice = reader.truncationNotice { FileNote(text: notice) }
+                } else if let workspaceFile = reader.file {
+                    ScrollViewReader { proxy in
+                        CommentableFile(file: workspaceFile, lines: reader.lines,
                                         colored: colored?.revision == file.revision ? colored?.lines : nil,
                                         wrap: wrapLines || markdown, marked: focus,
                                         findMarks: marking(.source) ? { findMarks($0) } : { _ in [] },
@@ -445,23 +486,48 @@ private struct FileNote: View {
     }
 }
 
-/// A file to show over the session, and the lines to bring into view.
+/// A file to show over the session, and the lines to bring into view: one
+/// in the session's folder, by its path there, or one elsewhere on the
+/// session's server, by its absolute or `~/` path, which shows view-only.
 struct OpenedFile: Hashable, Identifiable {
     let path: String
     var lines: FileLineRange?
-    var id: String { path + ":" + (lines?.description ?? "") }
+    /// Whether it's outside the session's folder, read from its server.
+    var onServer = false
+    var id: String { (onServer ? "server:" : "") + path + ":" + (lines?.description ?? "") }
 
-    /// The file in the session's folder `cwd` a transcript's file link
-    /// opens, at the lines it names; nil for another link or a file
-    /// elsewhere, which this app can't open. A relative link starts from
-    /// `folder`, a Markdown file's folder in the session's folder, or from
-    /// the session's folder without one.
+    /// The file a transcript's file link opens, at the lines it names: in
+    /// the session's folder `cwd` when it's there, or else on the server.
+    /// A relative link starts from `folder`, a Markdown file's folder (in
+    /// the session's folder, or absolute or under `~/` for a file elsewhere),
+    /// or from the session's folder without one. Nil for another link.
     static func linked(_ url: URL, cwd: String?, folder: String = "") -> OpenedFile? {
-        // Only the server knows its home, which this app doesn't read.
-        guard let link = FilePaths.path(fromLink: url), link != "~", !link.hasPrefix("~/") else { return nil }
-        let relative = !link.hasPrefix("/")
-        guard let path = ToolPresentation.workspacePath(relative && !folder.isEmpty ? folder + "/" + link : link, cwd: cwd)
-        else { return nil }
-        return OpenedFile(path: path, lines: FilePaths.lines(fromLink: url))
+        guard let link = FilePaths.path(fromLink: url) else { return nil }
+        return at(link, cwd: cwd, folder: folder, lines: FilePaths.lines(fromLink: url))
+    }
+
+    /// The file at a path typed or linked, as `linked` finds it.
+    static func at(_ path: String, cwd: String?, folder: String = "", lines: FileLineRange? = nil) -> OpenedFile? {
+        guard !path.isEmpty, !path.contains("\0"), path != "~" else { return nil }
+        var full = path
+        if !path.hasPrefix("/"), !path.hasPrefix("~/") {
+            if folder.hasPrefix("/") || folder.hasPrefix("~/") {
+                full = folder + "/" + path
+            } else {
+                // Only a folder that's an absolute path can start a relative one.
+                guard let cwd, cwd.hasPrefix("/") else { return nil }
+                full = cwd + "/" + (folder.isEmpty ? "" : folder + "/") + path
+            }
+        }
+        // Only the server knows its home, so a path under it goes as it is.
+        if full.hasPrefix("~/") {
+            let rest = FilePaths.clean(String(full.dropFirst(1)))
+            guard rest != "/" else { return nil }
+            return OpenedFile(path: "~" + rest, lines: lines, onServer: true)
+        }
+        let absolute = FilePaths.clean(full)
+        if let inside = ToolPresentation.workspacePath(absolute, cwd: cwd) { return OpenedFile(path: inside, lines: lines) }
+        guard absolute != "/" else { return nil }
+        return OpenedFile(path: absolute, lines: lines, onServer: true)
     }
 }
