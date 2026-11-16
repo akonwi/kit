@@ -120,6 +120,7 @@ struct SessionsView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .background else { return }
             dictations.interrupted()
+            dictations.keepDrafts()
             store.drafts.write()
         }
         .onDisappear { dictations.interrupted() }

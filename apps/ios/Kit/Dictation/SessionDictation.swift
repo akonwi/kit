@@ -114,6 +114,16 @@ final class SessionDictation {
         }
     }
 
+    /// Saves each open composer's draft as it is now, as before the app
+    /// goes to the background: an upload that just finished or an
+    /// attachment just removed may not have been kept yet.
+    func keepDrafts() {
+        for (id, weak) in composers {
+            guard let composer = weak.composer, composer.draftChanged != nil else { continue }
+            drafts.save(composer.kept, for: id)
+        }
+    }
+
     // MARK: The pill
 
     /// Ends the recording and puts its words in the session's draft.

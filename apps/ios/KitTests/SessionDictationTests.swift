@@ -177,6 +177,23 @@ struct SessionDictationTests {
         #expect(drafts.draft(for: session) == KeptDraft(text: "See this"))
     }
 
+    /// An attachment removed just before the app goes to the background
+    /// isn't kept.
+    @Test func keepingDraftsSavesWhatTheComposerHasNow() async {
+        let dictations = dictations()
+        let composer = SessionComposerTests.composer()
+        dictations.opened([session])
+        dictations.attach(composer, for: session) {}
+        composer.attach(filename: "notes.txt", data: Data("notes".utf8))
+        for _ in 0..<200 where drafts.draft(for: session).attachmentIDs.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(drafts.draft(for: session) == KeptDraft(attachmentIDs: ["attachment_1"]))
+
+        // No suspension between removing it and keeping drafts.
+        composer.uploads.remove(composer.uploads.items[0].id)
+        dictations.keepDrafts()
+        #expect(drafts.draft(for: session) == KeptDraft())
+    }
+
     /// A draft of only attachments is kept too.
     @Test func aDraftOfOnlyAttachmentsIsKept() {
         drafts.save(KeptDraft(attachmentIDs: ["attachment_1"]), for: session)
