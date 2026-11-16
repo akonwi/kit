@@ -296,6 +296,65 @@ struct SessionsStoreTests {
         #expect(again.rows.map(\.unseen) == [true])
     }
 
+    /// A finished reply probably wants a look, so it comes after sessions
+    /// waiting on you and before working ones.
+    @Test func finishedRepliesComeBeforeWorkingSessions() async {
+        let network = FakeSessionsNetwork()
+        network.set(studio, sessions: [SessionTesting.session("idle", at: 900), SessionTesting.session("asked", at: 100),
+                                       SessionTesting.session("working", at: 300), SessionTesting.session("done", at: 200)],
+                    activity: ["asked": .awaitingResponse, "working": .running, "done": .running])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio])
+        #expect(store.rows.map(\.session.id) == ["asked", "working", "done", "idle"])
+
+        network.set(studio, sessions: [SessionTesting.session("idle", at: 900), SessionTesting.session("asked", at: 100),
+                                       SessionTesting.session("working", at: 300), SessionTesting.session("done", at: 200)],
+                    activity: ["asked": .awaitingResponse, "working": .running])
+        await store.refresh([studio])
+        #expect(store.rows.map(\.session.id) == ["asked", "done", "working", "idle"])
+
+        // Shown, it's idle like the rest.
+        store.markSeen(SessionIdentity(server: "studio", session: "done"))
+        #expect(store.rows.map(\.session.id) == ["asked", "working", "idle", "done"])
+    }
+
+    /// Finished replies are ordered by when they were noticed finishing, the
+    /// latest first, not by when their turns started.
+    @Test func theLatestFinishedReplyComesFirst() async {
+        let network = FakeSessionsNetwork()
+        let clock = Clock()
+        let store = SessionsStore(network: network, seen: SeenSessions(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                                  drafts: SessionDrafts(defaults: UserDefaults(suiteName: UUID().uuidString)!), now: { clock.now })
+        let sessions = [SessionTesting.session("started-first", at: 100), SessionTesting.session("started-later", at: 200)]
+        network.set(studio, sessions: sessions, activity: ["started-first": .running, "started-later": .running])
+        await store.refresh([studio])
+
+        clock.now = Date(timeIntervalSince1970: 1_800_001_000)
+        network.set(studio, sessions: sessions, activity: ["started-first": .running])
+        await store.refresh([studio])
+        clock.now = Date(timeIntervalSince1970: 1_800_002_000)
+        network.set(studio, sessions: sessions)
+        await store.refresh([studio])
+        #expect(store.rows.map(\.session.id) == ["started-first", "started-later"])
+        #expect(store.rows.map(\.unseen) == [true, true])
+    }
+
+    /// Sessions marked finished before their times were kept stay marked.
+    @Test func finishedMarksKeptBeforeTheirTimesStayMarked() async {
+        let network = FakeSessionsNetwork()
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(["studio\u{1F}a"], forKey: "sessions.finished")
+        defaults.set(["studio"], forKey: "sessions.listedServers")
+        defaults.set(["studio\u{1F}a": 1_800_000_100.0, "studio\u{1F}b": 1_800_000_050.0], forKey: "sessions.seen")
+        network.set(studio, sessions: [SessionTesting.session("a", at: 100), SessionTesting.session("b", at: 50)])
+        let store = SessionsStore(network: network, seen: SeenSessions(defaults: defaults),
+                                  drafts: SessionDrafts(defaults: defaults))
+        await store.refresh([studio])
+        #expect(store.rows.map(\.session.id) == ["a", "b"])
+        #expect(store.rows.map(\.unseen) == [true, false])
+        #expect(store.rows.first?.finishedAt == nil)
+    }
+
     @Test func sessionsThatNeedYouGetPreviewsAndAFilter() async {
         let network = FakeSessionsNetwork()
         var waiting = SessionTesting.session("w", at: 100)
@@ -355,6 +414,11 @@ enum SessionTesting {
         SessionsStore(network: network, seen: SeenSessions(defaults: UserDefaults(suiteName: UUID().uuidString)!),
                       drafts: SessionDrafts(defaults: UserDefaults(suiteName: UUID().uuidString)!))
     }
+}
+
+/// A time a test moves on.
+final class Clock: @unchecked Sendable {
+    var now = Date(timeIntervalSince1970: 1_800_000_500)
 }
 
 /// Lists sessions as a server would. By default it's a server that orders

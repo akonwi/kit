@@ -1,7 +1,7 @@
 import KitClient
 import SwiftUI
 
-/// Every session on every paired server, latest activity first, with
+/// Every session on every paired server, what needs you first, with
 /// filters for sessions that need you and for each server.
 struct SessionsView: View {
     @Environment(ServerStore.self) private var servers

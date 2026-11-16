@@ -61,38 +61,54 @@ final class SeenSessions {
     private static let seenKey = "sessions.seen"
     private static let listedKey = "sessions.listedServers"
     private static let workingKey = "sessions.working"
-    private static let finishedKey = "sessions.finished"
+    /// When each finished session was noticed finishing.
+    private static let finishedKey = "sessions.finishedAt"
+    /// Finished sessions as kept before their times were.
+    private static let finishedSetKey = "sessions.finished"
     /// When each session was last shown, by `server␟session`.
     private var seen: [String: Double]
     private var listed: Set<String>
     /// Sessions last listed working or waiting on the user.
     private var working: Set<String>
-    /// Sessions whose turn ended while they weren't on screen.
-    private var finished: Set<String>
+    /// Sessions whose turn ended while they weren't on screen, with when
+    /// this iPhone noticed; zero for ones kept before the time was.
+    private var finished: [String: Double]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         seen = defaults.dictionary(forKey: Self.seenKey) as? [String: Double] ?? [:]
         listed = Set(defaults.stringArray(forKey: Self.listedKey) ?? [])
         working = Set(defaults.stringArray(forKey: Self.workingKey) ?? [])
-        finished = Set(defaults.stringArray(forKey: Self.finishedKey) ?? [])
+        if let kept = defaults.dictionary(forKey: Self.finishedKey) as? [String: Double] {
+            finished = kept
+        } else {
+            finished = Dictionary((defaults.stringArray(forKey: Self.finishedSetKey) ?? []).map { ($0, 0) }) { first, _ in first }
+            defaults.removeObject(forKey: Self.finishedSetKey)
+        }
     }
 
     private func save() {
         defaults.set(seen, forKey: Self.seenKey)
         defaults.set(listed.sorted(), forKey: Self.listedKey)
         defaults.set(working.sorted(), forKey: Self.workingKey)
-        defaults.set(finished.sorted(), forKey: Self.finishedKey)
+        defaults.set(finished, forKey: Self.finishedKey)
     }
 
     private static func key(_ id: SessionIdentity) -> String { id.server + "\u{1F}" + id.session }
 
     /// Whether the session finished, or changed, after it was last shown.
     func isUnseen(_ id: SessionIdentity, changed: Date?) -> Bool {
-        if finished.contains(Self.key(id)) { return true }
+        if finished[Self.key(id)] != nil { return true }
         guard let changed else { return false }
         guard let shown = seen[Self.key(id)] else { return true }
         return changed.timeIntervalSince1970 > shown
+    }
+
+    /// When this iPhone noticed the session's turn end, if it's marked
+    /// finished and the time is known.
+    func finishedAt(_ id: SessionIdentity) -> Date? {
+        guard let time = finished[Self.key(id)], time > 0 else { return nil }
+        return Date(timeIntervalSince1970: time)
     }
 
     /// Records that a session was shown as of `date`. `working` is whether
@@ -101,7 +117,7 @@ final class SeenSessions {
     func markSeen(_ id: SessionIdentity, at date: Date, working isWorking: Bool? = nil) {
         let key = Self.key(id)
         seen[key] = max(seen[key] ?? 0, date.timeIntervalSince1970)
-        finished.remove(key)
+        finished[key] = nil
         if let isWorking {
             if isWorking { working.insert(key) } else { working.remove(key) }
         }
@@ -110,16 +126,16 @@ final class SeenSessions {
 
     /// Records a server's current list. The first time, every session counts
     /// as seen; afterwards, sessions the server no longer lists are forgotten.
-    /// A session listed idle that was last listed working is marked finished,
-    /// unless it's on screen.
-    func listed(_ server: String, sessions: [(id: String, changed: Date?, working: Bool)],
+    /// A session listed idle that was last listed working is marked finished
+    /// as of `now`, unless it's on screen.
+    func listed(_ server: String, sessions: [(id: String, changed: Date?, working: Bool)], at now: Date = Date(),
                 showing: (String) -> Bool = { _ in false }) {
         let prefix = server + "\u{1F}"
         let current = Set(sessions.map { prefix + $0.id })
         let stays = { (key: String) in !key.hasPrefix(prefix) || current.contains(key) }
         seen = seen.filter { stays($0.key) }
         working = working.filter(stays)
-        finished = finished.filter(stays)
+        finished = finished.filter { stays($0.key) }
         if !listed.contains(server) {
             for session in sessions {
                 seen[prefix + session.id] = (session.changed ?? .distantPast).timeIntervalSince1970
@@ -130,9 +146,9 @@ final class SeenSessions {
             let key = prefix + session.id
             if session.working {
                 working.insert(key)
-                finished.remove(key)
+                finished[key] = nil
             } else if working.remove(key) != nil, !showing(session.id) {
-                finished.insert(key)
+                finished[key] = now.timeIntervalSince1970
             }
         }
         save()
@@ -144,16 +160,17 @@ final class SeenSessions {
         let stays = { (key: String) in !key.hasPrefix(prefix) }
         seen = seen.filter { stays($0.key) }
         working = working.filter(stays)
-        finished = finished.filter(stays)
+        finished = finished.filter { stays($0.key) }
         listed.remove(server)
         save()
     }
 }
 
-/// Every paired server's sessions, merged into one list in the attention
-/// order: sessions that need you first, the one waiting longest first; then
-/// working sessions; then the rest, latest activity first. A server that
-/// can't be reached keeps the list it last gave, ordered as idle.
+/// Every paired server's sessions, merged into one list: sessions that need
+/// you first, the one waiting longest first; then finished replies and other
+/// changes you haven't seen, the latest first; then working sessions; then
+/// the rest, latest activity first. A server that can't be reached keeps the
+/// list it last gave, ordered as idle.
 @MainActor @Observable
 final class SessionsStore {
     struct Row: Identifiable, Equatable {
@@ -167,6 +184,8 @@ final class SessionsStore {
         let changed: Date?
         /// When it started waiting on you, if its server says.
         var waitingSince: Date? = nil
+        /// When this iPhone noticed its turn end, if it's marked finished.
+        var finishedAt: Date? = nil
 
         var id: SessionIdentity { SessionIdentity(server: server, session: session.id) }
         /// Whether the row shows a lane mark and a semibold title.
@@ -256,20 +275,47 @@ final class SessionsStore {
                 let unseen = seen.isUnseen(id, changed: changed)
                 let preview = (status != .idle || unseen) ? previews[id]?.preview : nil
                 return Row(session: session, server: name, status: status, stale: stale, unseen: unseen,
-                           preview: preview, changed: changed, waitingSince: listing.waitingSince[session.id])
+                           preview: preview, changed: changed, waitingSince: listing.waitingSince[session.id],
+                           finishedAt: seen.finishedAt(id))
             }
         }
         .sorted(by: Self.precedes)
     }
 
-    /// The attention order across servers. A stale row's status is only as
-    /// last seen, so it's ordered as idle. Sessions with the same ID on two
+    /// The order across servers: sessions waiting on you, the one waiting
+    /// longest first; then idle ones with something you haven't seen, such
+    /// as a finished reply, the latest first; then working ones; then the
+    /// rest, latest activity first. A stale row's status is only as last
+    /// seen, so it's ordered as idle. Sessions with the same ID on two
     /// servers fall back to the server's name.
     static func precedes(_ a: Row, _ b: Row) -> Bool {
-        let first = key(a), second = key(b)
-        if AttentionOrder.precedes(first, second) { return true }
-        if AttentionOrder.precedes(second, first) { return false }
+        let first = group(a), second = group(b)
+        if first != second { return first < second }
+        if first == .unseen {
+            // When the turn was noticed ending, or else the last change.
+            let aTime = a.finishedAt ?? a.changed ?? .distantPast, bTime = b.finishedAt ?? b.changed ?? .distantPast
+            if aTime != bTime { return aTime > bTime }
+            if a.session.id != b.session.id { return a.session.id < b.session.id }
+            return a.server < b.server
+        }
+        let aKey = key(a), bKey = key(b)
+        if AttentionOrder.precedes(aKey, bKey) { return true }
+        if AttentionOrder.precedes(bKey, aKey) { return false }
         return a.server < b.server
+    }
+
+    /// The groups the list is ordered in, first to last.
+    enum Group: Int, Comparable {
+        case waiting, unseen, working, idle
+        static func < (a: Group, b: Group) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    static func group(_ row: Row) -> Group {
+        switch row.stale ? .idle : row.status {
+        case .awaitingResponse: .waiting
+        case .running: .working
+        case .idle: row.unseen ? .unseen : .idle
+        }
     }
 
     private static func key(_ row: Row) -> AttentionOrder.Key {
@@ -353,7 +399,7 @@ final class SessionsStore {
             guard listings[server.name]?.server == server, listing[server.name] == request else { return }
             let name = server.name
             seen.listed(name, sessions: list.map { ($0.id, SessionFormat.date($0.lastActivity ?? $0.date), statuses[$0.id, default: .idle] != .idle) },
-                        showing: { self.onScreen == SessionIdentity(server: name, session: $0) })
+                        at: now(), showing: { self.onScreen == SessionIdentity(server: name, session: $0) })
             drafts.listed(name, sessions: Set(list.map(\.id)))
             listings[server.name]?.sessions = list
             listings[server.name]?.activity = statuses
