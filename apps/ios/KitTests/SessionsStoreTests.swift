@@ -371,6 +371,18 @@ struct SessionsStoreTests {
         #expect(store.rows.first?.finishedAt == nil)
     }
 
+    /// Older marks beside newer ones, as when the app's were moved into the
+    /// group, are both kept.
+    @Test func olderFinishedMarksJoinNewerOnes() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(["studio\u{1F}a", "studio\u{1F}b"], forKey: "sessions.finished")
+        defaults.set(["studio\u{1F}b": 1_800_000_050.0], forKey: "sessions.finishedAt")
+        _ = SeenSessions(defaults: defaults)
+        #expect(defaults.dictionary(forKey: "sessions.finishedAt") as? [String: Double]
+            == ["studio\u{1F}a": 0, "studio\u{1F}b": 1_800_000_050.0])
+        #expect(defaults.object(forKey: "sessions.finished") == nil)
+    }
+
     @Test func sessionsThatNeedYouGetPreviewsAndAFilter() async {
         let network = FakeSessionsNetwork()
         var waiting = SessionTesting.session("w", at: 100)

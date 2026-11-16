@@ -79,10 +79,11 @@ final class SeenSessions {
         seen = defaults.dictionary(forKey: Self.seenKey) as? [String: Double] ?? [:]
         listed = Set(defaults.stringArray(forKey: Self.listedKey) ?? [])
         working = Set(defaults.stringArray(forKey: Self.workingKey) ?? [])
-        if let kept = defaults.dictionary(forKey: Self.finishedKey) as? [String: Double] {
-            finished = kept
-        } else {
-            finished = Dictionary((defaults.stringArray(forKey: Self.finishedSetKey) ?? []).map { ($0, 0) }) { first, _ in first }
+        finished = defaults.dictionary(forKey: Self.finishedKey) as? [String: Double] ?? [:]
+        // Marks kept before their times were join the others, as when the
+        // app's own were moved into the group beside newer ones.
+        if let older = defaults.stringArray(forKey: Self.finishedSetKey) {
+            for id in older where finished[id] == nil { finished[id] = 0 }
             // Kept in the new form before the old one is let go.
             defaults.set(finished, forKey: Self.finishedKey)
             defaults.removeObject(forKey: Self.finishedSetKey)
