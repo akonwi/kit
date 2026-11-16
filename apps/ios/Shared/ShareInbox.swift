@@ -1,4 +1,5 @@
 import Foundation
+import KitClient
 
 /// Something shared to a session from another app: words and attachments
 /// waiting for the app to add them to the session's draft.
@@ -58,12 +59,41 @@ struct ShareInbox: Sendable {
             .sorted { $0.date < $1.date }
     }
 
-    /// Lets a share go once it's in its draft.
-    func remove(_ id: UUID) {
-        try? FileManager.default.removeItem(at: file(id))
+    /// Lets a share go once it's in its draft; false if its file is still there.
+    @discardableResult
+    func remove(_ id: UUID) -> Bool {
+        let file = file(id)
+        do {
+            try FileManager.default.removeItem(at: file)
+            return true
+        } catch {
+            return !FileManager.default.fileExists(atPath: file.path)
+        }
     }
 
     private func file(_ id: UUID) -> URL {
         folder.appendingPathComponent(id.uuidString + ".json")
+    }
+}
+
+/// Reading what other apps share, within what an upload can take.
+enum SharedFiles {
+    /// The largest image read to prepare, and the largest other file; the
+    /// server takes text files up to 1 MB.
+    static let imageLimit = 30 * 1024 * 1024
+    static let fileLimit = 1024 * 1024
+
+    /// A shared file's bytes, read only when they're within its limit.
+    static func read(_ url: URL, name: String, isImage: Bool) throws -> Data {
+        let limit = isImage ? imageLimit : fileLimit
+        let tooLarge = MutationNotSent(reason: isImage
+            ? "\(name) is larger than 30 MB."
+            : "\(name) is larger than 1 MB. Kit takes images, and UTF-8 text files up to 1 MB.")
+        if let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > limit { throw tooLarge }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: limit + 1) ?? Data()
+        guard data.count <= limit else { throw tooLarge }
+        return data
     }
 }

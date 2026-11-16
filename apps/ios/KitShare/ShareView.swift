@@ -13,6 +13,7 @@ struct ShareView: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel", systemImage: "xmark", action: model.cancel)
+                            .disabled(model.busy)
                     }
                     ToolbarItem(placement: .principal) {
                         VStack(spacing: 0) {
@@ -34,6 +35,9 @@ struct ShareView: View {
         case .nothing:
             ContentUnavailableView("Nothing to share", systemImage: "square.and.arrow.up",
                                    description: Text("Kit takes web links, images, and files."))
+        case .unreadable(let reason):
+            ContentUnavailableView("Couldn’t read it all", systemImage: "exclamationmark.triangle",
+                                   description: Text(reason))
         case .reading, .link, .files:
             if !model.paired {
                 ContentUnavailableView("No servers", systemImage: "server.rack",
@@ -82,7 +86,7 @@ struct ShareView: View {
         switch model.shared {
         case .link(let link): link.title ?? link.url.host()
         case .files(let files): ShareSummary.title(files)
-        case .reading, .nothing: nil
+        case .reading, .nothing, .unreadable: nil
         }
     }
 }
@@ -120,7 +124,7 @@ private struct ShareCompose: View {
                 switch model.shared {
                 case .link(let link): LinkCard(link: link)
                 case .files(let files): FilesCard(files: files, previews: model.previews)
-                case .reading, .nothing: EmptyView()
+                case .reading, .nothing, .unreadable: EmptyView()
                 }
             }
             Section("Session") {
@@ -129,6 +133,7 @@ private struct ShareCompose: View {
             Section("Note") {
                 TextField("Optional", text: $note, axis: .vertical)
                     .lineLimit(3...8)
+                    .disabled(model.busy || model.progress == .uncertain)
             }
         }
         .safeAreaInset(edge: .bottom) { actions }
@@ -141,7 +146,7 @@ private struct ShareCompose: View {
             Text(model.failure ?? "")
         }
         .alert("It may not have been sent", isPresented: .constant(model.progress == .uncertain)) {
-            Button("Add to Draft Instead") { model.keepUnsent(destination, note: note) }
+            Button("Add to Draft Instead", action: model.keepUnsent)
             Button("Done", role: .cancel) { model.done() }
         } message: {
             Text("The connection dropped before \(destination.server) answered. Check the session in Kit before sending it again.")

@@ -34,15 +34,14 @@ final class ShareViewController: UIViewController {
                 return
             }
         }
-        var files: [ShareModel.File] = []
-        for provider in items.flatMap({ $0.attachments ?? [] }) where files.count < 8 {
-            if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                if let file = await copy(provider, type: UTType.image.identifier, isImage: true) { files.append(file) }
-            } else if let type = Self.fileType(of: provider), let file = await copy(provider, type: type, isImage: false) {
-                files.append(file)
-            }
+        var files: [ShareModel.File] = [], count = 0
+        for provider in items.flatMap({ $0.attachments ?? [] }) where count < 8 {
+            let image = provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+            guard let type = image ? UTType.image.identifier : Self.fileType(of: provider) else { continue }
+            count += 1
+            if let file = await copy(provider, type: type, isImage: image) { files.append(file) }
         }
-        model.received(files: files)
+        model.received(files: files, of: count)
     }
 
     /// A file's type, when the provider has file data rather than a web link.

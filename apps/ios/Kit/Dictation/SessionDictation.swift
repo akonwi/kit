@@ -125,10 +125,13 @@ final class SessionDictation {
     }
 
     /// Adds what was shared from other apps to each session's draft: to the
-    /// composer if the session is open, or else to its kept draft. Each
-    /// share leaves the inbox once it's in its draft.
+    /// composer if the session is open, or else to its kept draft. A share
+    /// is noted as received with the drafts before its file goes, so one
+    /// whose file couldn't go isn't added again.
     func receiveShares(from inbox: ShareInbox) {
-        for item in inbox.waiting() {
+        let waiting = inbox.waiting()
+        guard !waiting.isEmpty else { return }
+        for item in waiting where !drafts.receivedShares.contains(item.id.uuidString) {
             let id = SessionIdentity(server: item.server, session: item.session)
             if let composer = composers[id]?.composer, composer.draftChanged != nil {
                 composer.restore(kept: KeptDraft(text: SharedItem.join(composer.draft, item.text), attachmentIDs: item.attachmentIDs))
@@ -137,9 +140,12 @@ final class SessionDictation {
                 drafts.save(KeptDraft(text: SharedItem.join(kept.text, item.text),
                                       attachmentIDs: ComposerAttachments.uniqueIDs(kept.attachmentIDs + item.attachmentIDs)), for: id)
             }
-            drafts.write()
-            inbox.remove(item.id)
+            drafts.received(share: item.id)
         }
+        drafts.write()
+        let left = Set(waiting.filter { !inbox.remove($0.id) }.map(\.id.uuidString))
+        drafts.keepReceived(left)
+        drafts.write()
     }
 
     // MARK: The pill

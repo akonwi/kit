@@ -26,6 +26,8 @@ final class ShareModel {
         case reading
         case link(Link)
         case files([File])
+        /// Some of what was shared couldn't be read.
+        case unreadable(String)
         /// Nothing the sheet can add.
         case nothing
     }
@@ -60,6 +62,10 @@ final class ShareModel {
     /// the same session uploads only the ones that failed.
     private var uploads: (destination: String, attachments: ComposerAttachments, files: [UUID: UUID])?
     private let operations = SessionOperations()
+    /// The message being sent, as sent, for keeping it if it may not have gone.
+    private var sending: (destination: ShareDestination, text: String, attachments: [String])?
+    /// Whether the sheet has closed; nothing finishes it again.
+    private var ended = false
 
     init(inbox: ShareInbox = .live, finish: @escaping (Bool) -> Void) {
         self.inbox = inbox
@@ -72,7 +78,12 @@ final class ShareModel {
         shared = .link(Link(url: url, title: title?.isEmpty == false && title != url.absoluteString ? title : nil))
     }
 
-    func received(files: [File]) {
+    /// The files read, out of how many were shared.
+    func received(files: [File], of count: Int) {
+        guard files.count == count else {
+            shared = .unreadable("Kit couldn’t read \(count - files.count) of the \(count) items. Try sharing them again.")
+            return
+        }
         guard !files.isEmpty else { shared = .nothing; return }
         shared = .files(Array(files.prefix(8)))
         for file in files where file.isImage { previews[file.id] = Self.preview(file.url) }
@@ -129,6 +140,7 @@ final class ShareModel {
         Task {
             guard let (text, attachments) = await prepared(for: destination, note: note) else { return }
             progress = .sending
+            sending = (destination, text, attachments)
             let server = (try? PairedServers.saved())?.first { $0.name == destination.server }
             guard let server else {
                 progress = .idle
@@ -141,7 +153,7 @@ final class ShareModel {
                               uncertain: {}, acknowledged: {})
             while operations.submission == .pending { try? await Task.sleep(for: .milliseconds(50)) }
             switch operations.submission {
-            case .acknowledged: finish(true)
+            case .acknowledged: end(true)
             case .uncertain: progress = .uncertain
             case .failed(let reason), .rejected(let reason):
                 progress = .idle
@@ -153,18 +165,24 @@ final class ShareModel {
 
     /// After a send that may not have gone: keeps the message in the
     /// session's draft instead, to check and send again from Kit.
-    func keepUnsent(_ destination: ShareDestination, note: String) {
-        guard progress == .uncertain else { return }
-        let text = SharedItem.text(note: note, shared: sharedText)
-        keep(text: text, attachments: uploads?.attachments.readyIDs ?? [], in: destination)
+    func keepUnsent() {
+        guard progress == .uncertain, let sending else { return }
+        keep(text: sending.text, attachments: sending.attachments, in: sending.destination)
     }
 
     func cancel() {
-        finish(false)
+        guard !busy else { return }
+        end(false)
     }
 
     func done() {
-        finish(true)
+        end(true)
+    }
+
+    private func end(_ done: Bool) {
+        guard !ended else { return }
+        ended = true
+        finish(done)
     }
 
     // MARK: Preparing
@@ -194,28 +212,35 @@ final class ShareModel {
             uploads = (destination.id, ComposerAttachments(), [:])
         }
         guard var current = uploads else { return nil }
+        // One at a time, so only one file's bytes are being prepared at once.
         for file in files {
             if let item = current.files[file.id] {
                 if current.attachments.items.first(where: { $0.id == item })?.error != nil {
                     current.attachments.retry(item, client: client, session: destination.session)
                 }
-                continue
-            }
-            let url = file.url, name = file.name
-            let upload = await Task.detached {
-                (try? Data(contentsOf: url)).map { PhotoPreparation.forUpload($0, filename: name) }
-            }.value
-            guard let upload, let reserved = current.attachments.reserve(filename: upload.filename) else {
-                failure = "Couldn’t read \(file.name)."
+            } else {
+                let url = file.url, name = file.name, isImage = file.isImage
+                let upload = await Task.detached { () -> Result<(data: Data, filename: String), any Error> in
+                    Result { PhotoPreparation.forUpload(try SharedFiles.read(url, name: name, isImage: isImage), filename: name) }
+                }.value
+                guard let reserved = current.attachments.reserve(filename: name) else {
+                    failure = current.attachments.error
+                    uploads = current
+                    return nil
+                }
+                current.files[file.id] = reserved
                 uploads = current
-                return nil
+                switch upload {
+                case .success(let upload):
+                    current.attachments.add(filename: upload.filename, data: upload.data, client: client,
+                                            session: destination.session, reserved: reserved)
+                case .failure(let error):
+                    current.attachments.failReserved(reserved, error: error)
+                }
             }
-            current.files[file.id] = reserved
-            current.attachments.add(filename: upload.filename, data: upload.data, client: client,
-                                    session: destination.session, reserved: reserved)
+            while current.attachments.items.contains(where: \.busy) { try? await Task.sleep(for: .milliseconds(100)) }
         }
         uploads = current
-        while current.attachments.items.contains(where: \.busy) { try? await Task.sleep(for: .milliseconds(100)) }
         if let failed = current.attachments.items.first(where: { $0.error != nil }) {
             failure = "\(failed.filename): \(failed.error ?? "")"
             return nil
@@ -227,7 +252,7 @@ final class ShareModel {
         do {
             try inbox.put(SharedItem(server: destination.server, session: destination.session,
                                      text: text, attachmentIDs: attachments))
-            finish(true)
+            end(true)
         } catch {
             failure = error.localizedDescription
         }

@@ -19,6 +19,7 @@ struct KeptDraft: Equatable, Sendable {
 final class SessionDrafts {
     private let defaults: UserDefaults
     private static let key = "sessions.drafts"
+    private static let receivedKey = "sessions.receivedShares"
     /// Each session's draft, by `server␟session`.
     private var drafts: [String: KeptDraft]
     /// Sessions a listing has shown since launch. A draft for one that
@@ -28,6 +29,9 @@ final class SessionDrafts {
     /// Drafts saved since launch for sessions no listing has shown yet.
     private var unlisted: Set<String> = []
     private var writeScheduled = false
+    /// Shares from other apps already in their drafts, by ID, written with
+    /// the drafts so a share isn't added twice when its file outlives them.
+    private(set) var receivedShares: Set<String>
 
     /// How long typing settles before drafts are written.
     static let writeDelay: Duration = .milliseconds(500)
@@ -35,6 +39,7 @@ final class SessionDrafts {
     init(defaults: UserDefaults = SharedStorage.defaults) {
         self.defaults = defaults
         drafts = Self.read(defaults.dictionary(forKey: Self.key) ?? [:])
+        receivedShares = Set(defaults.stringArray(forKey: Self.receivedKey) ?? [])
     }
 
     /// Drafts as written: a dictionary of text and attachment IDs, or just
@@ -85,6 +90,16 @@ final class SessionDrafts {
         save(text.isEmpty ? words : DictationText.join(text, words), for: id)
     }
 
+    /// Notes that a share is in its draft. It's written with the drafts.
+    func received(share id: UUID) {
+        receivedShares.insert(id.uuidString)
+    }
+
+    /// Forgets shares that no longer wait, keeping the ones still waiting.
+    func keepReceived(_ waiting: Set<String>) {
+        receivedShares.formIntersection(waiting)
+    }
+
     /// Forgets drafts for a server's sessions it no longer lists, except
     /// ones saved since launch for sessions no listing has shown yet.
     func listed(_ server: String, sessions: Set<String>) {
@@ -119,6 +134,8 @@ final class SessionDrafts {
     func write() {
         writeScheduled = false
         if drafts.isEmpty { defaults.removeObject(forKey: Self.key) } else { defaults.set(stored, forKey: Self.key) }
+        if receivedShares.isEmpty { defaults.removeObject(forKey: Self.receivedKey) }
+        else { defaults.set(receivedShares.sorted(), forKey: Self.receivedKey) }
     }
 
     private func scheduleWrite() {

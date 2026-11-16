@@ -73,6 +73,43 @@ struct ShareTests {
         #expect(inbox.waiting().isEmpty)
     }
 
+    /// A share whose file outlived its draft write isn't added again.
+    @Test func aShareAlreadyReceivedIsntAddedAgain() throws {
+        let inbox = inbox()
+        defer { try? FileManager.default.removeItem(at: inbox.folder) }
+        let item = SharedItem(server: "studio", session: "s", text: "https://swift.org")
+        try inbox.put(item)
+        drafts.save("Look at", for: session)
+        drafts.received(share: item.id)
+
+        dictations().receiveShares(from: inbox)
+        #expect(drafts.draft(for: session).text == "Look at")
+        #expect(inbox.waiting().isEmpty)
+        #expect(drafts.receivedShares.isEmpty)
+    }
+
+    @Test func receivedSharesAreWrittenWithTheDrafts() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let drafts = SessionDrafts(defaults: defaults), id = UUID()
+        drafts.received(share: id)
+        drafts.write()
+        #expect(SessionDrafts(defaults: defaults).receivedShares == [id.uuidString])
+    }
+
+    @Test func aSharedFileIsReadWithinItsLimit() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let notes = folder.appendingPathComponent("notes.txt"), big = folder.appendingPathComponent("big.log")
+        try Data("notes".utf8).write(to: notes)
+        try Data(count: SharedFiles.fileLimit + 1).write(to: big)
+
+        #expect(try SharedFiles.read(notes, name: "notes.txt", isImage: false) == Data("notes".utf8))
+        #expect(throws: MutationNotSent.self) { try SharedFiles.read(big, name: "big.log", isImage: false) }
+        // An image may be larger, since it's made smaller before it uploads.
+        #expect(try SharedFiles.read(big, name: "big.png", isImage: true).count == SharedFiles.fileLimit + 1)
+    }
+
     @Test func sessionsFromEveryServerListMostRecentFirst() {
         let studio = ShareDestination.listed(.ordered([ListedSession(session: SessionTesting.session("a", at: 100), status: .idle),
                                                       ListedSession(session: SessionTesting.session("b", at: 300), status: .running)]),
