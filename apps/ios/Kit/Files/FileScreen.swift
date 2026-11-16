@@ -511,7 +511,7 @@ struct OpenedFile: Hashable, Identifiable {
         guard !path.isEmpty, !path.contains("\0"), path != "~" else { return nil }
         var full = path
         if !path.hasPrefix("/"), !path.hasPrefix("~/") {
-            if folder.hasPrefix("/") || folder.hasPrefix("~/") {
+            if folder.hasPrefix("/") || folder == "~" || folder.hasPrefix("~/") {
                 full = folder + "/" + path
             } else {
                 // Only a folder that's an absolute path can start a relative one.
@@ -521,13 +521,34 @@ struct OpenedFile: Hashable, Identifiable {
         }
         // Only the server knows its home, so a path under it goes as it is.
         if full.hasPrefix("~/") {
-            let rest = FilePaths.clean(String(full.dropFirst(1)))
-            guard rest != "/" else { return nil }
-            return OpenedFile(path: "~" + rest, lines: lines, onServer: true)
+            guard let home = homeRelative(String(full.dropFirst(2))) else { return nil }
+            return OpenedFile(path: home, lines: lines, onServer: true)
         }
         let absolute = FilePaths.clean(full)
-        if let inside = ToolPresentation.workspacePath(absolute, cwd: cwd) { return OpenedFile(path: inside, lines: lines) }
         guard absolute != "/" else { return nil }
+        if let inside = workspacePath(absolute, cwd: cwd) { return OpenedFile(path: inside, lines: lines) }
         return OpenedFile(path: absolute, lines: lines, onServer: true)
+    }
+
+    /// A path under the server's home, cleaned as the Mac cleans one: a `..`
+    /// with nothing before it to undo stays, for the server to resolve.
+    /// Nil for home itself.
+    static func homeRelative(_ relative: String) -> String? {
+        var parts: [Substring] = []
+        for part in relative.split(separator: "/", omittingEmptySubsequences: true) {
+            switch part {
+            case ".": continue
+            case "..": if let last = parts.last, last != ".." { parts.removeLast() } else { parts.append(part) }
+            default: parts.append(part)
+            }
+        }
+        return parts.isEmpty ? nil : "~/" + parts.joined(separator: "/")
+    }
+
+    /// The path in the session's folder of an absolute path inside it. A
+    /// session whose folder is `/` has every file inside it.
+    private static func workspacePath(_ absolute: String, cwd: String?) -> String? {
+        if cwd == "/" { return absolute == "/" ? nil : String(absolute.dropFirst()) }
+        return ToolPresentation.workspacePath(absolute, cwd: cwd)
     }
 }

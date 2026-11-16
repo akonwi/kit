@@ -29,6 +29,20 @@ struct FileLinkTests {
         #expect(OpenedFile.at("/repo/src/../README.md", cwd: "/repo") == OpenedFile(path: "README.md"))
     }
 
+    /// A `..` above home stays for the server to resolve, as on the Mac.
+    @Test func aPathAboveHomeKeepsItsParents() throws {
+        #expect(OpenedFile.at("~/../../etc/hosts", cwd: "/repo") == OpenedFile(path: "~/../../etc/hosts", onServer: true))
+        #expect(OpenedFile.at("~/a/./b/../c.md", cwd: "/repo") == OpenedFile(path: "~/a/c.md", onServer: true))
+        #expect(OpenedFile.linked(try #require(FilePaths.link("../x.md")), cwd: "/repo", folder: "~")
+            == OpenedFile(path: "~/../x.md", onServer: true))
+    }
+
+    /// A session whose folder is `/` has every file in it.
+    @Test func aSessionAtTheRootHasEveryFile() throws {
+        #expect(OpenedFile.at("/src/a.go", cwd: "/") == OpenedFile(path: "src/a.go"))
+        #expect(OpenedFile.linked(try #require(FilePaths.link("etc/hosts")), cwd: "/") == OpenedFile(path: "etc/hosts"))
+    }
+
     @Test func anotherLinkOrAPathWithNoStartOpensNothing() throws {
         #expect(OpenedFile.linked(try #require(FilePaths.link("src/a.go")), cwd: nil) == nil)
         #expect(OpenedFile.linked(try #require(URL(string: "https://example.com/a.go#L3")), cwd: "/repo") == nil)

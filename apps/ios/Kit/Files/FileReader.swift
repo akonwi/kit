@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import KitClient
 import UIKit
 
@@ -59,7 +60,11 @@ final class FileReader {
                 let read = try await client.readHostFile(session, path: path)
                 try Task.checkCancellation()
                 guard self.token == token else { return }
-                try await show(read)
+                let shown = try await Self.shown(read)
+                // A newer read may have landed while the image was decoded.
+                try Task.checkCancellation()
+                guard self.token == token else { return }
+                show(read, shown)
             } else {
                 let read = try await readWorkspace(client: client, session: session, cwd: cwd)
                 try Task.checkCancellation()
@@ -93,17 +98,50 @@ final class FileReader {
         return read
     }
 
-    private func show(_ read: ViewedFile) async throws {
+    /// What a read from the server shows: its text, or its image decoded
+    /// at most `maxImagePixels` on its longer side.
+    private enum Shown {
+        case text(String, truncated: Bool)
+        case image(UIImage)
+    }
+
+    /// The longest side an image from the server is kept at, enough to zoom
+    /// into on a phone without holding every pixel of a large photo.
+    nonisolated static let maxImagePixels = 3072
+
+    private static func shown(_ read: ViewedFile) async throws -> Shown {
+        switch read.content {
+        case .text(let content, let truncated):
+            return .text(content, truncated: truncated)
+        case .image(let data, _, _, _):
+            let decoded = await Task.detached(priority: .userInitiated) { Self.image(data) }.value
+            guard let decoded else { throw ViewedFileError.unsupported }
+            return .image(decoded)
+        }
+    }
+
+    nonisolated static func image(_ data: Data) -> UIImage? {
+        autoreleasepool {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceShouldCacheImmediately: true,
+                      kCGImageSourceThumbnailMaxPixelSize: maxImagePixels
+                  ] as CFDictionary) else { return nil }
+            return UIImage(cgImage: image)
+        }
+    }
+
+    private func show(_ read: ViewedFile, _ shown: Shown) {
         readPath = read.path
         size = read.size
-        switch read.content {
+        switch shown {
         case .text(let content, let truncated):
             image = nil
             text = Text(content: content, revision: "\(read.size):\(content.hashValue)", truncated: truncated)
             lines = Self.lines(content)
-        case .image(let data, _, _, _):
-            let decoded = await Task.detached(priority: .userInitiated) { UIImage(data: data) }.value
-            guard let decoded else { throw ViewedFileError.unsupported }
+        case .image(let decoded):
             image = decoded
             text = nil
             lines = []

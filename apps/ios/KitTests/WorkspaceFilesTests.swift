@@ -124,6 +124,18 @@ struct HostFileReaderTests {
         #expect(reader.text == nil)
     }
 
+    /// A large image is kept no bigger than the phone needs to zoom into.
+    @Test func aLargeImageIsKeptSmaller() throws {
+        let context = try #require(CGContext(data: nil, width: 6000, height: 4000, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let large = try #require(context.makeImage())
+        let png = try #require(UIImage(cgImage: large).pngData())
+        let image = try #require(FileReader.image(png))
+        #expect(image.cgImage?.width == 3072)
+        #expect(image.cgImage?.height == 2048)
+    }
+
     @Test func anOlderServerSaysItCantOpenFilesElsewhere() async {
         let client = FakeFileClient(index: FileIndex(paths: []))
         client.hostReads["/etc/hosts"] = [.failure(ViewedFileError.serverNeedsUpdate)]
