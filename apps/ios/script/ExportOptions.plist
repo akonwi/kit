@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Exports an archive for App Store Connect and uploads it, for TestFlight.
      It signs with the team's iOS distribution certificate in the login
-     keychain and the "Kit iOS App Store" profile, because an App Manager API
+     keychain and the "Kit iOS App Store" and "Kit iOS Share App Store"
+     profiles, for the app and its share extension, because an App Manager API
      key can't use cloud signing. -->
 <plist version="1.0">
 <dict>
@@ -20,6 +21,8 @@
 	<dict>
 		<key>com.akonwi.kit.ios</key>
 		<string>Kit iOS App Store</string>
+		<key>com.akonwi.kit.ios.share</key>
+		<string>Kit iOS Share App Store</string>
 	</dict>
 	<key>manageAppVersionAndBuildNumber</key>
 	<false/>

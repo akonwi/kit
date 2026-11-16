@@ -10,7 +10,8 @@
 # project. Uploads only a committed tree, and prints the commit it built.
 #
 # The export signs with the team's iOS distribution certificate, which must be
-# in the login keychain, and the "Kit iOS App Store" provisioning profile (see
+# in the login keychain, and the "Kit iOS App Store" and "Kit iOS Share App
+# Store" provisioning profiles (see
 # ExportOptions.plist): an App Manager key can't use Apple's cloud signing.
 set -eu
 
