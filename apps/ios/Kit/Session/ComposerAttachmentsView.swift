@@ -68,29 +68,6 @@ struct AttachMenu: View {
     }
 }
 
-/// Phone photos are larger than an attachment may be, so they go as JPEG at
-/// most 3072 pixels on the longer side.
-enum PhotoPreparation {
-    static let maxPixels = 3072
-
-    /// The photo as a JPEG that fits, or nil when it isn't an image.
-    nonisolated static func jpeg(_ data: Data) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true,
-                  kCGImageSourceThumbnailMaxPixelSize: maxPixels
-              ] as CFDictionary) else { return nil }
-        let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else {
-            return nil
-        }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return output as Data
-    }
-}
-
 /// The camera, for Take Photo.
 private struct CameraPicker: UIViewControllerRepresentable {
     let take: (UIImage) -> Void

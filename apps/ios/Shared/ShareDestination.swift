@@ -10,21 +10,26 @@ struct ShareDestination: Identifiable, Hashable, Sendable {
     let folder: String
     /// When it was last active.
     let changed: Date?
+    /// The model's name when it takes no images.
+    let imageRejectingModel: String?
 
     var id: String { server + "\u{1F}" + session }
 
-    init(server: String, session: String, title: String, folder: String, changed: Date?) {
+    init(server: String, session: String, title: String, folder: String, changed: Date?, imageRejectingModel: String? = nil) {
         self.server = server
         self.session = session
         self.title = title
         self.folder = folder
         self.changed = changed
+        self.imageRejectingModel = imageRejectingModel
     }
 
     init(server: String, excerpt: SessionExcerpt) {
+        let rejectsImages = excerpt.inputs.map { !$0.contains("image") } ?? false
         self.init(server: server, session: excerpt.id, title: excerpt.title,
                   folder: SessionFormat.directory(excerpt.cwd ?? excerpt.workspace),
-                  changed: SessionFormat.date(excerpt.lastActivity ?? excerpt.date))
+                  changed: SessionFormat.date(excerpt.lastActivity ?? excerpt.date),
+                  imageRejectingModel: rejectsImages ? excerpt.model : nil)
     }
 
     /// A server's sessions, from either kind of listing.

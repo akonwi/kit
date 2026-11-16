@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- The share extension: it takes one web link. KitAppGroup names the app
+<!-- The share extension: it takes one web link, or up to eight images
+     and files, as many as a message can carry. KitAppGroup names the app
      group it shares with the app, and plain HTTP is allowed only to local
      names and addresses, as in the app. -->
 <plist version="1.0">
@@ -20,6 +21,10 @@
 			<dict>
 				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
 				<integer>1</integer>
+				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
+				<integer>8</integer>
+				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
+				<integer>8</integer>
 			</dict>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>

@@ -1,9 +1,11 @@
 import Foundation
+import ImageIO
 import KitClient
 import Observation
+import UIKit
 
 /// What the share sheet knows: what was shared, the sessions it can go to,
-/// and the servers that didn't list theirs.
+/// the servers that didn't list theirs, and how adding or sending it went.
 @MainActor @Observable
 final class ShareModel {
     /// A shared web link.
@@ -12,14 +14,35 @@ final class ShareModel {
         let title: String?
     }
 
+    /// A shared image or file, copied where the sheet can read it.
+    struct File: Identifiable, Equatable, Sendable {
+        let id = UUID()
+        let url: URL
+        let name: String
+        let isImage: Bool
+    }
+
     enum Shared: Equatable {
         case reading
         case link(Link)
+        case files([File])
         /// Nothing the sheet can add.
         case nothing
     }
 
+    /// Where adding or sending what was shared stands.
+    enum Progress: Equatable {
+        case idle
+        case uploading
+        case sending
+        /// The connection dropped before the server answered, so the
+        /// message may or may not have gone.
+        case uncertain
+    }
+
     private(set) var shared = Shared.reading
+    /// Small previews of shared images, by file.
+    private(set) var previews: [UUID: UIImage] = [:]
     private(set) var destinations: [ShareDestination] = []
     /// Servers that didn't list their sessions, with why.
     private(set) var problems: [(server: String, reason: String)] = []
@@ -27,11 +50,16 @@ final class ShareModel {
     private(set) var loading = true
     /// Whether any server is paired.
     private(set) var paired = true
-    /// Why the share couldn't be added, if it couldn't.
+    private(set) var progress = Progress.idle
+    /// Why the share couldn't be added or sent, if it couldn't.
     var failure: String?
 
     private let finish: (Bool) -> Void
     private let inbox: ShareInbox
+    /// The files uploaded so far, and the session they went to. A retry to
+    /// the same session uploads only the ones that failed.
+    private var uploads: (destination: String, attachments: ComposerAttachments, files: [UUID: UUID])?
+    private let operations = SessionOperations()
 
     init(inbox: ShareInbox = .live, finish: @escaping (Bool) -> Void) {
         self.inbox = inbox
@@ -42,6 +70,12 @@ final class ShareModel {
         guard let url else { shared = .nothing; return }
         let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         shared = .link(Link(url: url, title: title?.isEmpty == false && title != url.absoluteString ? title : nil))
+    }
+
+    func received(files: [File]) {
+        guard !files.isEmpty else { shared = .nothing; return }
+        shared = .files(Array(files.prefix(8)))
+        for file in files where file.isImage { previews[file.id] = Self.preview(file.url) }
     }
 
     /// Lists every paired server's sessions, each as it answers.
@@ -76,22 +110,137 @@ final class ShareModel {
         destinations.filter { $0.matches(search) }
     }
 
+    var busy: Bool { progress == .uploading || progress == .sending }
+
     /// Adds what was shared, after the note, to the session's draft in Kit,
-    /// and closes the sheet.
+    /// and closes the sheet. Files are uploaded to the session first.
     func addToDraft(_ destination: ShareDestination, note: String) {
-        guard case .link(let link) = shared else { return }
-        let item = SharedItem(server: destination.server, session: destination.session,
-                              text: SharedItem.text(note: note, shared: [link.url.absoluteString]))
+        guard !busy else { return }
+        Task {
+            guard let (text, attachments) = await prepared(for: destination, note: note) else { return }
+            keep(text: text, attachments: attachments, in: destination)
+        }
+    }
+
+    /// Sends what was shared, after the note, as a message to the session,
+    /// and closes the sheet once the server has it. A busy session queues it.
+    func send(_ destination: ShareDestination, note: String) {
+        guard !busy else { return }
+        Task {
+            guard let (text, attachments) = await prepared(for: destination, note: note) else { return }
+            progress = .sending
+            let server = (try? PairedServers.saved())?.first { $0.name == destination.server }
+            guard let server else {
+                progress = .idle
+                failure = "\(destination.server) isn’t paired anymore."
+                return
+            }
+            operations.submit(client: PairedServers.client(for: server), session: destination.session,
+                              input: WirePromptInput(text: text, attachmentIds: attachments, annotationIds: []),
+                              draft: .init(text: text, notes: [:], attachmentIDs: attachments),
+                              uncertain: {}, acknowledged: {})
+            while operations.submission == .pending { try? await Task.sleep(for: .milliseconds(50)) }
+            switch operations.submission {
+            case .acknowledged: finish(true)
+            case .uncertain: progress = .uncertain
+            case .failed(let reason), .rejected(let reason):
+                progress = .idle
+                failure = reason
+            case .idle, .pending: progress = .idle
+            }
+        }
+    }
+
+    /// After a send that may not have gone: keeps the message in the
+    /// session's draft instead, to check and send again from Kit.
+    func keepUnsent(_ destination: ShareDestination, note: String) {
+        guard progress == .uncertain else { return }
+        let text = SharedItem.text(note: note, shared: sharedText)
+        keep(text: text, attachments: uploads?.attachments.readyIDs ?? [], in: destination)
+    }
+
+    func cancel() {
+        finish(false)
+    }
+
+    func done() {
+        finish(true)
+    }
+
+    // MARK: Preparing
+
+    private var sharedText: [String] {
+        if case .link(let link) = shared { return [link.url.absoluteString] }
+        return []
+    }
+
+    /// The message's words and its attachments' IDs, once every file is
+    /// uploaded to the session; nil, with the reason shown, if one isn't.
+    private func prepared(for destination: ShareDestination, note: String) async -> (String, [String])? {
+        let text = SharedItem.text(note: note, shared: sharedText)
+        guard case .files(let files) = shared else { return (text, []) }
+        if let model = destination.imageRejectingModel, files.contains(where: \.isImage) {
+            failure = "\(model) doesn’t take images."
+            return nil
+        }
+        guard let server = (try? PairedServers.saved())?.first(where: { $0.name == destination.server }) else {
+            failure = "\(destination.server) isn’t paired anymore."
+            return nil
+        }
+        progress = .uploading
+        defer { if progress == .uploading { progress = .idle } }
+        let client = PairedServers.client(for: server)
+        if uploads?.destination != destination.id {
+            uploads = (destination.id, ComposerAttachments(), [:])
+        }
+        guard var current = uploads else { return nil }
+        for file in files {
+            if let item = current.files[file.id] {
+                if current.attachments.items.first(where: { $0.id == item })?.error != nil {
+                    current.attachments.retry(item, client: client, session: destination.session)
+                }
+                continue
+            }
+            let url = file.url, name = file.name
+            let upload = await Task.detached {
+                (try? Data(contentsOf: url)).map { PhotoPreparation.forUpload($0, filename: name) }
+            }.value
+            guard let upload, let reserved = current.attachments.reserve(filename: upload.filename) else {
+                failure = "Couldn’t read \(file.name)."
+                uploads = current
+                return nil
+            }
+            current.files[file.id] = reserved
+            current.attachments.add(filename: upload.filename, data: upload.data, client: client,
+                                    session: destination.session, reserved: reserved)
+        }
+        uploads = current
+        while current.attachments.items.contains(where: \.busy) { try? await Task.sleep(for: .milliseconds(100)) }
+        if let failed = current.attachments.items.first(where: { $0.error != nil }) {
+            failure = "\(failed.filename): \(failed.error ?? "")"
+            return nil
+        }
+        return (text, current.attachments.readyIDs)
+    }
+
+    private func keep(text: String, attachments: [String], in destination: ShareDestination) {
         do {
-            try inbox.put(item)
+            try inbox.put(SharedItem(server: destination.server, session: destination.session,
+                                     text: text, attachmentIDs: attachments))
             finish(true)
         } catch {
             failure = error.localizedDescription
         }
     }
 
-    func cancel() {
-        finish(false)
+    private static func preview(_ url: URL) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 160
+              ] as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
 
     private static func reason(_ error: any Error) -> String {
