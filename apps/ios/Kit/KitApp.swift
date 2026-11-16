@@ -3,11 +3,14 @@ import SwiftUI
 
 @main
 struct KitApp: App {
-    @State private var store = ServerStore.live()
+    @State private var store: ServerStore
     @State private var sessions: SessionsStore
     @State private var dictation: SessionDictation
 
     init() {
+        // Before anything reads the servers, drafts, or what's been seen.
+        SharedStorage.moveIntoGroup()
+        _store = State(initialValue: ServerStore.live())
         #if DEBUG
         // UI tests start without the drafts earlier tests left.
         if ProcessInfo.processInfo.environment["KIT_FORGET_DRAFTS"] == "1" { SessionDrafts().forgetAll() }

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Kit doesn't track people or collect data for itself: sessions stay on the
-     user's own Kit servers. It keeps its own settings in UserDefaults. -->
+     user's own Kit servers. It keeps its own settings in UserDefaults, some
+     in its app group, which its extensions share (1C8F.1). -->
 <plist version="1.0">
 <dict>
 	<key>NSPrivacyTracking</key>
@@ -18,6 +19,7 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
+				<string>1C8F.1</string>
 			</array>
 		</dict>
 	</array>

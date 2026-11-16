@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- What the app shares with its extensions: an app group for the saved
+     servers, drafts, and what's been seen, and the Keychain group the device
+     tokens are kept in, which is the app's own. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.$(KIT_APP_ID)</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(KIT_APP_ID)</string>
+	</array>
+</dict>
+</plist>

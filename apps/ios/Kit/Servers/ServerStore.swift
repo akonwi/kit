@@ -94,9 +94,8 @@ final class ServerStore {
     }
 
     static func live() -> ServerStore {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return ServerStore(list: support.appendingPathComponent("servers.json"), tokens: KeychainDeviceTokens(),
-                           connector: LiveServerNetwork())
+        ServerStore(list: SharedStorage.directory.appendingPathComponent("servers.json"), tokens: KeychainDeviceTokens(),
+                    connector: LiveServerNetwork())
     }
 
     func entry(_ name: String) -> Entry? {

@@ -3,9 +3,11 @@
 <!-- Keys the generated Info.plist can't express. Plain HTTP is allowed only
      to local names and addresses; Kit asks before pairing over it. Kit uses
      only HTTPS and the system's cryptography, which is exempt from export
-     documentation. -->
+     documentation. KitAppGroup names the app group shared with extensions. -->
 <plist version="1.0">
 <dict>
+	<key>KitAppGroup</key>
+	<string>group.$(KIT_APP_ID)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSAppTransportSecurity</key>

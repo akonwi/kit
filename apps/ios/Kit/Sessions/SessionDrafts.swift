@@ -22,7 +22,7 @@ final class SessionDrafts {
     /// How long typing settles before drafts are written.
     static let writeDelay: Duration = .milliseconds(500)
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = SharedStorage.defaults) {
         self.defaults = defaults
         drafts = defaults.dictionary(forKey: Self.key) as? [String: String] ?? [:]
     }

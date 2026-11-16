@@ -74,7 +74,7 @@ final class SeenSessions {
     /// this iPhone noticed; zero for ones kept before the time was.
     private var finished: [String: Double]
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = SharedStorage.defaults) {
         self.defaults = defaults
         seen = defaults.dictionary(forKey: Self.seenKey) as? [String: Double] ?? [:]
         listed = Set(defaults.stringArray(forKey: Self.listedKey) ?? [])
