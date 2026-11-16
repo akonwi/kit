@@ -69,7 +69,7 @@ final class SessionDictation {
         if dictations[id] == nil { dictations[id] = Dictation(engine: engine) }
         if composer.draftChanged == nil {
             // A composer that starts with words, such as a failed fork's message, keeps them.
-            if composer.draft.isEmpty { composer.draft = drafts.text(for: id) } else { drafts.save(composer.draft, for: id) }
+            if composer.kept.isEmpty { composer.restore(kept: drafts.draft(for: id)) } else { drafts.save(composer.kept, for: id) }
             let drafts = drafts
             composer.draftChanged = { drafts.save($0, for: id) }
         }

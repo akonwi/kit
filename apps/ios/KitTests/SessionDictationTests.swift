@@ -157,6 +157,41 @@ struct SessionDictationTests {
         #expect(again.draft == "")
     }
 
+    /// A draft keeps the attachments uploaded for it, and they come back as
+    /// ones attached before.
+    @Test func aDraftKeepsItsAttachments() async {
+        let dictations = dictations()
+        let composer = SessionComposerTests.composer()
+        dictations.attach(composer, for: session) {}
+        composer.draft = "See this"
+        composer.attach(filename: "notes.txt", data: Data("notes".utf8))
+        for _ in 0..<200 where drafts.draft(for: session).attachmentIDs.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(drafts.draft(for: session) == KeptDraft(text: "See this", attachmentIDs: ["attachment_1"]))
+
+        let reopened = SessionComposerTests.composer()
+        dictations.attach(reopened, for: session) {}
+        #expect(reopened.draft == "See this")
+        #expect(reopened.restoredAttachmentIDs == ["attachment_1"])
+
+        reopened.removeRestored("attachment_1")
+        #expect(drafts.draft(for: session) == KeptDraft(text: "See this"))
+    }
+
+    /// A draft of only attachments is kept too.
+    @Test func aDraftOfOnlyAttachmentsIsKept() {
+        drafts.save(KeptDraft(attachmentIDs: ["attachment_1"]), for: session)
+        #expect(drafts.draft(for: session).attachmentIDs == ["attachment_1"])
+        drafts.save(KeptDraft(), for: session)
+        #expect(drafts.draft(for: session) == KeptDraft())
+    }
+
+    /// Drafts kept as text alone, as they first were, are read.
+    @Test func draftsKeptAsTextAreRead() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(["studio\u{1F}s": "Half a thought"], forKey: "sessions.drafts")
+        #expect(SessionDrafts(defaults: defaults).draft(for: session) == KeptDraft(text: "Half a thought"))
+    }
+
     /// A composer that starts with words, such as a failed fork's message,
     /// keeps them over the kept draft.
     @Test func aComposerThatStartsWithWordsKeepsThem() {

@@ -2,15 +2,25 @@ import Foundation
 import KitClient
 import KitDictation
 
-/// What's typed or dictated in each session's composer, kept on this iPhone
-/// so a draft is there when the session opens again, as on the Mac. Only
-/// the text is kept; attachments and comments stay with the screen.
+/// A session's kept draft: its words, and the attachments already uploaded
+/// for it, by their IDs on the server.
+struct KeptDraft: Equatable, Sendable {
+    var text = ""
+    var attachmentIDs: [String] = []
+
+    var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachmentIDs.isEmpty }
+}
+
+/// What's typed, dictated, or attached in each session's composer, kept on
+/// this iPhone so a draft is there when the session opens again, as on the
+/// Mac. Words and uploaded attachments are kept; comments and uploads still
+/// on their way stay with the screen.
 @MainActor
 final class SessionDrafts {
     private let defaults: UserDefaults
     private static let key = "sessions.drafts"
     /// Each session's draft, by `server␟session`.
-    private var drafts: [String: String]
+    private var drafts: [String: KeptDraft]
     /// Sessions a listing has shown since launch. A draft for one that
     /// hasn't been listed yet, such as one just started, isn't let go when
     /// a listing that began before it misses it.
@@ -24,24 +34,49 @@ final class SessionDrafts {
 
     init(defaults: UserDefaults = SharedStorage.defaults) {
         self.defaults = defaults
-        drafts = defaults.dictionary(forKey: Self.key) as? [String: String] ?? [:]
+        drafts = Self.read(defaults.dictionary(forKey: Self.key) ?? [:])
+    }
+
+    /// Drafts as written: a dictionary of text and attachment IDs, or just
+    /// the text, as drafts were first kept.
+    private static func read(_ stored: [String: Any]) -> [String: KeptDraft] {
+        stored.compactMapValues { value in
+            if let text = value as? String { return KeptDraft(text: text) }
+            guard let fields = value as? [String: Any] else { return nil }
+            return KeptDraft(text: fields["text"] as? String ?? "", attachmentIDs: fields["attachments"] as? [String] ?? [])
+        }
+    }
+
+    private var stored: [String: Any] {
+        drafts.mapValues { ["text": $0.text, "attachments": $0.attachmentIDs] as [String: Any] }
     }
 
     private static func key(_ id: SessionIdentity) -> String { id.server + "\u{1F}" + id.session }
 
+    func draft(for id: SessionIdentity) -> KeptDraft {
+        drafts[Self.key(id)] ?? KeptDraft()
+    }
+
     func text(for id: SessionIdentity) -> String {
-        drafts[Self.key(id)] ?? ""
+        draft(for: id).text
     }
 
     /// Keeps the session's draft; an empty one is forgotten. Writing waits
     /// for typing to settle.
-    func save(_ text: String, for id: SessionIdentity) {
+    func save(_ draft: KeptDraft, for id: SessionIdentity) {
         let key = Self.key(id)
-        let kept = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        let kept = draft.isEmpty ? nil : draft
         guard drafts[key] != kept else { return }
         drafts[key] = kept
         if kept != nil, !listedSessions.contains(key) { unlisted.insert(key) }
         scheduleWrite()
+    }
+
+    /// Keeps the session's draft words, with its attachments.
+    func save(_ text: String, for id: SessionIdentity) {
+        var kept = draft(for: id)
+        kept.text = text
+        save(kept, for: id)
     }
 
     /// Adds words after the session's draft.
@@ -83,7 +118,7 @@ final class SessionDrafts {
     /// Writes the drafts now, as when the app is left.
     func write() {
         writeScheduled = false
-        if drafts.isEmpty { defaults.removeObject(forKey: Self.key) } else { defaults.set(drafts, forKey: Self.key) }
+        if drafts.isEmpty { defaults.removeObject(forKey: Self.key) } else { defaults.set(stored, forKey: Self.key) }
     }
 
     private func scheduleWrite() {

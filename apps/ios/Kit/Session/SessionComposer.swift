@@ -33,14 +33,19 @@ final class SessionComposer {
         didSet {
             guard draft != oldValue else { return }
             noticeDismissed = true
-            draftChanged?(draft)
+            keep()
         }
     }
-    /// Keeps the draft when it changes, so it's there when the session opens again.
-    @ObservationIgnored var draftChanged: ((String) -> Void)?
-    /// Attachments that came back with queued messages moved into the draft.
-    /// They go out again with the next send.
-    private(set) var restoredAttachmentIDs: [String] = []
+    /// Keeps the draft's words and uploaded attachments when they change, so
+    /// they're there when the session opens again.
+    @ObservationIgnored var draftChanged: ((KeptDraft) -> Void)? {
+        didSet { if oldValue == nil, draftChanged != nil { watchUploads() } }
+    }
+    /// Attachments that came back with queued messages moved into the draft,
+    /// or with a kept draft. They go out again with the next send.
+    private(set) var restoredAttachmentIDs: [String] = [] {
+        didSet { if restoredAttachmentIDs != oldValue { keep() } }
+    }
     /// The restored attachments' names, once the server has said.
     private(set) var restoredNames: [String: String] = [:]
     /// Files attached to the draft, each uploading as soon as it's added.
@@ -311,6 +316,33 @@ final class SessionComposer {
     /// Uploads a file again after it failed.
     func retryUpload(_ id: UUID) {
         uploads.retry(id, client: client, session: session)
+    }
+
+    /// What's kept of the draft: its words and the attachments uploaded for it.
+    var kept: KeptDraft {
+        KeptDraft(text: draft, attachmentIDs: ComposerAttachments.uniqueIDs(restoredAttachmentIDs + uploads.readyIDs))
+    }
+
+    /// Puts a kept draft back: its words, and its attachments as ones
+    /// attached before.
+    func restore(kept: KeptDraft) {
+        draft = kept.text
+        restoredAttachmentIDs = ComposerAttachments.uniqueIDs(restoredAttachmentIDs + kept.attachmentIDs)
+    }
+
+    private func keep() {
+        draftChanged?(kept)
+    }
+
+    /// Keeps the draft again whenever an upload finishes or goes.
+    private func watchUploads() {
+        withObservationTracking { _ = uploads.readyIDs } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.keep()
+                self.watchUploads()
+            }
+        }
     }
 
     /// Drops a restored attachment from the draft.
