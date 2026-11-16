@@ -31,8 +31,7 @@ final class LiveSessionsNetwork: SessionsNetwork {
         let key = server.name + "\u{1F}" + server.address
         return clients.withLock { clients in
             if let client = clients[key] { return client }
-            let credential = DeviceCredential(home: ServerStore.credentialHome, name: server.name)
-            let client = ServerClient(serverID: server.name, connector: .url(server.address, credential: credential), tokens: tokens)
+            let client = PairedServers.client(for: server, tokens: tokens)
             clients[key] = client
             return client
         }

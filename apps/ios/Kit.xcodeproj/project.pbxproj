@@ -17,6 +17,8 @@
 		C10000000000000000000092 /* KitMermaidScene in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000091 /* KitMermaidScene */; };
 		C10000000000000000000094 /* KitMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000093 /* KitMermaid */; };
 		C10000000000000000000096 /* KitFigures in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000095 /* KitFigures */; };
+		C100000000000000000000B1 /* KitClient in Frameworks */ = {isa = PBXBuildFile; productRef = C100000000000000000000B2 /* KitClient */; };
+		C100000000000000000000B3 /* KitShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C100000000000000000000B4 /* KitShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,7 +36,28 @@
 			remoteGlobalIDString = C10000000000000000000005;
 			remoteInfo = Kit;
 		};
+		C100000000000000000000B5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C100000000000000000000B6;
+			remoteInfo = KitShare;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C100000000000000000000B7 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				C100000000000000000000B3 /* KitShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		C10000000000000000000006 /* Kit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kit.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -42,12 +65,15 @@
 		C10000000000000000000097 /* KitDev.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = KitDev.icon; path = ../../assets/kit/KitDev.icon; sourceTree = SOURCE_ROOT; };
 		C10000000000000000000039 /* KitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10000000000000000000019 /* KitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C100000000000000000000B4 /* KitShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KitShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C10000000000000000000004 /* Kit */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Kit; sourceTree = "<group>"; };
 		C10000000000000000000018 /* KitTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = KitTests; sourceTree = "<group>"; };
 		C10000000000000000000038 /* KitUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = KitUITests; sourceTree = "<group>"; };
+		C100000000000000000000B8 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Shared; sourceTree = "<group>"; };
+		C100000000000000000000B9 /* KitShare */ = {isa = PBXFileSystemSynchronizedRootGroup; path = KitShare; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -80,6 +106,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C100000000000000000000BA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C100000000000000000000B1 /* KitClient in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -87,6 +121,8 @@
 			isa = PBXGroup;
 			children = (
 				C10000000000000000000004 /* Kit */,
+				C100000000000000000000B8 /* Shared */,
+				C100000000000000000000B9 /* KitShare */,
 				C10000000000000000000018 /* KitTests */,
 				C10000000000000000000038 /* KitUITests */,
 				C10000000000000000000016 /* Kit.icon */,
@@ -99,6 +135,7 @@
 			isa = PBXGroup;
 			children = (
 				C10000000000000000000006 /* Kit.app */,
+				C100000000000000000000B4 /* KitShare.appex */,
 				C10000000000000000000019 /* KitTests.xctest */,
 				C10000000000000000000039 /* KitUITests.xctest */,
 			);
@@ -115,13 +152,16 @@
 				C10000000000000000000007 /* Sources */,
 				C10000000000000000000008 /* Frameworks */,
 				C10000000000000000000009 /* Resources */,
+				C100000000000000000000B7 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C100000000000000000000BB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				C10000000000000000000004 /* Kit */,
+				C100000000000000000000B8 /* Shared */,
 			);
 			name = Kit;
 			packageProductDependencies = (
@@ -180,6 +220,30 @@
 			productReference = C10000000000000000000039 /* KitUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		C100000000000000000000B6 /* KitShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C100000000000000000000BC /* Build configuration list for PBXNativeTarget "KitShare" */;
+			buildPhases = (
+				C100000000000000000000BD /* Sources */,
+				C100000000000000000000BA /* Frameworks */,
+				C100000000000000000000BE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C100000000000000000000B9 /* KitShare */,
+				C100000000000000000000B8 /* Shared */,
+			);
+			name = KitShare;
+			packageProductDependencies = (
+				C100000000000000000000B2 /* KitClient */,
+			);
+			productName = KitShare;
+			productReference = C100000000000000000000B4 /* KitShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -191,6 +255,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					C10000000000000000000005 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					C100000000000000000000B6 = {
 						CreatedOnToolsVersion = 26.0;
 					};
 					C10000000000000000000021 = {
@@ -224,6 +291,7 @@
 				C10000000000000000000005 /* Kit */,
 				C10000000000000000000021 /* KitTests */,
 				C10000000000000000000031 /* KitUITests */,
+				C100000000000000000000B6 /* KitShare */,
 			);
 		};
 /* End PBXProject section */
@@ -246,6 +314,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C10000000000000000000024 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C100000000000000000000BE /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -276,6 +351,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C100000000000000000000BD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -288,6 +370,11 @@
 			isa = PBXTargetDependency;
 			target = C10000000000000000000005 /* Kit */;
 			targetProxy = C10000000000000000000040 /* PBXContainerItemProxy */;
+		};
+		C100000000000000000000BB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C100000000000000000000B6 /* KitShare */;
+			targetProxy = C100000000000000000000B5 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -440,6 +527,46 @@
 			};
 			name = Release;
 		};
+		C100000000000000000000BF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = KitShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M7B73F53MK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "KitShare-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Kit Dev";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Kit connects to Kit servers on your local network.";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KIT_APP_ID).share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C100000000000000000000C0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = KitShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M7B73F53MK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "KitShare-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Kit";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Kit connects to Kit servers on your local network.";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KIT_APP_ID).share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -475,6 +602,15 @@
 			buildConfigurations = (
 				C10000000000000000000035 /* Debug */,
 				C10000000000000000000036 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C100000000000000000000BC /* Build configuration list for PBXNativeTarget "KitShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C100000000000000000000BF /* Debug */,
+				C100000000000000000000C0 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -532,6 +668,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C10000000000000000000080 /* XCLocalSwiftPackageReference "KitGrammars" */;
 			productName = KitGrammars;
+		};
+		C100000000000000000000B2 /* KitClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
+			productName = KitClient;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -35,6 +35,7 @@ struct KitApp: App {
 /// from here so it outlives the switch between them.
 struct RootView: View {
     @Environment(ServerStore.self) private var store
+    @Environment(SessionDictation.self) private var dictation
     @Environment(\.scenePhase) private var scenePhase
     @State private var pairing = PairingCoordinator()
 
@@ -59,6 +60,8 @@ struct RootView: View {
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             guard phase == .active else { return }
+            // What was shared from other apps goes to its drafts.
+            dictation.receiveShares(from: .live)
             Task { await store.checkAll() }
         }
         #if DEBUG

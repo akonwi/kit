@@ -80,9 +80,8 @@ final class ServerStore {
     private let connector: any ServerNetwork
     private let now: @Sendable () -> Date
 
-    /// The Kit home device tokens are filed under. This app has no Kit home,
-    /// so its tokens share one fixed label.
-    nonisolated static let credentialHome = "ios"
+    /// The Kit home device tokens are filed under.
+    nonisolated static let credentialHome = PairedServers.credentialHome
 
     init(list: URL, tokens: any DeviceTokenStore, connector: any ServerNetwork,
          now: @escaping @Sendable () -> Date = { Date() }) {
@@ -94,7 +93,7 @@ final class ServerStore {
     }
 
     static func live() -> ServerStore {
-        ServerStore(list: SharedStorage.directory.appendingPathComponent("servers.json"), tokens: KeychainDeviceTokens(),
+        ServerStore(list: PairedServers.list, tokens: KeychainDeviceTokens(),
                     connector: LiveServerNetwork())
     }
 
@@ -206,7 +205,7 @@ final class ServerStore {
     }
 
     private func credential(_ name: String) -> DeviceCredential {
-        DeviceCredential(home: Self.credentialHome, name: name)
+        PairedServers.credential(name)
     }
 
     /// Changes a server's entry if it is still saved as it was.

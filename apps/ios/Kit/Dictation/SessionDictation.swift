@@ -124,6 +124,24 @@ final class SessionDictation {
         }
     }
 
+    /// Adds what was shared from other apps to each session's draft: to the
+    /// composer if the session is open, or else to its kept draft. Each
+    /// share leaves the inbox once it's in its draft.
+    func receiveShares(from inbox: ShareInbox) {
+        for item in inbox.waiting() {
+            let id = SessionIdentity(server: item.server, session: item.session)
+            if let composer = composers[id]?.composer, composer.draftChanged != nil {
+                composer.restore(kept: KeptDraft(text: SharedItem.join(composer.draft, item.text), attachmentIDs: item.attachmentIDs))
+            } else {
+                let kept = drafts.draft(for: id)
+                drafts.save(KeptDraft(text: SharedItem.join(kept.text, item.text),
+                                      attachmentIDs: ComposerAttachments.uniqueIDs(kept.attachmentIDs + item.attachmentIDs)), for: id)
+            }
+            drafts.write()
+            inbox.remove(item.id)
+        }
+    }
+
     // MARK: The pill
 
     /// Ends the recording and puts its words in the session's draft.
