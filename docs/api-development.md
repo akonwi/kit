@@ -54,13 +54,17 @@ For wire changes:
 Use stable error codes and closed discriminated unions. Clients must not infer
 behavior from error strings or unknown union shapes.
 
-A union is closed for a protocol version. Adding a kind to a published union,
-such as a session event kind, is breaking: the Go client and generated Swift
-reject a kind they don't know (ADR 0032), and the compatibility gate reports
-the new `oneOf` variant. Session routes require an exact protocol match, so a
-client never receives a kind from another protocol version. Generated
-TypeScript types only describe the union; a TypeScript client still handles a
-kind outside it explicitly, for example by ignoring it.
+A union is closed for a protocol version unless it is open. Adding a kind to
+a closed union is breaking: the Go client and generated Swift reject a kind
+they don't know (ADR 0032), and the compatibility gate reports the new `oneOf`
+variant. The `SessionEvent` union is open (ADR 0072): clients skip an event
+whose kind they don't know, and the gate accepts a variant added to a union
+the released contract declares open (`x-kit-open-union`). A new session event
+kind is therefore additive. It still needs a case in each client that shows
+it, and, for the browser client, in `src/session/projection.ts`. Clients also
+ignore top-level snapshot members they don't know, so a new optional snapshot
+member is additive. Changing the fields of an existing event kind or snapshot
+member is still breaking. Session routes require an exact protocol match.
 
 `SessionProtocolVersion` identifies a released compatibility boundary, not each
 individual wire-changing commit. Multiple breaking changes merged after the

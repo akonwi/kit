@@ -55,6 +55,7 @@ messages, subagent tasks, and plugin notifications are keyed by that turn.
 | Interactions | `interaction.requested`, `interaction.resolved` |
 | Annotations | `annotation.created`, `annotation.updated`, `annotation.deleted`, `annotation.submitted` |
 | Context records (boundaries) | `boundary.created` |
+| Direct shell commands | `bash.started`, `bash.completed` |
 
 A boundary is a context record the session adds to the conversation, such as a
 working-directory change, a fork notice, a composer `!` command, or a subagent

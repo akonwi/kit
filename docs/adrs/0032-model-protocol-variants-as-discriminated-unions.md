@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. [ADR 0072](0072-share-shell-executions-with-every-attached-client.md)
+opens the `SessionEvent` kind vocabulary.
 
 ## Context
 
@@ -43,8 +44,10 @@ published contract.
   the same object, rejecting unknown fields and unknown kinds.
 - Consumers use type switches over payload types. A test verifies that every
   declared kind has exactly one payload type and round-trips.
-- An unrecognized kind is a decoding error in every client. Adding a kind is a
-  protocol change.
+- An unrecognized kind is a decoding error in every client, and adding a kind
+  is a protocol change, unless the union is open. `SessionEvent` is open
+  (ADR 0072): clients skip an event whose kind they don't know, and adding a
+  kind to it isn't a protocol change.
 - `Validate` checks common identity, each payload's own invariants, and
   cross-record invariants such as batch ordering. Rules that only forbid fields
   from other kinds disappear because payload types cannot carry them.
@@ -66,6 +69,7 @@ published contract.
   declares its default.
 - Where a container accepts only some kinds, the contract declares a narrower
   union listing only those variants.
+- An open union declares `x-kit-open-union: true`.
 
 ### `SessionEvent`
 

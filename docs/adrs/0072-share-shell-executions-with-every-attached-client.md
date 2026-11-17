@@ -4,7 +4,9 @@
 
 Accepted. Extends [ADR 0052](0052-tell-every-attached-client-about-session-changes.md)
 and the session event vocabulary of
-[ADR 0033](0033-adopt-consistent-protocol-event-vocabulary.md).
+[ADR 0033](0033-adopt-consistent-protocol-event-vocabulary.md), and opens the
+`SessionEvent` union that
+[ADR 0032](0032-model-protocol-variants-as-discriminated-unions.md) closes.
 
 ## Context
 
@@ -125,10 +127,35 @@ the session busy in every client. The composer's Stop control stops it, in
 whichever client started it. That includes iOS, which shows other clients'
 commands and can stop them but doesn't start commands.
 
+### Clients tolerate new session events and snapshot members
+
+From protocol 51, the session event kind vocabulary is open, and so is the set
+of top-level snapshot members:
+
+- A client skips a session event whose kind it doesn't know. It still checks
+  the event's common fields (`streamId`, `sequence`, `sessionId`) and its place
+  in the batch, so its cursor advances past the event and the stream continues.
+  An event of a kind the client knows is still decoded strictly: an unknown
+  field, or a field that kind doesn't carry, is a protocol violation.
+- A client ignores a top-level snapshot member it doesn't know. Members it
+  knows, and every record inside them, are still decoded strictly.
+
+A server can therefore add a session event kind, or a top-level snapshot
+member, without a protocol change. Changing an existing kind's fields, or
+changing a member clients know, still needs one. In the contract, the
+`SessionEvent` union declares `x-kit-open-union: true` and keeps its
+discriminator mapping, and `SessionSnapshot` doesn't forbid additional
+properties. The compatibility gate accepts a variant added to a union that the
+released contract declares open. The server still sends only kinds and members
+of its own protocol, and session routes still require an exact protocol match.
+
 ### Protocol
 
-The new event kinds and the snapshot member are breaking changes to a closed
-union and a strictly decoded response, so the session protocol becomes 51.
+The new event kinds and the snapshot member are breaking changes for clients
+released before this decision, which reject unknown kinds and members, so the
+session protocol becomes 51. Session routes require an exact protocol match.
+The server, the `kit` executable, the macOS app, and the iOS app therefore
+release together; the browser client ships with the server.
 
 ## Consequences
 
@@ -139,6 +166,9 @@ union and a strictly decoded response, so the session protocol becomes 51.
 - Clients stop polling for their own commands.
 - Protocol 51 means clients must be updated with the server. Released
   protocol 50 clients can't attach to it.
+- Later session events, and later snapshot members, can be added without
+  breaking protocol 51 clients. A client that doesn't know a new event
+  ignores it, so it shows nothing for it until it is updated.
 - The live stream's retained window holds shell output as well as turn
   events, so a burst of large commands can push older events out of replay
   sooner.
