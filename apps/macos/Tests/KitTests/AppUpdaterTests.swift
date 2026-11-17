@@ -169,7 +169,7 @@ struct AppUpdateInstallerTests {
     @Test func developmentBuildsNeverCheck() async {
         var fetched = false
         var effects = AppUpdater.Effects.fixture(list: Data())
-        effects.fetchList = { fetched = true; return Data() }
+        effects.fetchList = { _ in fetched = true; return Data() }
         let updater = AppUpdater(current: nil, installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: TestDefaults.make())
 
         #expect(await updater.check() == false)
@@ -281,7 +281,7 @@ struct AppUpdateInstallerTests {
     @Test func aNewerReleaseDoesNotInterruptAStartedUpdate() async throws {
         var list = AppUpdateFixture.list([.init(tag: "macos-v0.5.1")])
         var effects = AppUpdater.Effects.fixture(list: Data())
-        effects.fetchList = { list }
+        effects.fetchList = { _ in list }
         effects.prepare = { _, _, _ in URL(fileURLWithPath: "/tmp/staged/Kit.app") }
         let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: TestDefaults.make())
         await updater.check()
@@ -309,6 +309,8 @@ enum AppUpdateFixture {
         var draft = false
         var prerelease = false
         var digest: String? = nil
+        var body: String? = nil
+        var published = "2025-05-01T12:00:00Z"
     }
 
     static func list(_ releases: [Listed]) -> Data {
@@ -320,8 +322,8 @@ enum AppUpdateFixture {
             ]
             if let digest = release.digest { asset["digest"] = digest }
             return [
-                "tag_name": release.tag, "body": "## Fixed\n- \(release.tag)", "draft": release.draft,
-                "prerelease": release.prerelease, "published_at": "2025-05-01T12:00:00Z", "assets": [asset],
+                "tag_name": release.tag, "body": release.body ?? "## Fixed\n- \(release.tag)", "draft": release.draft,
+                "prerelease": release.prerelease, "published_at": release.published, "assets": [asset],
             ]
         }
         return try! JSONSerialization.data(withJSONObject: objects)
@@ -364,7 +366,7 @@ enum AppUpdateFixture {
 extension AppUpdater.Effects {
     static func fixture(list: Data) -> Self {
         Self(
-            fetchList: { list },
+            fetchList: { _ in list },
             download: { _, _ in
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent("kit-update-\(UUID().uuidString).zip")
                 try Data().write(to: file)

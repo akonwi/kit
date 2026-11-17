@@ -122,7 +122,7 @@ private struct UpdateCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { Task { await AppUpdater.shared.checkFromMenu() } }
-            Button("Release Notes") { openURL(AppUpdater.shared.releaseNotesURL) }
+            Button("Release Notes") { Task { await AppUpdater.shared.showReleaseNotes { openURL($0) } } }
         }
     }
 }

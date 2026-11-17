@@ -75,7 +75,7 @@ struct ServerRowPresentation: Equatable {
         }
         // A server too old for this app still reports its version, and it
         // is the one most in need of Update….
-        let version = if case .incompatible(let mismatch) = status { mismatch.serverKitVersion } else { status.identity?.kitVersion }
+        let version = Self.runningVersion(status)
         detail = [place, version.map { "Kit " + $0 }].compactMap { $0 }.joined(separator: " · ")
         if local, thisMac != false, let newest, let running = version.flatMap(ReleaseVersion.init), newest > running {
             available = newest.description
@@ -107,6 +107,36 @@ struct ServerRowPresentation: Equatable {
         case .serverStopped:
             (self.status, tone) = ("Server stopped", .hollow)
         }
+    }
+}
+
+extension ServerRowPresentation {
+    /// The Kit version a server reports. A server too old for this app
+    /// still reports its version.
+    static func runningVersion(_ status: ServerStatus) -> String? {
+        if case .incompatible(let mismatch) = status { mismatch.serverKitVersion } else { status.identity?.kitVersion }
+    }
+
+    /// This Mac's server's Kit version and the newer `kit` release it can
+    /// update to, when its row in Settings › Servers offers Update….
+    @MainActor static func thisMacUpdate(_ connection: ServerConnection?, newest: ReleaseVersion?) -> ThisMacUpdate? {
+        guard let connection else { return nil }
+        return thisMacUpdate(name: connection.name, connector: connection.connector, status: connection.status,
+                             thisMac: connection.isThisMac, newest: newest)
+    }
+
+    static func thisMacUpdate(name: String, connector: ServerConnector, status: ServerStatus, thisMac: Bool?,
+                              newest: ReleaseVersion?) -> ThisMacUpdate? {
+        guard name == ServerClient.localID else { return nil }
+        let row = ServerRowPresentation(name: name, connector: connector, status: status, newest: newest, thisMac: thisMac)
+        guard let available = row.available, let running = runningVersion(status) else { return nil }
+        return ThisMacUpdate(running: running, newest: available)
+    }
+
+    /// The version this Mac's server runs and the newer one that's out.
+    struct ThisMacUpdate: Equatable {
+        let running: String
+        let newest: String
     }
 }
 

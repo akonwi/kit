@@ -7,6 +7,7 @@ import SwiftUI
 struct AppUpdateChip: View {
     @Environment(\.mica) private var theme
     @Environment(\.controlActiveState) private var activeState
+    @Environment(\.serverDirectory) private var servers
     var updater: AppUpdater = .shared
     @State private var sheet = false
     @State private var hovering = false
@@ -28,7 +29,7 @@ struct AppUpdateChip: View {
             }
         }
         .sheet(isPresented: $sheet) {
-            AppUpdateSheet(updater: updater) { sheet = false }
+            AppUpdateSheet(updater: updater, servers: servers) { sheet = false }
                 .environment(\.mica, theme)
         }
         // The menu asks; the key session window answers, once it is key.
@@ -87,13 +88,20 @@ struct AppUpdateChip: View {
     }
 }
 
-/// The sheet the chip opens: the release's notes with Later and Update, or
-/// why the update failed with Try Again.
+/// The sheet the chip opens: every release since this app's beside the
+/// selected one's notes, with Later and Update, or why the update failed
+/// with Try Again.
 struct AppUpdateSheet: View {
     @Environment(\.mica) private var theme
     @Environment(\.openURL) private var openURL
+    @Environment(\.openSettings) private var openSettings
     let updater: AppUpdater
+    /// The servers this window reaches, for this Mac's server's version.
+    var servers: ServerDirectory?
     let close: () -> Void
+    @State private var selected: String?
+
+    static let width: CGFloat = 720
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -107,28 +115,44 @@ struct AppUpdateSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 520)
+        .frame(width: Self.width)
         .background(theme.surface)
         .foregroundStyle(theme.text)
         .font(.kit(size: 13))
     }
 
+    /// The releases the sheet lists: those since this app's, or the
+    /// offered one when no check has listed them.
+    private func releases(_ release: KitRelease) -> [KitRelease] {
+        updater.releasesSince.isEmpty ? [release] : updater.releasesSince
+    }
+
     private func available(_ release: KitRelease, current: ReleaseVersion) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header("Kit \(release.version) is available", subtitle: "You have \(current).\(released(release))")
-            ScrollView {
-                MarkdownView(source: Self.notes(release.notes), size: 13, compactHeadings: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+        let releases = releases(release)
+        let shown = releases.first { $0.tag == selected } ?? releases[0]
+        let server = ServerRowPresentation.thisMacUpdate(servers?.local, newest: updater.newestCLI?.version)
+        return VStack(alignment: .leading, spacing: 0) {
+            AppUpdateHeader(title: "Kit \(release.version) is available",
+                            subtitle: releases.count == 1 ? "You have \(current).\(Self.released(release))" : "You have \(current).")
+            ReleaseNotesBrowser(releases: releases, selected: $selected)
+            if let server {
+                HStack(spacing: 8) {
+                    Text("This Mac’s server has Kit \(server.running); \(server.newest) is out.")
+                        .foregroundStyle(theme.muted)
+                    Button("Settings › Servers") {
+                        SettingsSection.servers.open(with: openSettings, server: ServerClient.localID)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(theme.accent)
+                    .pointerStyle(.link)
+                }
+                .font(.kit(size: 12))
+                .padding(.top, 16)
             }
-            .frame(maxHeight: 320)
-            .fixedSize(horizontal: false, vertical: true)
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
             Text("Kit downloads it in the background while you work, then asks to relaunch. Sessions keep running on their servers, and your tabs, layout and drafts come back.")
                 .font(.kit(size: 12)).foregroundStyle(theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 20)
-            footer(link: "View on GitHub", url: release.url) {
+                .padding(.top, server == nil ? 20 : 12)
+            AppUpdateFooter(link: "View on GitHub", url: shown.url) {
                 Button("Later", action: close).buttonStyle(MicaButtonStyle(compact: true)).keyboardShortcut(.cancelAction)
                 Button("Update") {
                     updater.update()
@@ -140,7 +164,7 @@ struct AppUpdateSheet: View {
 
     private func failed(_ release: KitRelease, failure: AppUpdateInstaller.Failure, current: ReleaseVersion) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header("Kit couldn’t install \(release.version)", subtitle: "Nothing was changed. You’re still on \(current).")
+            AppUpdateHeader(title: "Kit couldn’t install \(release.version)", subtitle: "Nothing was changed. You’re still on \(current).")
             HStack(alignment: .top, spacing: 10) {
                 IconView(.warning, size: 14).foregroundStyle(theme.warning)
                 VStack(alignment: .leading, spacing: 4) {
@@ -152,7 +176,7 @@ struct AppUpdateSheet: View {
             }
             .padding(16)
             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
-            footer(link: "Open Releases Page", url: KitReleases.releasesPage) {
+            AppUpdateFooter(link: "Open Releases Page", url: KitReleases.releasesPage) {
                 Button("Close", action: close).buttonStyle(MicaButtonStyle(compact: true)).keyboardShortcut(.cancelAction)
                 Button("Try Again") {
                     updater.update()
@@ -162,15 +186,91 @@ struct AppUpdateSheet: View {
         }
     }
 
-    private func header(_ title: String, subtitle: String) -> some View {
+    /// " Released November 16." for a release with a date.
+    static func released(_ release: KitRelease) -> String {
+        guard let date = release.publishedAt else { return "" }
+        return " Released \(ReleaseNotesBrowser.date(date))."
+    }
+}
+
+/// Kit › Release Notes: this app's release notes, with Done.
+struct ReleaseNotesSheet: View {
+    @Environment(\.mica) private var theme
+    let release: KitRelease
+    let close: () -> Void
+    @State private var selected: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            AppUpdateHeader(title: "Kit \(release.version)",
+                            subtitle: AppUpdateSheet.released(release).trimmingCharacters(in: .whitespaces))
+            ReleaseNotesBrowser(releases: [release], selected: $selected)
+                .padding(.bottom, 4)
+            AppUpdateFooter(link: "View on GitHub", url: release.url) {
+                Button("Done", action: close).buttonStyle(MicaButtonStyle(primary: true, compact: true))
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: AppUpdateSheet.width)
+        .background(theme.surface)
+        .foregroundStyle(theme.text)
+        .font(.kit(size: 13))
+        .onExitCommand(perform: close)
+    }
+}
+
+/// Shows the release notes Kit › Release Notes found, in the key session
+/// window.
+struct ReleaseNotesPresenter: ViewModifier {
+    @Environment(\.controlActiveState) private var activeState
+    let theme: MicaTheme
+    var updater: AppUpdater = .shared
+    @State private var shown: KitRelease?
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $shown) { release in
+                ReleaseNotesSheet(release: release) { shown = nil }
+                    .environment(\.mica, theme)
+            }
+            .onChange(of: updater.releaseNotesPending, initial: true) { present() }
+            .onChange(of: activeState) { present() }
+    }
+
+    private func present() {
+        guard let release = updater.releaseNotesPending, activeState == .key else { return }
+        updater.releaseNotesShown()
+        shown = release
+    }
+}
+
+/// A sheet's title and the line under it.
+private struct AppUpdateHeader: View {
+    @Environment(\.mica) private var theme
+    let title: String
+    let subtitle: String
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.kit(size: 16, weight: .semibold))
-            Text(subtitle).font(.kit(size: 12)).foregroundStyle(theme.muted)
+            if !subtitle.isEmpty {
+                Text(subtitle).font(.kit(size: 12)).foregroundStyle(theme.muted)
+            }
         }
         .padding(.bottom, 20)
     }
+}
 
-    private func footer<Actions: View>(link: String, url: URL, @ViewBuilder actions: () -> Actions) -> some View {
+/// A rule, then a link on the leading edge and the actions on the trailing.
+private struct AppUpdateFooter<Actions: View>: View {
+    @Environment(\.mica) private var theme
+    @Environment(\.openURL) private var openURL
+    let link: String
+    let url: URL
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
         VStack(spacing: 0) {
             Rule().padding(.vertical, 16)
             HStack(spacing: 8) {
@@ -184,21 +284,114 @@ struct AppUpdateSheet: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                actions()
+                actions
+            }
+        }
+    }
+}
+
+/// Releases beside the selected one's notes: its lead and What's changed,
+/// and for the newest, Compatibility folded at the end. One release shows
+/// without the list.
+struct ReleaseNotesBrowser: View {
+    @Environment(\.mica) private var theme
+    /// Newest first.
+    let releases: [KitRelease]
+    @Binding var selected: String?
+    @State private var compatibilityOpen = false
+
+    static let height: CGFloat = 400
+    static let listWidth: CGFloat = 160
+
+    private var shown: KitRelease { releases.first { $0.tag == selected } ?? releases[0] }
+
+    var body: some View {
+        Group {
+            if releases.count > 1 {
+                HStack(spacing: 0) {
+                    list
+                    Rectangle().fill(theme.border).frame(width: 1)
+                    notes(shown)
+                }
+                .frame(height: Self.height)
+            } else {
+                notes(shown)
+                    .frame(maxHeight: Self.height)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
+    }
+
+    private var list: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(releases) { release in
+                    let isShown = release.tag == shown.tag
+                    Button { selected = release.tag } label: {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(release.version.description).font(.kit(size: 13, weight: .medium)).foregroundStyle(theme.text)
+                            if let date = release.publishedAt {
+                                Text(Self.date(date)).font(.kit(size: 11)).foregroundStyle(theme.muted)
+                            }
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(isShown ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Kit \(release.version)")
+                    .accessibilityAddTraits(isShown ? .isSelected : [])
+                }
+            }
+            .padding(6)
+        }
+        .scrollIndicators(.automatic)
+        .frame(width: Self.listWidth)
+        .background(theme.raised)
+    }
+
+    private func notes(_ release: KitRelease) -> some View {
+        let notes = ReleaseNotes(markdown: release.notes)
+        let newest = release.tag == releases[0].tag
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                MarkdownView(source: notes.summary, size: 13, compactHeadings: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if newest, !notes.compatibility.isEmpty {
+                    compatibility(notes.compatibility)
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 16)
+        }
+        .id(release.tag)
+    }
+
+    private func compatibility(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Rule()
+            Button { compatibilityOpen.toggle() } label: {
+                HStack(spacing: 6) {
+                    IconView(compatibilityOpen ? .caretDown : .caretRight, size: 10).foregroundStyle(theme.muted)
+                    Text("Compatibility").font(.kit(size: 13, weight: .semibold))
+                }
+                .frame(height: 24)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(compatibilityOpen ? "Expanded" : "Collapsed")
+            if compatibilityOpen {
+                MarkdownView(source: text, size: 13, compactHeadings: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 16)
             }
         }
     }
 
-    private func released(_ release: KitRelease) -> String {
-        guard let date = release.publishedAt else { return "" }
-        return " Released \(date.formatted(.dateTime.month(.wide).day()))."
-    }
-
-    /// The notes without their title, which the sheet's header repeats.
-    static func notes(_ markdown: String) -> String {
-        var lines = markdown.components(separatedBy: "\n")
-        while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeFirst() }
-        if let first = lines.first, first.hasPrefix("# ") { lines.removeFirst() }
-        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    /// "November 16".
+    static func date(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.wide).day())
     }
 }

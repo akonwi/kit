@@ -35,6 +35,7 @@ struct SessionWindowRoot: View {
         .disabled(model.creatingIn != nil)
         .accessibilityHidden(model.creatingIn != nil)
         .overlay { newSessionForm(model: model, theme: theme) }
+        .modifier(ReleaseNotesPresenter(theme: theme))
         .modifier(catalogActions(model: model))
         // Any deletion this app makes closes the session's tabs.
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
