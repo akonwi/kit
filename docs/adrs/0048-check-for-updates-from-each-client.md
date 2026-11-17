@@ -34,10 +34,15 @@ A build without a release version — `dev`, or any build bound to a channel
 ([ADR 0047](0047-give-development-builds-an-isolated-kit-home.md)) — never
 checks, never offers an update, and refuses `kit update`.
 
-There is no setting to turn checks off. A check is one unauthenticated request
-made when a client starts and again every two hours while it stays open, well
-inside GitHub's anonymous rate limit. A failed check is silent; the client
-tries again on its next schedule.
+There is no setting to turn checks off. A check reads the newest page of
+releases when a client starts and again every two hours while it stays open.
+The macOS app reads older pages, 100 releases to a page and up to five in all,
+only while its own version is not yet among the releases read, and reuses what
+it read while the newest release is unchanged. A check is then one
+unauthenticated request in the common case, well inside GitHub's anonymous rate
+limit. A
+failed check is silent; the client tries again on its next schedule. A failed
+older page leaves its releases out of the notes.
 
 `kit print` and the other headless commands never check.
 
@@ -84,7 +89,8 @@ The app shows one update chip — at the bottom of the sidebar with side tabs, o
 before the tab-placement toggle with top tabs — that reads **Update
 available**, then **Updating… N%**, then **Relaunch to update**, or **Update
 failed**. **Kit › Check for Updates…** checks immediately. The chip opens a
-sheet with the release notes, **Later**, and **Update**.
+sheet with **Later** and **Update** and the notes of every app release since
+the installed one, so a user who skipped releases sees all they gain.
 
 **Update** downloads `kit_macos-vX.Y.Z_darwin_arm64.zip` in the background. The
 app installs it only when the archive matches GitHub's SHA-256 digest and the
@@ -95,14 +101,27 @@ update never interrupts work; relaunching is an ordinary quit that restores
 windows, tabs, and drafts. A failure leaves the installed app untouched.
 
 Settings › Servers shows the version of the server on this Mac. When a newer
-CLI release exists, **Update…** opens a terminal tab running `kit update`. The app never updates or restarts a server itself.
+CLI release exists, **Update…** opens a terminal tab running `kit update`, and
+the update sheet notes that this Mac's server is older, with a link to
+Settings › Servers. The app never updates or restarts a server itself.
 
-### Release notes open on GitHub
+### The update sheet shows every release since the installed one
 
-`/release-notes` in the terminal client and **Kit › Release Notes** in the app
-open the GitHub release of the running version in the browser, or the releases
-list for a build without a release version. Clients do not keep a release
-history of their own.
+The sheet lists the releases newer than the installed app, newest first, beside
+the selected release's notes: its lead and **What's changed**. The newest
+release's **Compatibility** follows, folded. With one release the notes fill the
+sheet without a list. Installation, limitations, and validation stay on
+GitHub, which **View on GitHub** opens for the selected release.
+
+### Release notes of the running version
+
+`/release-notes` in the terminal client opens the GitHub release of the running
+version in the browser, or the releases list for a build without a release
+version. **Kit › Release Notes** in the app shows the running version's notes
+in a sheet, reading the release list when no check already has, and opens the
+GitHub release when the notes can't be read; a build without a release version
+opens the releases list. Nothing opens on its own after an update. Clients keep
+no release history beyond what their last check read.
 
 ## Consequences
 
