@@ -119,7 +119,7 @@ GitHub, which **View on GitHub** opens for the selected release.
 version in the browser, or the releases list for a build without a release
 version. **Kit › Release Notes** in the app shows the running version's notes
 in a sheet, reading the release list when no check already has, and opens the
-GitHub release when the notes can't be read; a build without a release version
+GitHub release when it has no notes to show; a build without a release version
 opens the releases list. Nothing opens on its own after an update. Clients keep
 no release history beyond what their last check read.
 

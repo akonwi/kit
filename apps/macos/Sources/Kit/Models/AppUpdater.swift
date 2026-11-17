@@ -78,6 +78,9 @@ final class AppUpdater {
     /// for, kept until a newer release is out, so later checks make one
     /// request.
     @ObservationIgnored private var completeSince: [KitRelease]?
+    /// The check under way, which a check asked for meanwhile waits on, so
+    /// an older answer never replaces a newer one.
+    @ObservationIgnored private var checking: Task<Bool?, Never>?
 
     static let quitFailureKey = "AppUpdateQuitFailure"
 
@@ -119,6 +122,15 @@ final class AppUpdater {
     /// when the check failed. A failed check changes nothing.
     @discardableResult
     func check() async -> Bool? {
+        if let checking { return await checking.value }
+        let task = Task { await checkOnce() }
+        checking = task
+        let found = await task.value
+        if checking == task { checking = nil }
+        return found
+    }
+
+    private func checkOnce() async -> Bool? {
         guard let current else { return false }
         guard let data = try? await effects.fetchList(1), let first = try? KitReleasePage(data) else { return nil }
         newestCLI = first.releases(.cli).first
@@ -147,13 +159,14 @@ final class AppUpdater {
     }
 
     /// The releases newer than current, newest first. Kit reads further
-    /// pages only while the list hasn't reached current, and not again
+    /// pages only while the list hasn't reached current's release, which
+    /// GitHub may list after older ones, and not again
     /// while the newest release is the same. A page that fails ends the
     /// list there, and the next check tries again.
     private func releases(since current: ReleaseVersion, newest: KitRelease, first: KitReleasePage) async -> [KitRelease] {
         if let completeSince, completeSince.first?.tag == newest.tag { return completeSince }
         var apps = first.releases(.app)
-        let (more, complete) = await morePages(after: first, until: { $0.contains { $0.version <= current } }, found: apps)
+        let (more, complete) = await morePages(after: first, until: { $0.contains { $0.version == current } }, found: apps)
         apps += more
         if let installed = apps.first(where: { $0.version == current }) { installedRelease = installed }
         var seen = Set<String>()
@@ -185,15 +198,17 @@ final class AppUpdater {
     }
 
     /// This app's release with its notes, for Kit › Release Notes: the one
-    /// a check listed, or one found now. Nil for a development build or when
-    /// GitHub can't be reached.
+    /// a check listed, or one found now. Nil for a development build, when
+    /// GitHub can't be reached, or when the release has no notes to show.
     func installedReleaseNotes() async -> KitRelease? {
         guard let current else { return nil }
-        if let installedRelease, installedRelease.version == current { return installedRelease }
-        guard let data = try? await effects.fetchList(1), let first = try? KitReleasePage(data) else { return nil }
-        let apps = first.releases(.app)
-        let (more, _) = await morePages(after: first, until: { $0.contains { $0.version == current } }, found: apps)
-        installedRelease = (apps + more).first { $0.version == current }
+        if installedRelease == nil {
+            guard let data = try? await effects.fetchList(1), let first = try? KitReleasePage(data) else { return nil }
+            let apps = first.releases(.app)
+            let (more, _) = await morePages(after: first, until: { $0.contains { $0.version == current } }, found: apps)
+            if let found = (apps + more).first(where: { $0.version == current }) { installedRelease = found }
+        }
+        guard let installedRelease, !ReleaseNotes(markdown: installedRelease.notes).isEmpty else { return nil }
         return installedRelease
     }
 

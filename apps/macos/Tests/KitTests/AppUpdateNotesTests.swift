@@ -80,6 +80,25 @@ struct ReleaseNotesTests {
     }
 }
 
+/// Holds whoever passes until it opens.
+@MainActor final class Gate {
+    private(set) var arrivals = 0
+    private var isOpen = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    func pass() async {
+        arrivals += 1
+        guard !isOpen else { return }
+        await withCheckedContinuation { held.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        held.forEach { $0.resume() }
+        held = []
+    }
+}
+
 /// GitHub's release list, served a page at a time, recording each request.
 @MainActor final class ReleasePages {
     struct Unavailable: Error {}
@@ -142,6 +161,47 @@ struct ReleaseNotesTests {
 
         #expect(updater.releasesSince.map(\.tag) == ["macos-v0.19.1", "macos-v0.19.0", "macos-v0.18.0"])
         #expect(pages.requested == [1, 2])
+    }
+
+    /// GitHub lists releases as they were published, so an older release
+    /// published late comes before newer ones.
+    @Test func anOlderReleaseListedEarlyDoesNotEndTheList() async {
+        let pages = ReleasePages([
+            1: ReleasePages.full([.init(tag: "macos-v0.19.1"), .init(tag: "macos-v0.16.1")], cliFrom: 64),
+            2: [.init(tag: "macos-v0.18.0"), .init(tag: "macos-v0.17.0")],
+        ])
+        let updater = updater("0.17.0", pages: pages)
+
+        await updater.check()
+
+        #expect(updater.releasesSince.map(\.tag) == ["macos-v0.19.1", "macos-v0.18.0"])
+        #expect(pages.requested == [1, 2])
+    }
+
+    /// A check asked for while another reads GitHub, as from Check for
+    /// Updates… during a scheduled one, gets that check's answer.
+    @Test func aCheckDuringAnotherWaitsForIt() async {
+        let pages = ReleasePages([1: [.init(tag: "macos-v0.19.1"), .init(tag: "macos-v0.19.0")]])
+        let gate = Gate()
+        var effects = AppUpdater.Effects.fixture(list: Data())
+        effects.fetchList = { number in
+            await gate.pass()
+            return try await pages.fetch(number)
+        }
+        let updater = AppUpdater(current: ReleaseVersion("0.19.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
+                                 effects: effects, defaults: TestDefaults.make())
+
+        let first = Task { await updater.check() }
+        while gate.arrivals == 0 { await Task.yield() }
+        let second = Task { await updater.check() }
+        for _ in 0..<10 { await Task.yield() }
+        #expect(gate.arrivals == 1)
+        gate.open()
+
+        #expect(await first.value == true)
+        #expect(await second.value == true)
+        #expect(pages.requested == [1])
+        #expect(updater.state.release?.tag == "macos-v0.19.1")
     }
 
     @Test func laterChecksDoNotReadThePagesAgainUntilANewerReleaseIsOut() async {
@@ -238,7 +298,7 @@ struct ReleaseNotesTests {
     }
 
     @Test func releaseNotesUseTheReleaseACheckAlreadyListed() async {
-        let pages = ReleasePages([1: [.init(tag: "macos-v0.19.1"), .init(tag: "macos-v0.19.0")]])
+        let pages = ReleasePages([1: [.init(tag: "macos-v0.19.1"), .init(tag: "macos-v0.19.0", body: "Terminals follow the theme.")]])
         let updater = updater("0.19.0", fetch: pages.fetch)
         await updater.check()
 
@@ -249,7 +309,7 @@ struct ReleaseNotesTests {
     @Test func releaseNotesPageToFindAnOlderVersion() async {
         let pages = ReleasePages([
             1: ReleasePages.full([.init(tag: "macos-v0.19.1")], cliFrom: 64),
-            2: [.init(tag: "macos-v0.15.0"), .init(tag: "macos-v0.14.0")],
+            2: [.init(tag: "macos-v0.15.0", body: "Sessions are shared."), .init(tag: "macos-v0.14.0")],
         ])
         let updater = updater("0.15.0", fetch: pages.fetch)
 
@@ -271,6 +331,19 @@ struct ReleaseNotesTests {
         let windowless = updater("0.19.1", fetch: pages.fetch, window: nil)
         await windowless.showReleaseNotes { opened.append($0) }
         #expect(opened.last == URL(string: "https://github.com/akonwi/kit/releases/tag/macos-v0.19.1")!)
+    }
+
+    @Test func releaseNotesWithNothingToShowOpenGitHub() async {
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 400, height: 300))
+        defer { window.close() }
+        let pages = ReleasePages([1: [.init(tag: "macos-v0.19.1", body: "")]])
+        let updater = updater("0.19.1", fetch: pages.fetch, window: window)
+        var opened: [URL] = []
+
+        await updater.showReleaseNotes { opened.append($0) }
+
+        #expect(opened == [URL(string: "https://github.com/akonwi/kit/releases/tag/macos-v0.19.1")!])
+        #expect(updater.releaseNotesPending == nil)
     }
 
     @Test func aDevelopmentBuildOpensTheReleasesPageWithoutAsking() async {

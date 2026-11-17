@@ -89,6 +89,9 @@ struct ReleaseNotes: Equatable, Sendable {
         [lead, changes].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
+    /// Whether there is nothing to show.
+    var isEmpty: Bool { summary.isEmpty && compatibility.isEmpty }
+
     /// Sentences that close every lead and say what Compatibility says.
     private static let boilerplate = [
         "This release works with", "This release needs", "See Compatibility.", "The app is released independently",
