@@ -24,7 +24,7 @@ fn mount(terminal: headless::TestApp, model: &mut Model) cui::Renderer {
         themes: theme::context(theme::store(theme::system())),
         items: [
           selection_menu::Item{key: "copy", label: "Copy"},
-          selection_menu::Item{key: "quote", label: "Quote"},
+          selection_menu::Item{key: "comment", label: "Comment"},
         ],
         pointer: ui::Point{x: 2, y: 1},
         viewport: ui::Rect{
@@ -119,7 +119,7 @@ test fn the_menu_opens_below_the_pointer_and_highlights_the_hovered_action() Voi
       "",
       "  ┌────────────┐",
       "  │ Copy       │",
-      "  │ Quote      │",
+      "  │ Comment    │",
       "  └────────────┘",
       "",
       "",
@@ -135,7 +135,7 @@ test fn the_menu_opens_below_the_pointer_and_highlights_the_hovered_action() Voi
       "",
       "  ┌────────────┐",
       "  │ Copy       │",
-      "  │ Quote      │",
+      "  │ Comment    │",
       "  └────────────┘",
       "",
       "",
@@ -166,7 +166,7 @@ test fn only_a_primary_release_activates_an_action() Void!Str {
   terminal.click(6, 4)
   terminal.flush()
   testing::assert(
-    value.activated.size() == 1 and value.activated.at(0).or("") == "quote",
+    value.activated.size() == 1 and value.activated.at(0).or("") == "comment",
     "a click activates the clicked action",
   )
 }

@@ -59,6 +59,8 @@ use kit/tui/subagents
 use kit/tui/tab_strip
 use kit/tui/tabs_picker
 use kit/tui/terminal_status
+use kit/tui/text_comment
+use kit/tui/text_notes
 use kit/tui/theme
 use kit/tui/theme_picker
 use kit/tui/thinking
@@ -69,6 +71,7 @@ use kit/tui/updates
 use kit/tui/workspace
 use go:strings
 use go:time
+use go:unicode/utf8
 
 // The root terminal-client component: session bootstrap, shell chrome, and
 // retained feature composition.
@@ -139,6 +142,7 @@ type Modal =
   | UpdateModal
   | diff_pane::TargetRequest
   | diagram_comment::Request
+  | text_comment::Request
 
 // SelectionMenu is the open selection context menu: the text selected when
 // it opened, and where it opened.
@@ -1384,6 +1388,12 @@ impl Shell {
           self.attached.remove_diagram_note(id)
         })
       }),
+      text_notes: Maybe::new(self.attached.pending_text_notes()),
+      remove_text_note: Maybe::new(fn(id: Int) {
+        self.dispatch(fn() {
+          self.attached.remove_text_note(id)
+        })
+      }),
     }
   }
 
@@ -1858,6 +1868,7 @@ impl cui::Component for Shell {
       },
       diff_pane::TargetRequest(request) => layers.push(self.diff_target_modal(request)),
       diagram_comment::Request(request) => layers.push(self.diagram_comment_modal(request)),
+      text_comment::Request(request) => layers.push(self.text_comment_modal(request)),
     }
     cui::box(
       layers.*,
@@ -1932,9 +1943,25 @@ impl Shell {
     )
   }
 
-  // Whether the selection menu can quote into the composer.
-  fn can_quote() Bool {
-    self.phase == Phase::ready and not self.docked()
+  // Where the selected text is, as a comment on it names it, or none where
+  // the selection menu offers no Comment (ADR 0070): while the composer
+  // isn't shown, and in File and Diff tabs, whose lines take annotations.
+  fn comment_source() Str? {
+    match self.phase == Phase::ready and not self.docked() {
+      false => Maybe::new<Str>(),
+      true => {
+        match self.workspace.current() {
+          tab => {
+            match tab.kind {
+              workspace::Kind::scratchpad => Maybe::new("Scratchpad"),
+              workspace::Kind::subagent => Maybe::new("Subagent · {tab.label}"),
+              _ => Maybe::new<Str>(),
+            }
+          },
+          _ => Maybe::new("Transcript"),
+        }
+      },
+    }
   }
 
   // open_selection_menu opens the selection menu at a screen cell when text
@@ -1973,8 +2000,8 @@ impl Shell {
   fn mut selection_menu_layer(menu: SelectionMenu) cui::View {
     let items = &mut List::new<selection_menu::Item>()
     items.push(selection_menu::Item{key: "copy", label: "Copy"})
-    if self.can_quote() {
-      items.push(selection_menu::Item{key: "quote", label: "Quote"})
+    if self.comment_source().is_some() {
+      items.push(selection_menu::Item{key: "comment", label: "Comment"})
     }
     selection_menu::view(
       selection_menu::Props{
@@ -2003,10 +2030,8 @@ impl Shell {
           if action == "copy" {
             self.copy_selection(ctx, text)
             self.restore_focus(ctx)
-          } else if action == "quote" and self.can_quote() {
-            // The blank line after the quote is where the reply goes.
-            let _ = self.composer_control.append("{selection_menu::quote(text)}\n\n")
-            self.focus_composer()
+          } else if action == "comment" and self.comment_source().is_some() and self.modal_closed() {
+            self.active_modal = text_comment::Request{quote: text, source: self.comment_source().expect("a source")}
           }
         })
       },
@@ -2188,6 +2213,28 @@ impl Shell {
         dismiss: dismiss,
         save: fn(comment: Str) Str {
           let failure = attached.add_diagram_note(comment, request.source, request.part)
+          if failure == "" {
+            let _ = self.dismiss_modal()
+          }
+          failure
+        },
+      },
+    )
+  }
+
+  fn mut text_comment_modal(request: text_comment::Request) cui::View {
+    let dismiss = keymap::simple_command("text-comment.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    let attached = self.attached
+    cui::child(
+      text_comment::new,
+      text_comment::Props{
+        themes: self.props.themes,
+        request: request,
+        dismiss: dismiss,
+        save: fn(comment: Str) Str {
+          let failure = attached.add_text_note(comment, request.source, request.quote)
           if failure == "" {
             let _ = self.dismiss_modal()
           }
@@ -3462,7 +3509,7 @@ test fn a_secondary_click_on_selected_text_opens_the_selection_menu() Void!Str {
       "",
       "     Ask ┌────────────┐give a task.",
       "         │ Copy       │",
-      "         │ Quote      │",
+      "         │ Comment    │",
       "─────────└────────────┘─────────────────",
       " hello world",
       "────────────────────────────────────────",
@@ -3471,40 +3518,107 @@ test fn a_secondary_click_on_selected_text_opens_the_selection_menu() Void!Str {
   )
 }
 
-test fn quote_appends_the_selection_to_the_draft_as_a_block_quote() Void!Str {
-  let terminal = headless::new(40, 14)
+// The row and cell where text first shows, or -1s.
+private fn find_text(rows: [Str], text: Str) ui::Point {
+  mut found = ui::Point{x: -1, y: -1}
+  for row, index in rows {
+    if found.y < 0 and strings::Contains(row, text) {
+      let before = row.slice(0, strings::Index(row, text)).or("")
+      found = ui::Point{x: utf8::RuneCountInString(before), y: index}
+    }
+  }
+  found
+}
+
+test fn comment_on_selected_transcript_text_waits_as_a_chip() Void!Str {
+  let terminal = headless::new(60, 16)
   defer terminal.destroy()
   let subject = ready_shell()
+  let reply = &mut transcript::message("reply", "turn-1", transcript::Role::assistant)
+  reply.text = "It retries every 2 seconds."
+  subject.attached.messages = [reply.*]
   let renderer = mount_ready(terminal, subject)
   defer renderer.destroy()
   terminal.flush()
-  open_menu_on_draft(terminal)
-  terminal.click(11, 9)
+  let word = find_text(shell_rows(terminal), "retries")
+  try testing::assert(word.y > 0, "the reply:\n{strings::Join(shell_rows(terminal), "\n")}")
+  terminal.double_click(word.x + 1, word.y)
+  terminal.flush()
+  terminal.mouse_down(word.x + 1, word.y, event::MouseButton::right)
+  terminal.mouse_up(word.x + 1, word.y, event::MouseButton::right)
+  terminal.flush()
+  let item = find_text(shell_rows(terminal), "Comment ")
+  try testing::assert(item.y > 0, "the menu offers Comment:\n{strings::Join(shell_rows(terminal), "\n")}")
+  terminal.click(item.x, item.y)
   terminal.flush()
   terminal.flush()
-  try expect_shell_rows(
-    shell_rows(terminal),
-    [
-      "  Unnamed",
-      "────────────────────────────────────────",
-      "                  k i t",
-      "",
-      "     Ask a question or give a task.",
-      "",
-      "────────────────────────────────────────",
-      " hello world",
-      "",
-      " > world",
-      "",
-      "",
-      "────────────────────────────────────────",
-      "",
-    ],
+  try testing::assert(
+    match subject.active_modal {
+      text_comment::Request(request) => request.quote == "retries" and request.source == "Transcript",
+      _ => false,
+    },
+    "Comment opens the comment box on the words:\n{strings::Join(shell_rows(terminal), "\n")}",
   )
-  // The composer takes focus below the quote, where the reply goes.
+  terminal.key(typed("Back off"))
+  terminal.key(typed_key("return"))
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(subject.modal_closed(), "saving closes the box")
+  let chip = find_text(shell_rows(terminal), "🗨️ “retries” Back off")
   testing::assert(
-    terminal.frame().cursor_x().or(-1) == 1 and terminal.frame().cursor_y().or(-1) == 11,
-    "cursor at {terminal.frame().cursor_x().or(-1)},{terminal.frame().cursor_y().or(-1)}",
+    chip.y > 0,
+    "the comment waits as a chip:\n{strings::Join(shell_rows(terminal), "\n")}",
+  )
+}
+
+test fn a_sent_message_counts_its_comments_on_selected_text_until_opened() Void!Str {
+  let terminal = headless::new(60, 16)
+  defer terminal.destroy()
+  let subject = ready_shell()
+  let notes = text_notes::add(
+    [],
+    1,
+    "Back off.",
+    "Transcript",
+    "every 2 seconds",
+  ).expect("a comment")
+  let sent = &mut transcript::message("sent", "turn-1", transcript::Role::user)
+  sent.text = text_notes::message("Fix it.", notes)
+  subject.attached.messages = [sent.*]
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  let rows = shell_rows(terminal)
+  let first = find_text(rows, "Fix it.")
+  try testing::assert(first.y > 0, "the message's text:\n{strings::Join(rows, "\n")}")
+  try expect_shell_rows(
+    [
+      strings::TrimRight(rows.at(first.y).or(""), " ┃"),
+      strings::TrimRight(rows.at(first.y + 1).or(""), " ┃"),
+      strings::TrimRight(rows.at(first.y + 2).or(""), " ┃"),
+    ],
+    ["   Fix it.", "", "   🗨️ 1 comment ▸"],
+  )
+  terminal.click(5, first.y + 2)
+  terminal.flush()
+  let opened = shell_rows(terminal)
+  let label = find_text(opened, "1 comment ▾")
+  try testing::assert(label.y > 0, "opened:\n{strings::Join(opened, "\n")}")
+  expect_shell_rows(
+    [
+      strings::TrimRight(opened.at(label.y).or(""), " ┃"),
+      strings::TrimRight(opened.at(label.y + 1).or(""), " ┃"),
+      strings::TrimRight(opened.at(label.y + 2).or(""), " ┃"),
+      strings::TrimRight(opened.at(label.y + 3).or(""), " ┃"),
+      strings::TrimRight(opened.at(label.y + 4).or(""), " ┃"),
+    ],
+    [
+      "   🗨️ 1 comment ▾",
+      "",
+      "   ▎ Transcript",
+      "   ▎   every 2 seconds",
+      "   ▎ Back off.",
+    ],
   )
 }
 

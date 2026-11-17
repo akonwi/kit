@@ -1,0 +1,117 @@
+use ard/testing
+
+use go:crypto/rand
+use kit/tui/text_annotation
+use go:strings
+
+// Comments on selected text, waiting in the composer for the next message
+// (ADR 0070). On send each becomes a block after the message's text
+// (`text_annotation`); nothing is stored on the server until then.
+
+// One waiting comment.
+struct Note {
+  id: Int,
+  annotation: text_annotation::Annotation,
+}
+
+private fn nonce() Str {
+  strings::ToLower(rand::Text())
+}
+
+// notes with a comment on quote, selected in source, added as id, or why it
+// can't be.
+fn add(notes: [Note], id: Int, comment: Str, source: Str, quote: Str) [Note]!Str {
+  match {
+    notes.size() >= text_annotation::limit => {
+      Result::err("A message can contain up to {text_annotation::limit} comments on selected text.")
+    },
+    strings::TrimSpace(comment) == "" or text_annotation::trimmed_quote(quote).text == "" => {
+      Result::err("Select some text and write a comment.")
+    },
+    _ => {
+      let added = &mut List::new<Note>()
+      for note in notes {
+        added.push(note)
+      }
+      added.push(
+        Note{
+          id: id,
+          annotation: text_annotation::Annotation{
+            comment: strings::TrimSpace(comment),
+            source: source,
+            quote: quote,
+            nonce: nonce(),
+          },
+        },
+      )
+      Result::ok(added.*)
+    },
+  }
+}
+
+// notes without those whose ids are listed.
+fn without(notes: [Note], ids: [Int]) [Note] {
+  let kept = &mut List::new<Note>()
+  for note in notes {
+    mut listed = false
+    for id in ids {
+      listed = listed or id == note.id
+    }
+    if not listed {
+      kept.push(note)
+    }
+  }
+  kept.*
+}
+
+fn ids(notes: [Note]) [Int] {
+  let found = &mut List::new<Int>()
+  for note in notes {
+    found.push(note.id)
+  }
+  found.*
+}
+
+// text with the blocks for notes after it.
+fn message(text: Str, notes: [Note]) Str {
+  let items = &mut List::new<text_annotation::Annotation>()
+  for note in notes {
+    items.push(note.annotation)
+  }
+  text_annotation::join(text, text_annotation::text(items.*))
+}
+
+// The words' first line, for a chip.
+fn excerpt(quote: Str) Str {
+  let text = text_annotation::trimmed_quote(quote).text
+  strings::TrimSpace(strings::Split(text, "\n").at(0).or(text))
+}
+
+private fn added(notes: [Note], id: Int, comment: Str, source: Str, quote: Str) [Note] {
+  add(notes, id, comment, source, quote).or(notes)
+}
+
+test fn comments_follow_the_message_text() Void!Str {
+  mut notes = added([], 1, "  Back off.  ", "Transcript", "every 2 seconds\nwith no backoff")
+  notes = added(notes, 2, "Same bug.", "Scratchpad", "--- FAIL")
+  try testing::assert(notes.at(0).expect("first").annotation.comment == "Back off.", "comment trimmed")
+  try testing::assert(
+    excerpt(notes.at(0).expect("first").annotation.quote) == "every 2 seconds",
+    "excerpt",
+  )
+  let sent = text_annotation::split(message("Fix these.", notes))
+  try testing::assert(sent.text == "Fix these." and sent.sent.size() == 2, "both blocks follow the text")
+  let kept = ids(without(notes, [1]))
+  testing::assert(kept.size() == 1 and kept.at(0).or(0) == 2, "removing one keeps the other")
+}
+
+test fn a_message_holds_a_bounded_number_of_comments() Void!Str {
+  mut notes: [Note] = []
+  mut id = 0
+  while id < text_annotation::limit {
+    notes = added(notes, id, "c", "Transcript", "q")
+    id =+ 1
+  }
+  try testing::assert(add(notes, id, "c", "Transcript", "q").is_err(), "the 17th is refused")
+  testing::assert(add([], 0, "c", "Transcript", "  \n").is_err(), "no words is refused")
+}

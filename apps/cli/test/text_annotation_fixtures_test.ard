@@ -1,0 +1,131 @@
+use ard/testing
+
+use go:bytes
+use go:encoding/json
+use kit/tui/text_annotation
+use go:os
+use go:path/filepath
+use go:sort
+use go:strings
+
+// The shared fixtures for comments on selected text in
+// `testdata/text-annotations` (ADR 0070): each `<case>.txt` is a whole
+// message and one newline after it, and `<case>.json` what a client reads
+// from it. When `written` is true, `input` lists the comments a client adds,
+// and writing them after `text` must make `<case>.txt`. The browser and Apple
+// clients are held to the same files.
+
+let fixtures = "../../testdata/text-annotations"
+
+struct FixtureComment {
+  number: Int,
+  comment: Str,
+  source: Str,
+  quote: Str,
+  cut: Bool,
+}
+
+struct FixtureInput {
+  comment: Str,
+  source: Str,
+  quote: Str,
+  nonce: Str,
+}
+
+struct Fixture {
+  written: Bool,
+  text: Str,
+  comments: [FixtureComment],
+  input: [FixtureInput],
+}
+
+private fn read(path: Str) Str!Str {
+  match os::ReadFile(path) {
+    ok(content) => Result::ok(bytes::NewBuffer(content).String()),
+    err(failure) => Result::err("{path}: {failure.error()}"),
+  }
+}
+
+private fn load(path: Str) Fixture!Str {
+  let data = try read(path)
+  let fixture = &mut Fixture{
+    written: false,
+    text: "",
+    comments: [],
+    input: [],
+  }
+  match json::Unmarshal(bytes::NewBufferString(data).Bytes(), fixture) {
+    ok(_) => Result::ok(fixture.*),
+    err(failure) => Result::err("{path}: {failure.error()}"),
+  }
+}
+
+private fn cases() [Str] {
+  mut found = filepath::Glob(filepath::Join(fixtures, "*.txt")).or([])
+  let paths = &mut found
+  sort::Strings(paths)
+  paths.*
+}
+
+private fn sent_text(sent: text_annotation::Sent) Str {
+  "{sent.number}|{sent.comment}|{sent.source}|{sent.quote}|{sent.cut}"
+}
+
+private fn fixture_text(comment: FixtureComment) Str {
+  "{comment.number}|{comment.comment}|{comment.source}|{comment.quote}|{comment.cut}"
+}
+
+test fn the_fixtures_are_present() Void!Str {
+  testing::assert(cases().size() >= 9, "fixtures in {fixtures}: {cases().size()}")
+}
+
+test fn each_message_reads_like_its_fixture() Void!Str {
+  let failures = &mut List::new<Str>()
+  for path in cases() {
+    let message = strings::TrimSuffix(try read(path), "\n")
+    let want = try load(strings::TrimSuffix(path, ".txt") + ".json")
+    let got = text_annotation::split(message)
+    let got_comments = &mut List::new<Str>()
+    for sent in got.sent {
+      got_comments.push(sent_text(sent))
+    }
+    let want_comments = &mut List::new<Str>()
+    for comment in want.comments {
+      want_comments.push(fixture_text(comment))
+    }
+    let got_all = strings::Join(got_comments.*, "\n")
+    let want_all = strings::Join(want_comments.*, "\n")
+    if got.text != want.text or got_all != want_all {
+      failures.push(
+        "{filepath::Base(path)}:\ngot text: {got.text}\n{got_all}\nwant text: {want.text}\n{want_all}",
+      )
+    }
+  }
+  testing::assert(failures.size() == 0, strings::Join(failures.*, "\n\n"))
+}
+
+test fn each_written_fixture_is_written_the_same() Void!Str {
+  let failures = &mut List::new<Str>()
+  for path in cases() {
+    let want = try load(strings::TrimSuffix(path, ".txt") + ".json")
+    if want.written {
+      let items = &mut List::new<text_annotation::Annotation>()
+      for input in want.input {
+        items.push(
+          text_annotation::Annotation{
+            comment: input.comment,
+            source: input.source,
+            quote: input.quote,
+            nonce: input.nonce,
+          },
+        )
+      }
+      let got = text_annotation::join(want.text, text_annotation::text(items.*))
+      let message = strings::TrimSuffix(try read(path), "\n")
+      if got != message {
+        failures.push("{filepath::Base(path)}:\ngot:\n{got}\nwant:\n{message}")
+      }
+    }
+  }
+  testing::assert(failures.size() == 0, strings::Join(failures.*, "\n\n"))
+}

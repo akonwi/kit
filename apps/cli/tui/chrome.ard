@@ -14,6 +14,7 @@ use kit/tui/format
 use kit/tui/layout
 use kit/tui/markdown
 use kit/tui/spinner
+use kit/tui/text_notes
 use kit/tui/theme
 use go:strings
 
@@ -331,11 +332,15 @@ struct Pending {
   // Comments on diagram parts, and what deletes one.
   diagram_notes: [diagram_notes::Note]?,
   remove_diagram_note: fn(Int)?,
+  // Comments on selected text, and what deletes one.
+  text_notes: [text_notes::Note]?,
+  remove_text_note: fn(Int)?,
 }
 
 // Whether the row shows anything without its status line.
 fn has_chips(spec: Pending) Bool {
-  spec.attachments.size() > 0 or spec.annotations.size() > 0 or spec.diagram_notes.or([]).size() > 0
+  let notes = spec.diagram_notes.or([]).size() + spec.text_notes.or([]).size()
+  spec.attachments.size() > 0 or spec.annotations.size() > 0 or notes > 0
 }
 
 // pending_row shows the status line followed by up to three follow-up
@@ -359,6 +364,10 @@ fn pending_row(themes: theme::Context, spec: Pending) cui::View {
     let remove_note = spec.remove_diagram_note.or(fn(id: Int) {})
     for note in spec.diagram_notes.or([]) {
       chips.push(diagram_note_chip(themes, note, remove_note))
+    }
+    let remove_comment = spec.remove_text_note.or(fn(id: Int) {})
+    for note in spec.text_notes.or([]) {
+      chips.push(text_note_chip(themes, note, remove_comment))
     }
     rows.push(
       cui::box(
@@ -485,18 +494,35 @@ let diagram_chip_width = 40
 // One comment on a diagram's part as a chip: the glyph and the part, and a
 // × that deletes it.
 private fn diagram_note_chip(themes: theme::Context, note: diagram_notes::Note, remove: fn(Int)) cui::View {
-  let colors = themes.current()
   let id = note.id
   let close = keymap::simple_command("diagram-note.remove", "Remove annotation", fn() Bool {
     remove(id)
     true
   })
+  comment_chip(themes, "diagram-note-{id}", "{annotations::glyph} {note.summary}", close)
+}
+
+// One comment on selected text as a chip: the glyph, the words' first line
+// and the comment, and a × that deletes it (ADR 0070).
+private fn text_note_chip(themes: theme::Context, note: text_notes::Note, remove: fn(Int)) cui::View {
+  let id = note.id
+  let close = keymap::simple_command("text-note.remove", "Remove comment", fn() Bool {
+    remove(id)
+    true
+  })
+  let label = "{annotations::glyph} “{text_notes::excerpt(note.annotation.quote)}” {note.annotation.comment}"
+  comment_chip(themes, "text-note-{id}", label, close)
+}
+
+// A waiting comment's chip: its label, cut to fit, and a × that runs close.
+private fn comment_chip(themes: theme::Context, key: Str, label: Str, close: keymap::SimpleCommand) cui::View {
+  let colors = themes.current()
   cui::box(
     [
       cui::box(
         [
           cui::text(
-            "{annotations::glyph} {note.summary}",
+            label,
             text_style: ui::text_style(foreground: colors.foreground),
             wrap: ui::TextWrap::none,
             overflow: ui::TextOverflow::ellipsis,
@@ -525,7 +551,7 @@ private fn diagram_note_chip(themes: theme::Context, note: diagram_notes::Note, 
         foreground: colors.muted,
       ),
     ],
-    key: "diagram-note-{id}",
+    key: key,
     styles: ui::style(
       flex_direction: ui::FlexDirection::row,
       flex_shrink: 0.0,

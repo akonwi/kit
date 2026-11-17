@@ -5,7 +5,6 @@ use cooper/event
 use cooper/keymap
 use cooper/ui
 use kit/tui/theme
-use go:strings
 
 // The context menu for the active text selection: a transient overlay opened
 // by a secondary click while text is selected. Shell owns whether it is open,
@@ -72,40 +71,6 @@ private fn at_least_zero(value: Int) Int {
     true => 0,
     false => value,
   }
-}
-
-// quote formats text as a Markdown block quote. Line endings are normalized,
-// trailing spaces are dropped from each line, and leading and trailing blank
-// lines are dropped; blank lines inside the text stay in the quote.
-fn quote(text: Str) Str {
-  let normalized = strings::ReplaceAll(text, "\r\n", "\n")
-  let lines = &mut List::new<Str>()
-  for line in strings::Split(normalized, "\n") {
-    lines.push(strings::TrimRight(line, " \t\r"))
-  }
-  // The first and last lines with text; without any, nothing is quoted.
-  mut first = -1
-  mut last = -2
-  for line, index in lines {
-    if line != "" {
-      if first < 0 {
-        first = index
-      }
-      last = index
-    }
-  }
-  let quoted = &mut List::new<Str>()
-  for line, index in lines {
-    if index >= first and index <= last {
-      quoted.push(
-        match line == "" {
-          true => ">",
-          false => "> {line}",
-        },
-      )
-    }
-  }
-  strings::Join(quoted, "\n")
 }
 
 struct Props {
@@ -323,14 +288,8 @@ impl cui::Component for Menu {
   }
 }
 
-test fn quote_prefixes_each_line_and_keeps_inner_blank_lines() Void!Str {
-  try testing::assert(quote("world") == "> world", "one line: {quote("world")}")
-  let quoted = quote("\n  \nfirst  \r\n\nsecond\t\n\n")
-  testing::assert(quoted == "> first\n>\n> second", "multiline: {quoted}")
-}
-
 test fn place_opens_below_the_pointer_and_flips_at_the_edges() Void!Str {
-  let items = [Item{key: "copy", label: "Copy"}, Item{key: "quote", label: "Quote"}]
+  let items = [Item{key: "copy", label: "Copy"}, Item{key: "comment", label: "Comment"}]
   let viewport = ui::Rect{
     x: 0,
     y: 0,

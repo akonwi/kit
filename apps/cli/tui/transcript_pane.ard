@@ -14,6 +14,7 @@ use kit/tui/markdown
 use kit/tui/mermaid
 use kit/tui/mermaid/annotation
 use kit/tui/spinner
+use kit/tui/text_annotation
 use kit/tui/theme
 use kit/tui/tool_output
 use kit/tui/tool_row
@@ -665,8 +666,10 @@ private fn user_entry(
   message: transcript::Message,
 ) cui::View? {
   let colors = themes.current()
-  // Comments on diagram parts are sent as blocks after the text.
-  let parts = annotation::split(message.text)
+  // Comments on diagram parts, then comments on selected text, are sent as
+  // blocks after the text.
+  let commented = text_annotation::split(message.text)
+  let parts = annotation::split(commented.text)
   let text = parts.text
   match message.text == "" and message.attachments.size() == 0 and message.annotations.size() == 0 {
     true => Maybe::new<cui::View>(),
@@ -684,6 +687,27 @@ private fn user_entry(
       }
       for sent in parts.sent {
         body.push(sent_diagram_comment(colors, sent))
+      }
+      if commented.sent.size() > 0 {
+        let key = text_comments_key(message.id)
+        let expanded = notes.expanded.get(key).or(false)
+        if text != "" {
+          body.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
+        }
+        body.push(
+          disclosure_label(
+            colors,
+            notes,
+            key,
+            "{commented.sent.size()} {comment_noun(commented.sent.size())}",
+            expanded,
+          ),
+        )
+        if expanded {
+          for sent in commented.sent {
+            body.push(sent_text_comment(colors, sent))
+          }
+        }
       }
       if text != "" and message.attachments.size() > 0 {
         body.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
@@ -750,6 +774,19 @@ private fn user_entry(
   }
 }
 
+// Where a user message's comments on selected text keep whether they're
+// open, beside its annotations'.
+fn text_comments_key(id: Str) Str {
+  "text-comments:{id}"
+}
+
+private fn comment_noun(count: Int) Str {
+  match count == 1 {
+    true => "comment",
+    false => "comments",
+  }
+}
+
 // A user message's annotations row, which expands or collapses them.
 private fn annotations_label(
   colors: theme::Theme,
@@ -762,6 +799,12 @@ private fn annotations_label(
     true => "annotation",
     false => "annotations",
   }
+  disclosure_label(colors, notes, id, "{count} {noun}", expanded)
+}
+
+// A row naming what a user message carried, which expands or collapses it
+// under key.
+private fn disclosure_label(colors: theme::Theme, notes: Notes, id: Str, title: Str, expanded: Bool) cui::View {
   let mark = match expanded {
     true => "▾",
     false => "▸",
@@ -770,7 +813,7 @@ private fn annotations_label(
   cui::box(
     [
       layout::line(
-        "{annotations::glyph} {count} {noun} {mark}",
+        "{annotations::glyph} {title} {mark}",
         ui::text_style(foreground: colors.primary_text, background: colors.user_fill),
       ),
     ],
@@ -847,6 +890,47 @@ private fn sent_diagram_comment(colors: theme::Theme, sent: annotation::Sent) cu
       cui::text(sent.comment, text_style: ui::text_style(foreground: colors.foreground, background: fill)),
     ],
   )
+}
+
+// A sent comment on selected text, expanded: where the words came from, the
+// start of the words, and the comment, beside an accent bar (ADR 0070).
+private fn sent_text_comment(colors: theme::Theme, sent: text_annotation::Sent) cui::View {
+  let fill = colors.user_fill
+  let lines = strings::Split(sent.quote, "\n")
+  let shown = &mut List::new<cui::View>()
+  shown.push(
+    cui::text(
+      sent.source,
+      text_style: ui::text_style(foreground: colors.muted, background: fill),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    ),
+  )
+  for line, index in lines {
+    if index < sent_preview_lines {
+      let hidden = index == sent_preview_lines - 1 and lines.size() > sent_preview_lines
+      let more = hidden or index == lines.size() - 1 and sent.cut
+      let words = strings::ReplaceAll(line, "\t", "  ")
+      shown.push(
+        cui::text(
+          match more {
+            true => "  {words} …",
+            false => "  {words}",
+          },
+          text_style: ui::text_style(foreground: colors.muted, background: fill),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      )
+    }
+  }
+  shown.push(
+    cui::text(
+      sent.comment,
+      text_style: ui::text_style(foreground: colors.foreground, background: fill),
+    ),
+  )
+  accent_card(colors, shown.*)
 }
 
 // Rows beside an accent bar, a blank row below what comes before.

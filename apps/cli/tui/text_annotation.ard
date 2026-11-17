@@ -1,0 +1,296 @@
+use ard/testing
+
+use go:strings
+
+// Comments on selected text (ADR 0070): the text the model gets for a
+// person's comment on words they selected in a reply, a tool's output or the
+// scratchpad. Each comment is a block after the message's text: the comment,
+// then where the words came from and the words themselves, fenced as
+// untrusted with a nonce, since they may have come from a reply or a tool.
+// The browser and Apple clients read the same blocks, held to the fixtures in
+// `testdata/text-annotations`.
+
+let open_tag = "<text-annotation n=\""
+let close_tag = "</text-annotation>"
+let fence_name = "UNTRUSTED_SELECTED_TEXT"
+// The most of a quote a block holds, in UTF-8 bytes; the rest is cut.
+let max_quote_bytes = 4096
+// The most comments on selected text one message holds.
+let limit = 16
+
+// One comment in a message: what the person wrote, the words they selected,
+// where those words came from, and the nonce its fence is tagged with.
+struct Annotation {
+  comment: Str,
+  // Where the words came from, as a person reads it: "Transcript",
+  // "Scratchpad".
+  source: Str,
+  quote: Str,
+  nonce: Str,
+}
+
+// A quote without the blank space around it and carriage returns, cut to
+// max_quote_bytes at a character boundary.
+struct Quote {
+  text: Str,
+  cut: Bool,
+}
+
+fn trimmed_quote(quote: Str) Quote {
+  let text = strings::TrimSpace(
+    strings::ReplaceAll(strings::ReplaceAll(quote, "\r\n", "\n"), "\r", "\n"),
+  )
+  match text.size() > max_quote_bytes {
+    // Cutting inside a character leaves its first bytes, which aren't valid
+    // UTF-8 alone, so they go too.
+    true => Quote{text: strings::ToValidUTF8(text.slice(0, max_quote_bytes).or(""), ""), cut: true},
+    false => Quote{text: text, cut: false},
+  }
+}
+
+// One comment's block, numbered number.
+fn block(number: Int, item: Annotation) Str {
+  // A comment's later lines are indented, so none can pass for a line of
+  // the block.
+  let comment = strings::ReplaceAll(
+    strings::ReplaceAll(strings::TrimSpace(item.comment), "\r\n", "\n"),
+    "\n",
+    "\n  ",
+  )
+  let source_lines = &mut List::new<Str>()
+  for line in strings::Split(strings::ReplaceAll(item.source, "\r", "\n"), "\n") {
+    if line != "" {
+      source_lines.push(line)
+    }
+  }
+  let quote = trimmed_quote(item.quote)
+  let heading = match quote.cut {
+    true => "Text, cut to {max_quote_bytes / 1024} KiB:",
+    false => "Text:",
+  }
+  strings::Join(
+    [
+      "{open_tag}{number}\">",
+      "Comment: {comment}",
+      "[{fence_name} nonce={item.nonce}]",
+      "From: {strings::Join(source_lines.*, " ")}",
+      heading,
+      quote.text,
+      "[/{fence_name} nonce={item.nonce}]",
+      close_tag,
+    ],
+    "\n",
+  )
+}
+
+// The blocks for a message's comments, numbered from 1, a blank line apart,
+// or "" for none.
+fn text(items: [Annotation]) Str {
+  let blocks = &mut List::new<Str>()
+  for item, index in items {
+    blocks.push(block(index + 1, item))
+  }
+  strings::Join(blocks.*, "\n\n")
+}
+
+// The message's text, then the blocks after it.
+fn join(message: Str, blocks: Str) Str {
+  match {
+    blocks == "" => message,
+    strings::TrimSpace(message) == "" => blocks,
+    _ => message + "\n\n" + blocks,
+  }
+}
+
+// A sent comment, as a transcript shows it.
+struct Sent {
+  number: Int,
+  comment: Str,
+  source: Str,
+  quote: Str,
+  // Whether the quote was cut to fit the block.
+  cut: Bool,
+}
+
+// A message's own text and the comment blocks after it.
+struct Split {
+  text: Str,
+  sent: [Sent],
+}
+
+private struct Parsed {
+  sent: Sent,
+  // The byte just past the block.
+  end: Int,
+}
+
+// The block numbered number at the start of text and where it ends: its
+// fence closes with its own nonce, so nothing inside can end it early.
+private fn parse_block(text: Str, number: Int) Parsed? {
+  let none = Maybe::new<Parsed>()
+  let head = "{open_tag}{number}\">\nComment: "
+  match strings::HasPrefix(text, head) {
+    false => none,
+    true => {
+      let fence_start = "\n[{fence_name} nonce="
+      let after_comment = text.slice(head.size(), text.size()).or("")
+      let fence = strings::Index(after_comment, fence_start)
+      match fence < 0 {
+        true => none,
+        false => {
+          let comment = strings::ReplaceAll(after_comment.slice(0, fence).or(""), "\n  ", "\n")
+          let nonce_at = fence + fence_start.size()
+          let after_fence = after_comment.slice(nonce_at, after_comment.size()).or("")
+          let nonce_end = strings::Index(after_fence, "]\n")
+          let nonce = match nonce_end > 0 {
+            true => after_fence.slice(0, nonce_end).or(""),
+            false => "",
+          }
+          match nonce == "" or strings::Contains(nonce, "\n") {
+            true => none,
+            false => {
+              let body = after_fence.slice(nonce_end + 2, after_fence.size()).or("")
+              let closing = "\n[/{fence_name} nonce={nonce}]\n{close_tag}"
+              let end = strings::Index(body, closing)
+              let inside = match end < 0 {
+                true => "",
+                false => body.slice(0, end).or(""),
+              }
+              let source_end = strings::Index(inside, "\n")
+              match end < 0 or (not strings::HasPrefix(inside, "From: ")) or source_end < 0 {
+                true => none,
+                false => {
+                  let source = inside.slice(6, source_end).or("")
+                  let after_source = inside.slice(source_end + 1, inside.size()).or("")
+                  let cut_head = "Text, cut to {max_quote_bytes / 1024} KiB:\n"
+                  // Where body starts in text.
+                  let body_at = head.size() + nonce_at + nonce_end + 2
+                  let parsed = fn(quote: Str, cut: Bool) Parsed? {
+                    Maybe::new(
+                      Parsed{
+                        sent: Sent{
+                          number: number,
+                          comment: comment,
+                          source: source,
+                          quote: quote,
+                          cut: cut,
+                        },
+                        end: body_at + end + closing.size(),
+                      },
+                    )
+                  }
+                  match {
+                    strings::HasPrefix(after_source, "Text:\n") => {
+                      parsed(strings::TrimPrefix(after_source, "Text:\n"), false)
+                    },
+                    strings::HasPrefix(after_source, cut_head) => {
+                      parsed(strings::TrimPrefix(after_source, cut_head), true)
+                    },
+                    _ => none,
+                  }
+                },
+              }
+            },
+          }
+        },
+      }
+    },
+  }
+}
+
+// The blocks text holds, numbered from 1 and a blank line apart, when they
+// run to its end.
+private fn parse_blocks(text: Str) [Sent]? {
+  let sent = &mut List::new<Sent>()
+  mut rest = text
+  mut failed = false
+  mut done = false
+  while (not failed) and not done {
+    match parse_block(rest, sent.size() + 1) {
+      parsed => {
+        sent.push(parsed.sent)
+        rest = rest.slice(parsed.end, rest.size()).or("")
+        if strings::TrimSpace(rest) == "" {
+          done = true
+        } else if strings::HasPrefix(rest, "\n\n") {
+          rest = rest.slice(2, rest.size()).or("")
+        } else {
+          failed = true
+        }
+      },
+      _ => { failed = true },
+    }
+  }
+  match failed {
+    true => Maybe::new<[Sent]>(),
+    false => Maybe::new(sent.*),
+  }
+}
+
+// Splits a message into its own text and the comment blocks after it:
+// blocks numbered from 1 that end the message, after its text and a blank
+// line or alone. A message without them comes back unchanged, as does one
+// whose blocks are malformed or followed by more text.
+fn split(message: Str) Split {
+  let first = "{open_tag}1\">\n"
+  mut found = Maybe::new<Split>()
+  mut from = 0
+  while found.is_none() and from < message.size() {
+    let rest = message.slice(from, message.size()).or("")
+    let offset = strings::Index(rest, first)
+    if offset < 0 {
+      from = message.size()
+    } else {
+      let at = from + offset
+      let before = message.slice(0, at).or("")
+      if at == 0 or strings::HasSuffix(before, "\n\n") {
+        match parse_blocks(message.slice(at, message.size()).or("")) {
+          sent => { found = Maybe::new(Split{text: strings::TrimSpace(before), sent: sent}) },
+          _ => (),
+        }
+      }
+      from = at + first.size()
+    }
+  }
+  found.or(Split{text: message, sent: []})
+}
+
+test fn a_comment_and_its_words_follow_the_message_text() Void!Str {
+  let item = Annotation{
+    comment: "Back off.\nCap it.",
+    source: "Transcript",
+    quote: "  every 2 seconds\r\n",
+    nonce: "n1",
+  }
+  let parts = split(join("Fix it.", text([item])))
+  try testing::assert(parts.text == "Fix it.", "text: {parts.text}")
+  let sent = parts.sent.at(0).expect("one comment")
+  try testing::assert(sent.comment == "Back off.\nCap it.", "comment: {sent.comment}")
+  try testing::assert(
+    sent.source == "Transcript" and sent.quote == "every 2 seconds",
+    "words: {sent.quote}",
+  )
+  testing::assert(not sent.cut, "not cut")
+}
+
+test fn a_long_quote_is_cut_at_a_character_boundary() Void!Str {
+  let quote = trimmed_quote(strings::Repeat("a", max_quote_bytes - 1) + "é and more")
+  try testing::assert(quote.cut, "cut")
+  testing::assert(
+    quote.text == strings::Repeat("a", max_quote_bytes - 1),
+    "the split é goes: {quote.text.size()}",
+  )
+}
+
+test fn a_source_is_kept_to_one_line() Void!Str {
+  let written = block(
+    1,
+    Annotation{
+      comment: "c",
+      source: "Tool output\n\n· go test",
+      quote: "q",
+      nonce: "n",
+    },
+  )
+  testing::assert(strings::Contains(written, "\nFrom: Tool output · go test\n"), written)
+}

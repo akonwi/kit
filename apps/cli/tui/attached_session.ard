@@ -29,6 +29,7 @@ use kit/tui/mermaid/canvas
 use kit/tui/session_mentions
 use kit/tui/subagent_pane
 use kit/tui/subagents
+use kit/tui/text_notes
 use kit/tui/toast
 use kit/tui/transcript
 use kit/tui/turn_follower
@@ -101,6 +102,10 @@ struct Controller {
   diagram_notes: [diagram_notes::Note],
   next_diagram_note: Int,
   sending_diagram_notes: [Int],
+  // Comments on selected text waiting for the next prompt (ADR 0070).
+  text_notes: [text_notes::Note],
+  next_text_note: Int,
+  sending_text_notes: [Int],
   // The attachment ID of the image whose preview is expanded, if any, and
   // the most recently expanded previews, newest last.
   expanded_image: Str,
@@ -321,6 +326,9 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     diagram_notes: [],
     next_diagram_note: 1,
     sending_diagram_notes: [],
+    text_notes: [],
+    next_text_note: 1,
+    sending_text_notes: [],
     expanded_image: "",
     previews: [:],
     preview_order: [],
@@ -3467,8 +3475,10 @@ impl Controller {
       let annotation_ids = notes.*
       let diagrams = self.pending_diagram_notes()
       let diagram_ids = diagram_notes::ids(diagrams)
+      let comments = self.pending_text_notes()
+      let comment_ids = text_notes::ids(comments)
       let bash = parse_bash(text)
-      if text == "" and ids.size() == 0 and annotation_ids.size() == 0 and diagram_ids.size() == 0 {
+      if text == "" and ids.size() == 0 and annotation_ids.size() == 0 and diagram_ids.size() == 0 and comment_ids.size() == 0 {
         self.promote_follow_ups()
       } else if bash.is_some() {
         self.start_bash(bash.expect("bash command"))
@@ -3484,8 +3494,13 @@ impl Controller {
                 self.attachments = []
                 self.sending_annotations = annotation_ids
                 self.sending_diagram_notes = diagram_ids
-                // Diagram comments go as blocks after the text.
-                let sent_text = diagram_notes::message(text, diagrams)
+                self.sending_text_notes = comment_ids
+                // Diagram comments, then comments on selected text, go as
+                // blocks after the text.
+                let sent_text = text_notes::message(
+                  diagram_notes::message(text, diagrams),
+                  comments,
+                )
                 let optimistic = self.begin_submission(sent_text, staged, sent_notes)
                 self.expand_sent_image(staged)
                 let ctx = lifetime.Context
@@ -3503,14 +3518,16 @@ impl Controller {
                     if self.active {
                       self.sending_annotations = []
                       self.sending_diagram_notes = []
+                      self.sending_text_notes = []
                       match result {
                         ok(submission) => {
-                          // The prompt carries its diagram comments, queued
-                          // or not.
+                          // The prompt carries its diagram comments and
+                          // comments on selected text, queued or not.
                           self.diagram_notes = diagram_notes::without(
                             self.diagram_notes,
                             diagram_ids,
                           )
+                          self.text_notes = text_notes::without(self.text_notes, comment_ids)
                           // A started prompt consumed its annotations; a
                           // queued one keeps them until it is sent or
                           // restored.
@@ -3601,7 +3618,7 @@ impl Controller {
           },
         )
       },
-      (pending.size() > 0 or self.pending_diagram_notes().size() > 0) and command => {
+      (pending.size() > 0 or self.pending_diagram_notes().size() > 0 or self.pending_text_notes().size() > 0) and command => {
         Maybe::new(
           Blocker{
             title: "Prompt commands do not accept annotations",
@@ -3808,6 +3825,29 @@ impl Controller {
 
   fn mut remove_diagram_note(id: Int) {
     self.diagram_notes = diagram_notes::without(self.diagram_notes, [id])
+  }
+
+  // The comments on selected text waiting for the next prompt: those not
+  // being sent.
+  fn pending_text_notes() [text_notes::Note] {
+    text_notes::without(self.text_notes, self.sending_text_notes)
+  }
+
+  // Adds a comment on quote, selected in source, returning why it can't be
+  // added, or "".
+  fn mut add_text_note(comment: Str, source: Str, quote: Str) Str {
+    match text_notes::add(self.text_notes, self.next_text_note, comment, source, quote) {
+      ok(added) => {
+        self.text_notes = added
+        self.next_text_note =+ 1
+        ""
+      },
+      err(reason) => reason,
+    }
+  }
+
+  fn mut remove_text_note(id: Int) {
+    self.text_notes = text_notes::without(self.text_notes, [id])
   }
 
   fn mut apply_annotation(annotation: sessionbridge::Annotation) {
