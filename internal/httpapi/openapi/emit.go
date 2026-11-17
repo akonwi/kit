@@ -19,6 +19,13 @@ type unionVariants interface {
 	UnionVariants() []protocol.UnionVariant
 }
 
+// openUnion is a union whose clients skip kinds they don't know (ADR 0072).
+type openUnion interface{ OpenUnion() bool }
+
+// openMembers is a record whose clients ignore top-level members they don't
+// know (ADR 0072).
+type openMembers interface{ OpenMembers() bool }
+
 // Emit returns the deterministic OpenAPI 3.1 session contract.
 func Emit() ([]byte, error) {
 	components := map[string]any{}
@@ -47,6 +54,15 @@ func Emit() ([]byte, error) {
 	for _, union := range []reflect.Type{reflect.TypeFor[protocol.TranscriptContent](), reflect.TypeFor[protocol.SessionEvent]()} {
 		if _, err := addTypeSchema(components, union); err != nil {
 			return nil, err
+		}
+	}
+	// Records with open members don't forbid additional properties, so
+	// generated clients ignore members a later server adds.
+	for _, typ := range []reflect.Type{reflect.TypeFor[protocol.SessionSnapshot]()} {
+		if open, ok := reflect.New(typ).Elem().Interface().(openMembers); ok && open.OpenMembers() {
+			if schema, ok := components[schemaName(typ)].(map[string]any); ok {
+				delete(schema, "additionalProperties")
+			}
 		}
 	}
 	for name, schema := range components {
@@ -444,7 +460,11 @@ func addUnionSchema(components map[string]any, name string, union reflect.Type, 
 		refs = append(refs, map[string]any{"$ref": ref})
 		mapping[variant.Kind] = ref
 	}
-	components[name] = map[string]any{"oneOf": refs, "discriminator": map[string]any{"propertyName": "kind", "mapping": mapping}}
+	schema := map[string]any{"oneOf": refs, "discriminator": map[string]any{"propertyName": "kind", "mapping": mapping}}
+	if open, ok := reflect.New(union).Elem().Interface().(openUnion); ok && open.OpenUnion() {
+		schema["x-kit-open-union"] = true
+	}
+	components[name] = schema
 	return name, nil
 }
 

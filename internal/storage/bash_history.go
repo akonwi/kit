@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/session"
@@ -69,6 +70,19 @@ func (s *Store) BashHistoryPage(ctx context.Context, sessionID string, before ui
 		executions = executions[:limit]
 	}
 	return executions, hasMore, nil
+}
+
+// RecentUnrecordedBashHistory returns, newest first, at most limit settled
+// executions that were excluded from context or interrupted and started no
+// earlier than since.
+func (s *Store) RecentUnrecordedBashHistory(ctx context.Context, sessionID string, since time.Time, limit int) ([]session.BashExecution, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	return s.queryBashHistory(ctx, directBashSelect+`
+		WHERE session_id = ? AND (exclude_from_context != 0 OR status = ?) AND started_at >= ?
+		ORDER BY sequence DESC LIMIT ?`,
+		sessionID, session.BashExecutionInterrupted, formatTimestamp(since), limit)
 }
 
 func (s *Store) queryBashHistory(ctx context.Context, query string, arguments ...any) ([]session.BashExecution, error) {

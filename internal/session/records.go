@@ -114,6 +114,10 @@ type BashHistoryRepository interface {
 	AppendBashHistory(context.Context, BashHistoryEntry) error
 	ListBashHistory(context.Context, string) ([]BashExecution, error)
 	BashHistoryPage(context.Context, string, uint64, int) ([]BashExecution, bool, error)
+	// RecentUnrecordedBashHistory returns, newest first, at most limit settled
+	// executions the transcript doesn't record (excluded from context or
+	// interrupted) that started no earlier than since.
+	RecentUnrecordedBashHistory(ctx context.Context, sessionID string, since time.Time, limit int) ([]BashExecution, error)
 }
 
 // Repository is the persistence port for Kit's session registry. DeleteSession

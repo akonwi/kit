@@ -59,6 +59,11 @@ const (
 	SessionEventURLOpenRequested          SessionEventKind = "url.open.requested"
 	SessionEventClientPluginCallRequested SessionEventKind = "client_plugin.call.requested"
 	SessionEventClientPluginCallResolved  SessionEventKind = "client_plugin.call.resolved"
+	// SessionEventBashStarted carries a direct shell command a client started
+	// (ADR 0072).
+	SessionEventBashStarted SessionEventKind = "bash.started"
+	// SessionEventBashCompleted carries a direct shell command that settled.
+	SessionEventBashCompleted SessionEventKind = "bash.completed"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
@@ -107,6 +112,15 @@ func (event SessionEvent) Validate() error {
 	if event.Payload == nil {
 		return fmt.Errorf("session event payload is required")
 	}
+	if unrecognized, ok := event.Payload.(UnrecognizedSessionEvent); ok {
+		if unrecognized.Kind.known() || len(unrecognized.Kind) > 128 || !sessionEventKindGrammar.MatchString(string(unrecognized.Kind)) {
+			return fmt.Errorf("unrecognized event kind %q is invalid", unrecognized.Kind)
+		}
+		if event.StreamID == "" || event.Sequence < 1 || event.SessionID == "" {
+			return fmt.Errorf("event stream id, positive sequence, and session id are required")
+		}
+		return nil
+	}
 	data, err := event.MarshalJSON()
 	if err != nil {
 		return err
@@ -136,6 +150,10 @@ func (event sessionEventWire) validate() error {
 	} else if event.Kind == SessionEventSessionNameChanged || event.Kind == SessionEventSessionCWDChanged || event.Kind == SessionEventSessionConfigurationChanged || event.Kind == SessionEventFollowUpsChanged {
 		if event.TurnID != "" {
 			return fmt.Errorf("session metadata event cannot carry parent turn identity")
+		}
+	} else if event.Kind == SessionEventBashStarted || event.Kind == SessionEventBashCompleted {
+		if event.TurnID != "" {
+			return fmt.Errorf("bash event cannot carry parent turn identity")
 		}
 	} else if (event.Kind == SessionEventCompactionStarted || event.Kind == SessionEventCompactionCompleted) && event.TurnID == "" {
 		// A compaction a client requested, or one a model change needed, runs
@@ -236,6 +254,11 @@ func (event sessionEventWire) validate() error {
 		recordBytes += len(raw)
 	}
 	payloadBytes += recordBytes
+	bashBytes := 0
+	if event.BashExecution != nil {
+		bashBytes = event.BashExecution.payloadBytes()
+	}
+	payloadBytes += bashBytes
 	if event.Interaction != nil {
 		raw, err := json.Marshal(event.Interaction)
 		if err != nil {
@@ -312,6 +335,19 @@ func (event sessionEventWire) validate() error {
 		}
 		if err := event.FollowUps.Validate(); err != nil {
 			return fmt.Errorf("follow-up queue event: %w", err)
+		}
+	case SessionEventBashStarted, SessionEventBashCompleted:
+		if event.BashExecution == nil || payloadBytes != bashBytes {
+			return fmt.Errorf("bash event carries invalid payload")
+		}
+		if err := event.BashExecution.Validate(); err != nil {
+			return fmt.Errorf("bash event: %w", err)
+		}
+		if event.BashExecution.SessionID != event.SessionID {
+			return fmt.Errorf("bash event execution belongs to another session")
+		}
+		if (event.Kind == SessionEventBashStarted) != (event.BashExecution.Status == BashExecutionRunning) {
+			return fmt.Errorf("bash event status %q does not match kind %q", event.BashExecution.Status, event.Kind)
 		}
 	case SessionEventProviderRetryScheduled:
 		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || event.ProviderRetry.RetryAt == "" {
@@ -517,6 +553,9 @@ func (event sessionEventWire) validate() error {
 	if event.Kind != SessionEventFollowUpsChanged && event.FollowUps != nil {
 		return fmt.Errorf("event kind %q cannot carry a follow-up queue", event.Kind)
 	}
+	if event.Kind != SessionEventBashStarted && event.Kind != SessionEventBashCompleted && event.BashExecution != nil {
+		return fmt.Errorf("event kind %q cannot carry a bash execution", event.Kind)
+	}
 	if event.Kind != SessionEventInteractionRequested && event.Interaction != nil {
 		return fmt.Errorf("event kind %q cannot carry an interaction", event.Kind)
 	}
@@ -633,7 +672,7 @@ func (batch SessionEventBatch) Validate() error {
 		if batch.FirstSequence > 0 && wire.Sequence < batch.FirstSequence || batch.LastSequence > 0 && wire.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted || wire.Kind == SessionEventURLOpenRequested || wire.Kind == SessionEventClientPluginCallRequested || wire.Kind == SessionEventClientPluginCallResolved || wire.Kind == SessionEventSessionConfigurationChanged || wire.Kind == SessionEventFollowUpsChanged {
+		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted || wire.Kind == SessionEventURLOpenRequested || wire.Kind == SessionEventClientPluginCallRequested || wire.Kind == SessionEventClientPluginCallResolved || wire.Kind == SessionEventSessionConfigurationChanged || wire.Kind == SessionEventFollowUpsChanged || wire.Kind == SessionEventBashStarted || wire.Kind == SessionEventBashCompleted || !wire.Kind.known() {
 			previous = wire.Sequence
 			continue
 		}

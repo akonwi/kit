@@ -82,6 +82,12 @@ const (
 	// EventClientPluginCallResolved reports how a client tool call ended. It is
 	// ephemeral like EventURLOpenRequested.
 	EventClientPluginCallResolved EventKind = "client_plugin.call.resolved"
+	// EventBashStarted carries a direct shell command when it is admitted
+	// (ADR 0072).
+	EventBashStarted EventKind = "bash.started"
+	// EventBashCompleted carries a direct shell command once it settled and
+	// the session is no longer busy with it.
+	EventBashCompleted EventKind = "bash.completed"
 )
 
 // MaxClientPluginCallInputBytes bounds the input of one client tool call.
@@ -204,6 +210,8 @@ type NewEvent struct {
 	Configuration *SessionConfiguration
 	// FollowUps is the queue of a follow_ups.changed event.
 	FollowUps *FollowUpQueue
+	// Bash is the execution of a bash.started or bash.completed event.
+	Bash *BashExecution
 }
 
 // SessionConfiguration is a session's applied model configuration.
@@ -289,6 +297,10 @@ func (event NewEvent) Validate() error {
 	} else if event.Kind == EventSessionRenamed || event.Kind == EventSessionCWDChanged || event.Kind == EventSessionConfigurationChanged || event.Kind == EventFollowUpsChanged {
 		if event.TurnID != "" || event.RunID != "" {
 			return fmt.Errorf("session metadata event cannot carry parent turn identity")
+		}
+	} else if event.Kind == EventBashStarted || event.Kind == EventBashCompleted {
+		if event.TurnID != "" || event.RunID != "" {
+			return fmt.Errorf("bash event cannot carry parent turn identity")
 		}
 	} else if (event.Kind == EventCompactionStarted || event.Kind == EventCompactionCompleted || event.Kind == EventCompactionFailed) && event.TurnID == "" && event.RunID == "" {
 		// Explicit compaction, and compaction for a model change, run outside
@@ -384,6 +396,9 @@ func (event NewEvent) Validate() error {
 	}
 	if event.FollowUps != nil {
 		payloadBytes += event.FollowUps.payloadBytes()
+	}
+	if event.Bash != nil {
+		payloadBytes += event.Bash.payloadBytes()
 	}
 	for _, block := range event.Content {
 		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
@@ -505,6 +520,13 @@ func (event NewEvent) Validate() error {
 			!queue.valid() {
 			return fmt.Errorf("follow-up queue event requires only a valid queue")
 		}
+	case EventBashStarted, EventBashCompleted:
+		execution := event.Bash
+		if execution == nil || payloadBytes != execution.payloadBytes() || execution.SessionID != event.SessionID || execution.ID == "" ||
+			(event.Kind == EventBashStarted) != (execution.Status == BashExecutionRunning) || event.MessageID != "" ||
+			event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.IsError {
+			return fmt.Errorf("bash event requires only an execution matching its kind")
+		}
 	case EventSubagentChanged, EventPeerQueryChanged, EventAnnotationDeleted, EventAnnotationSubmitted:
 	case EventBoundaryCreated:
 		if event.BoundaryID == "" || event.BoundaryKind == "" || event.CreatedAt.IsZero() || len(event.Content) == 0 && !event.ContentTruncated {
@@ -621,6 +643,9 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventFollowUpsChanged && event.FollowUps != nil {
 		return fmt.Errorf("event kind %q cannot carry a follow-up queue", event.Kind)
+	}
+	if event.Kind != EventBashStarted && event.Kind != EventBashCompleted && event.Bash != nil {
+		return fmt.Errorf("event kind %q cannot carry a bash execution", event.Kind)
 	}
 	if event.Kind != EventClientPluginCallRequested && event.Kind != EventClientPluginCallResolved && event.ClientPluginCall != nil {
 		return fmt.Errorf("event kind %q cannot carry a client plugin call", event.Kind)

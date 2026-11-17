@@ -30,6 +30,8 @@ case ${OASDIFF_RESULT:?} in
   clean) echo '[]'; exit 0 ;;
   breaking) echo '[{"id":"test-break","text":"removed test field","level":3,"operation":"GET","path":"/test"}]'; exit 1 ;;
   crash) echo 'unexpected tool failure' >&2; exit 1 ;;
+  variant-added) echo '[{"id":"response-property-one-of-added","text":"added `#/components/schemas/WidgetSpunEvent, #/components/schemas/WidgetStoppedEvent` to the `events/items/` response property `oneOf` list for the response status `200`","level":3,"operation":"GET","path":"/v1/sessions/{sessionID}/events"}]'; exit 1 ;;
+  variant-removed) echo '[{"id":"response-property-one-of-removed","text":"removed `#/components/schemas/WidgetSpunEvent` from the `events/items/` response property `oneOf` list for the response status `200`","level":3,"operation":"GET","path":"/v1/sessions/{sessionID}/events"}]'; exit 1 ;;
 esac
 SH
 chmod +x "$tmp/oasdiff"
@@ -59,5 +61,38 @@ fi
 OASDIFF_BIN="$tmp/oasdiff" OASDIFF_RESULT=clean OASDIFF_ARGS="$tmp/args" "$check" HEAD "$same" >/dev/null
 if ! grep -qxF -- "--err-ignore" "$tmp/args" || ! grep -qxF -- "$root/scripts/openapi-compatibility-exceptions.txt" "$tmp/args"; then
   echo "the compatibility exceptions file was not passed to oasdiff" >&2
+  exit 1
+fi
+
+# A variant added to a union the released contract declares open is
+# compatible; the same addition to a closed union, or a removed variant, is not.
+open_union() {
+  python3 - "$release_spec" "$1" "$2" "$3" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    document = json.load(source)
+document["info"]["version"] = sys.argv[3]
+union = document["components"]["schemas"]["SessionEvent"]
+union.pop("x-kit-open-union", None)
+if sys.argv[4] == "open":
+    union["x-kit-open-union"] = True
+union["oneOf"] += [{"$ref": "#/components/schemas/WidgetSpunEvent"}, {"$ref": "#/components/schemas/WidgetStoppedEvent"}]
+with open(sys.argv[2], "w", encoding="utf-8") as destination:
+    json.dump(document, destination)
+PY
+}
+open_release="$tmp/open-release.json"
+closed_release="$tmp/closed-release.json"
+open_current="$tmp/open-current.json"
+open_union "$open_release" "$release_version" open
+open_union "$closed_release" "$release_version" closed
+open_union "$open_current" "$release_version" open
+RELEASE_SPEC="$open_release" OASDIFF_BIN="$tmp/oasdiff" OASDIFF_RESULT=variant-added "$check" HEAD "$open_current" >/dev/null
+if RELEASE_SPEC="$closed_release" OASDIFF_BIN="$tmp/oasdiff" OASDIFF_RESULT=variant-added "$check" HEAD "$open_current" >/dev/null 2>&1; then
+  echo "a variant added to a union the release declares closed was accepted" >&2
+  exit 1
+fi
+if RELEASE_SPEC="$open_release" OASDIFF_BIN="$tmp/oasdiff" OASDIFF_RESULT=variant-removed "$check" HEAD "$open_current" >/dev/null 2>&1; then
+  echo "a variant removed from an open union was accepted" >&2
   exit 1
 fi

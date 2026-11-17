@@ -663,6 +663,13 @@ type SessionSnapshot struct {
 	PendingInteractions   []InteractionRequest   `json:"pendingInteractions,omitempty"`
 	Annotations           []AnnotationSummary    `json:"annotations,omitempty"`
 	Scratchpad            *Scratchpad            `json:"scratchpad,omitempty"`
+	// BashExecutions lists, in sequence order, the direct shell commands the
+	// transcript doesn't record: the running command, excluded commands, and
+	// included commands that settled without joining the conversation. It
+	// covers commands started no earlier than the oldest listed message, or
+	// all of them when the snapshot lists the whole transcript, keeping the
+	// MaxSnapshotBashExecutions most recent (ADR 0072).
+	BashExecutions []BashExecution `json:"bashExecutions,omitempty"`
 }
 
 // MessagePageQuery filters newest-first durable message history.

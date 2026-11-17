@@ -1697,6 +1697,11 @@ func (s *EventStream) readSSE(
 		}
 		matching := make([]protocol.SessionEvent, 0, len(batch.Events))
 		for _, event := range batch.Events {
+			// An event of a kind this protocol doesn't declare is skipped; the
+			// cursor still advances past it (ADR 0072).
+			if _, unrecognized := event.Payload.(protocol.UnrecognizedSessionEvent); unrecognized {
+				continue
+			}
 			if allRuns {
 				matching = append(matching, event)
 				continue

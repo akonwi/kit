@@ -86,6 +86,14 @@ func sessionEventContractFixtures(t *testing.T) []kitsession.NewEvent {
 		{Kind: kitsession.EventSessionConfigurationChanged, Configuration: &kitsession.SessionConfiguration{ModelProvider: "openai", ModelID: "gpt-5", ThinkingLevel: "high", ConfigurationRevision: 3}},
 		{Kind: kitsession.EventFollowUpsChanged, FollowUps: &kitsession.FollowUpQueue{Count: 1, Previews: []string{"next"}, AdmissionFailure: "attachment is unavailable"}},
 		{Kind: kitsession.EventFollowUpsChanged, FollowUps: &kitsession.FollowUpQueue{}},
+		{Kind: kitsession.EventBashStarted, Bash: &kitsession.BashExecution{
+			ID: "bash_0123456789abcdef0123456789abcdef", SessionID: contractEventSession, Sequence: 3, Command: "make test",
+			Status: kitsession.BashExecutionRunning, ExcludeFromContext: true, StartedAt: at,
+		}},
+		{Kind: kitsession.EventBashCompleted, Bash: &kitsession.BashExecution{
+			ID: "bash_0123456789abcdef0123456789abcdef", SessionID: contractEventSession, Sequence: 3, Command: "make test",
+			Status: kitsession.BashExecutionCompleted, Output: "ok", ExitCode: new(int), StartedAt: at, CompletedAt: &at,
+		}},
 		{Kind: kitsession.EventSubagentChanged, SubagentConversationID: "conversation_1", SubagentTaskID: "task_1"},
 		{Kind: kitsession.EventPeerQueryChanged, PeerRequestID: "peer_0123456789abcdef0123456789abcdef"},
 		turn(kitsession.NewEvent{Kind: kitsession.EventInteractionRequested, Interaction: &kitsession.InteractionRequest{

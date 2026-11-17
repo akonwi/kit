@@ -531,3 +531,27 @@ func TestLocalEventStreamRejectsSequenceGapAcrossRecords(t *testing.T) {
 		t.Fatalf("event stream error = %v, want resynchronization", err)
 	}
 }
+
+func TestEventStreamSkipsUnknownKindsAndAdvancesPastThem(t *testing.T) {
+	t.Parallel()
+	data := `{"streamId":"stream_test","firstSequence":1,"lastSequence":3,"events":[` +
+		`{"streamId":"stream_test","sequence":1,"sessionId":"session_test","kind":"session.name.changed","sessionName":"first"},` +
+		`{"streamId":"stream_test","sequence":2,"sessionId":"session_test","kind":"widget.spun","widget":{"speed":3}},` +
+		`{"streamId":"stream_test","sequence":3,"sessionId":"session_test","kind":"widget.stopped"}]}`
+	body := io.NopCloser(strings.NewReader("event: session.events\nid: stream_test:3\ndata: " + data + "\n\n"))
+	stream := &EventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
+	var cursor int64
+	go stream.readSSE(t.Context(), body, "", true, "", "stream_test", 0, func(_ string, value int64, _ bool) { cursor = value }, nil, true)
+	var received []protocol.SessionEventKind
+	for events := range stream.Updates() {
+		for _, event := range events {
+			received = append(received, event.Kind())
+		}
+	}
+	if err := stream.rawErr(); !errors.Is(err, errTerminalEventMissing) {
+		t.Fatalf("stream error = %v; want the stream to end only for want of a terminal event", err)
+	}
+	if fmt.Sprint(received) != "[session.name.changed]" || cursor != 3 {
+		t.Fatalf("received %v with cursor %d; want [session.name.changed] with cursor 3", received, cursor)
+	}
+}

@@ -3,6 +3,7 @@ package contract
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 )
 
 // sessionEventWire preserves the pre-union flat field order and JSON tags.
@@ -60,17 +61,69 @@ type sessionEventWire struct {
 	ClientPluginCallResolution ClientPluginCallResolution `json:"clientPluginCallResolution,omitempty"`
 	Configuration              *SessionConfiguration      `json:"configuration,omitempty"`
 	FollowUps                  *FollowUpQueue             `json:"followUps,omitempty"`
+	BashExecution              *BashExecution             `json:"bashExecution,omitempty"`
 }
 
 var sessionEventCodec = newUnionCodec[SessionEvent, sessionEventWire](sessionEventVariants())
 
 func (event SessionEvent) marshalJSON() ([]byte, error) {
+	if unrecognized, ok := event.Payload.(UnrecognizedSessionEvent); ok {
+		// Only the members every kind shares survive: a client keeps an
+		// unrecognized event only to advance past it.
+		return json.Marshal(unrecognizedSessionEventWire{StreamID: event.StreamID, Sequence: event.Sequence, SessionID: event.SessionID, TurnID: event.TurnID, Kind: unrecognized.Kind})
+	}
 	if err := validateSessionEventPayloadPresence(event.Payload); err != nil {
 		return nil, err
 	}
 	return sessionEventCodec.marshal(event, event.Payload)
 }
+
+// unrecognizedSessionEventWire is the common part of an event of a kind this
+// protocol doesn't declare.
+type unrecognizedSessionEventWire struct {
+	StreamID  string           `json:"streamId"`
+	Sequence  int64            `json:"sequence"`
+	SessionID string           `json:"sessionId"`
+	TurnID    string           `json:"turnId,omitempty"`
+	Kind      SessionEventKind `json:"kind"`
+}
+
+// known reports whether this protocol declares the kind.
+func (kind SessionEventKind) known() bool {
+	_, ok := sessionEventCodec.byKind[string(kind)]
+	return ok
+}
+
+// sessionEventKindGrammar is the ADR 0033 kind grammar: lowercase dotted
+// segments, multi-word segments in snake_case.
+var sessionEventKindGrammar = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
+
+// decodeUnrecognizedSessionEvent decodes an event whose kind this protocol
+// doesn't declare (ADR 0072): the kind must follow the event grammar, and the
+// members every kind shares must be well formed; the rest is skipped.
+func decodeUnrecognizedSessionEvent(data []byte, kind string) (SessionEvent, error) {
+	if len(kind) > 128 || !sessionEventKindGrammar.MatchString(kind) {
+		return SessionEvent{}, fmt.Errorf("decode SessionEvent: kind %q is invalid", kind)
+	}
+	var common unrecognizedSessionEventWire
+	if err := json.Unmarshal(data, &common); err != nil {
+		return SessionEvent{}, fmt.Errorf("decode SessionEvent: %w", err)
+	}
+	return SessionEvent{StreamID: common.StreamID, Sequence: common.Sequence, SessionID: common.SessionID, TurnID: common.TurnID, Payload: UnrecognizedSessionEvent{Kind: SessionEventKind(kind)}}, nil
+}
+
 func (event *SessionEvent) unmarshalJSON(data []byte) error {
+	var probe struct {
+		Kind *string `json:"kind"`
+	}
+	if err := json.Unmarshal(data, &probe); err == nil && probe.Kind != nil && !SessionEventKind(*probe.Kind).known() {
+		decoded, err := decodeUnrecognizedSessionEvent(data, *probe.Kind)
+		if err != nil {
+			return err
+		}
+		*event = decoded
+		return nil
+	}
 	var decoded SessionEvent
 	payload, err := sessionEventCodec.unmarshal(data, &decoded)
 	if err != nil {
@@ -137,6 +190,14 @@ func validateSessionEventPayloadPresence(payload SessionEventPayload) error {
 	case FollowUpsChangedEvent:
 		if payload.FollowUps == nil {
 			return fmt.Errorf("follow-up queue is required")
+		}
+	case BashStartedEvent:
+		if payload.BashExecution == nil {
+			return fmt.Errorf("bash execution is required")
+		}
+	case BashCompletedEvent:
+		if payload.BashExecution == nil {
+			return fmt.Errorf("bash execution is required")
 		}
 	}
 	return nil

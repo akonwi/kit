@@ -268,6 +268,45 @@ func (page TranscriptPage) ValidateBefore(before string) error {
 	return nil
 }
 
+// MaxSnapshotBashExecutions bounds the direct shell commands a snapshot lists.
+const MaxSnapshotBashExecutions = 32
+
+// validateSnapshotBashExecutions checks the commands a snapshot lists: valid,
+// of the snapshot's session, in increasing sequence order, and running only
+// as the active command, which they list when there is one.
+func validateSnapshotBashExecutions(sessionID, activeID string, executions []BashExecution) error {
+	if len(executions) > MaxSnapshotBashExecutions {
+		return fmt.Errorf("snapshot lists more than %d bash executions", MaxSnapshotBashExecutions)
+	}
+	seen := make(map[string]struct{}, len(executions))
+	listsActive := false
+	for index, execution := range executions {
+		if err := execution.Validate(); err != nil {
+			return fmt.Errorf("snapshot bash execution %d: %w", index, err)
+		}
+		if execution.SessionID != sessionID {
+			return fmt.Errorf("snapshot bash execution %d belongs to another session", index)
+		}
+		if _, duplicate := seen[execution.ID]; duplicate {
+			return fmt.Errorf("snapshot bash execution %q is listed twice", execution.ID)
+		}
+		seen[execution.ID] = struct{}{}
+		if index > 0 && execution.Sequence <= executions[index-1].Sequence {
+			return fmt.Errorf("snapshot bash executions are not in sequence order")
+		}
+		if execution.Status == BashExecutionRunning {
+			if execution.ID != activeID {
+				return fmt.Errorf("snapshot bash execution %q is running but not active", execution.ID)
+			}
+			listsActive = true
+		}
+	}
+	if activeID != "" && !listsActive {
+		return fmt.Errorf("snapshot does not list its active bash execution")
+	}
+	return nil
+}
+
 // Validate checks a session snapshot received across a transport boundary.
 func (snapshot SessionSnapshot) Validate() error {
 	if err := snapshot.Session.Validate(); err != nil {
@@ -288,6 +327,9 @@ func (snapshot SessionSnapshot) Validate() error {
 		if err := snapshot.Scratchpad.Validate(); err != nil {
 			return fmt.Errorf("snapshot scratchpad: %w", err)
 		}
+	}
+	if err := validateSnapshotBashExecutions(snapshot.Session.ID, snapshot.ActiveBashExecutionID, snapshot.BashExecutions); err != nil {
+		return err
 	}
 	if snapshot.ContextTokens < 0 || snapshot.ContextWindow < 0 || snapshot.EventCursor < 0 || snapshot.EventReplayFrom < 0 {
 		return fmt.Errorf("snapshot context usage cannot be negative")

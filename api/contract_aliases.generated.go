@@ -27,10 +27,12 @@ type (
 	AttachmentInfo                    = contract.AttachmentInfo
 	AttachmentResolution              = contract.AttachmentResolution
 	AttachmentResolutionInput         = contract.AttachmentResolutionInput
+	BashCompletedEvent                = contract.BashCompletedEvent
 	BashExecutionInput                = contract.BashExecutionInput
 	BashExecutionStatus               = contract.BashExecutionStatus
 	BashHistoryEntry                  = contract.BashHistoryEntry
 	BashHistoryPage                   = contract.BashHistoryPage
+	BashStartedEvent                  = contract.BashStartedEvent
 	BoundaryCreatedEvent              = contract.BoundaryCreatedEvent
 	BrowserLoginInstructions          = contract.BrowserLoginInstructions
 	ChangeCWDInput                    = contract.ChangeCWDInput
@@ -256,6 +258,7 @@ type (
 	TurnStatus                        = contract.TurnStatus
 	URLOpenRequestedEvent             = contract.URLOpenRequestedEvent
 	UnionVariant                      = contract.UnionVariant
+	UnrecognizedSessionEvent          = contract.UnrecognizedSessionEvent
 	UpdateAnnotationInput             = contract.UpdateAnnotationInput
 	UpdateScratchpadInput             = contract.UpdateScratchpadInput
 	UpdateServerSettingsInput         = contract.UpdateServerSettingsInput
@@ -433,6 +436,7 @@ const (
 	MaxPromptAttachmentBytes                = contract.MaxPromptAttachmentBytes
 	MaxPullRequestCheckTextBytes            = contract.MaxPullRequestCheckTextBytes
 	MaxPullRequestChecks                    = contract.MaxPullRequestChecks
+	MaxSnapshotBashExecutions               = contract.MaxSnapshotBashExecutions
 	MaxSubmittedAnnotationJSONBytes         = contract.MaxSubmittedAnnotationJSONBytes
 	MaxTextAttachmentBytes                  = contract.MaxTextAttachmentBytes
 	MaxViewRevealLine                       = contract.MaxViewRevealLine
@@ -501,6 +505,8 @@ const (
 	SessionEventAssistantCompleted          = contract.SessionEventAssistantCompleted
 	SessionEventAssistantStarted            = contract.SessionEventAssistantStarted
 	SessionEventAssistantTextDelta          = contract.SessionEventAssistantTextDelta
+	SessionEventBashCompleted               = contract.SessionEventBashCompleted
+	SessionEventBashStarted                 = contract.SessionEventBashStarted
 	SessionEventBoundaryCreated             = contract.SessionEventBoundaryCreated
 	SessionEventClientPluginCallRequested   = contract.SessionEventClientPluginCallRequested
 	SessionEventClientPluginCallResolved    = contract.SessionEventClientPluginCallResolved

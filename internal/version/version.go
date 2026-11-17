@@ -54,5 +54,10 @@ const (
 	// session rather than a turn (ADR 0052). A failed compaction carries a
 	// classified compactionFailureReason on its events, turn status, and the
 	// compaction_failed operation error instead of error text (ADR 0053).
-	SessionProtocolVersion = 50
+	// 51: The live stream adds bash.started and bash.completed for every direct
+	// shell command, and snapshots list the commands the transcript doesn't
+	// record in bashExecutions. Clients skip session events of kinds they
+	// don't know and ignore unknown top-level snapshot members, so later
+	// additions of either are not protocol changes (ADR 0072).
+	SessionProtocolVersion = 51
 )

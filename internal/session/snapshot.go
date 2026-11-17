@@ -177,6 +177,9 @@ type Snapshot struct {
 	ProviderRetry         *ProviderRetry
 	ActiveCompaction      *ActiveCompaction
 	ActiveBashExecutionID string
+	// BashExecutions lists the commands the transcript doesn't record, in
+	// sequence order (ADR 0072).
+	BashExecutions        []BashExecution
 	EventStreamID         string
 	EventCursor           int64
 	EventReplayFrom       int64
@@ -590,12 +593,22 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 			})
 		}
 	}
+	page, err := projectTranscriptPage(ctx, loaded.droid, 0, activeRunID, completeActiveStream)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	// Commands the transcript doesn't record are listed from the oldest
+	// message the snapshot includes, or from the start when it includes all.
+	var bashSince time.Time
+	if page.HasMoreMessages && len(page.Messages) > 0 {
+		bashSince = page.Messages[0].CreatedAt
+	}
 	m.bashMu.Lock()
 	if active := m.bashActive[sessionID]; active != nil {
 		result.ActiveBashExecutionID = active.id
 	}
+	result.BashExecutions, err = m.snapshotBashExecutionsLocked(ctx, sessionID, bashSince)
 	m.bashMu.Unlock()
-	page, err := projectTranscriptPage(ctx, loaded.droid, 0, activeRunID, completeActiveStream)
 	if err != nil {
 		return Snapshot{}, err
 	}

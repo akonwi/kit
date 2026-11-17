@@ -716,6 +716,13 @@ func (execution BashExecution) Validate() error {
 	return nil
 }
 
+// payloadBytes is the execution's size against the session event payload
+// bound: its text members and a fixed allowance for the rest.
+func (execution BashExecution) payloadBytes() int {
+	return len(execution.ID) + len(execution.SessionID) + len(execution.Command) + len(execution.Status) + len(execution.Output) +
+		len(execution.ErrorMessage) + len(execution.StartedAt) + len(execution.CompletedAt) + 32
+}
+
 // Validate checks a turn reservation received across a transport boundary.
 func (reservation TurnReservation) Validate() error {
 	if reservation.SessionID == "" || reservation.TurnID == "" {

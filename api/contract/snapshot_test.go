@@ -367,9 +367,13 @@ func TestTranscriptValidationAcceptsLargeMessages(t *testing.T) {
 	}
 }
 
-func TestSessionSnapshotAllowsHarnessActiveBashWithoutStoredMessage(t *testing.T) {
+func TestSessionSnapshotAllowsActiveBashWithoutStoredMessage(t *testing.T) {
 	snapshot := validTranscriptSnapshot()
 	snapshot.ActiveBashExecutionID = "bash_0123456789abcdef0123456789abcdef"
+	snapshot.BashExecutions = []BashExecution{{
+		ID: snapshot.ActiveBashExecutionID, SessionID: snapshot.Session.ID, Sequence: 3,
+		Command: "make test", Status: BashExecutionRunning, StartedAt: "2026-01-01T00:00:04Z",
+	}}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
 	}

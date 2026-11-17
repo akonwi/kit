@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -16,6 +17,12 @@ import (
 const (
 	maxDirectBashCommandBytes = 64 << 10
 	maxConcurrentDirectBash   = 4
+	// maxLiveBashOutputBytes bounds the output a bash event carries.
+	maxLiveBashOutputBytes = 64 << 10
+	// maxLiveBashErrorBytes bounds the error message a bash event carries.
+	maxLiveBashErrorBytes = 4 << 10
+	// maxSnapshotBashExecutions bounds the commands a snapshot lists.
+	maxSnapshotBashExecutions = 32
 )
 
 var (
@@ -171,9 +178,43 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 	runContext, cancel := context.WithCancelCause(m.bashContext)
 	active := &activeBashExecution{id: executionID, cancel: cancel, runtime: loaded, done: make(chan struct{})}
 	m.bashActive[sessionID] = active
+	publishBash(loaded.events, EventBashStarted, execution)
 	m.bashRuns.Add(1)
 	go m.executeBash(runContext, execution, active)
 	return execution, nil
+}
+
+// publishBash appends a bash event for execution to the session's live
+// stream. An execution that cannot be announced invalidates the stream so
+// clients resynchronize from a snapshot, which lists it.
+func publishBash(events *eventLog, kind EventKind, execution BashExecution) {
+	if events == nil {
+		return
+	}
+	live := liveBashExecution(execution)
+	if err := events.append([]NewEvent{{SessionID: execution.SessionID, Kind: kind, Bash: &live}}); err != nil {
+		events.invalidate()
+	}
+}
+
+// liveBashExecution bounds an execution for the live stream: its output and
+// error message are shortened at a character boundary when they would exceed
+// the event payload bound, and shortened output is marked truncated.
+func liveBashExecution(execution BashExecution) BashExecution {
+	execution.ExitCode = cloneInt(execution.ExitCode)
+	execution.ErrorMessage = truncateUTF8(execution.ErrorMessage, maxLiveBashErrorBytes)
+	budget := min(maxLiveBashOutputBytes, maxEventPayloadBytes-(execution.payloadBytes()-len(execution.Output)))
+	if len(execution.Output) > budget {
+		execution.Output = truncateUTF8(execution.Output, max(budget, 0))
+		execution.Truncated = true
+	}
+	return execution
+}
+
+// payloadBytes is the execution's size against the event payload bound.
+func (execution BashExecution) payloadBytes() int {
+	return len(execution.ID) + len(execution.SessionID) + len(execution.Command) + len(execution.Status) +
+		len(execution.Output) + len(execution.ErrorMessage) + 64
 }
 
 func (m *Manager) executeBash(ctx context.Context, execution BashExecution, active *activeBashExecution) {
@@ -237,15 +278,65 @@ func (m *Manager) executeBash(ctx context.Context, execution BashExecution, acti
 	}
 	if informErr != nil && historyPersisted {
 		// The session record remains authoritative even if model-context delivery
-		// is interrupted; do not rewrite the durable terminal payload here.
+		// is interrupted; do not rewrite the durable terminal payload here. The
+		// command never reached the model, so it reads as interrupted here.
+		settled.Status = BashExecutionInterrupted
 		settled.ErrorMessage = "persist bash boundary: " + informErr.Error()
 	}
+	// The session stops being busy with the command in the same step that
+	// announces it, so its bash.completed precedes the next command's
+	// bash.started.
 	m.bashMu.Lock()
 	m.bashHistory[execution.SessionID][execution.ID] = settled
 	if m.bashActive[execution.SessionID] == active {
 		delete(m.bashActive, execution.SessionID)
 	}
+	publishBash(active.runtime.events, EventBashCompleted, settled)
 	m.bashMu.Unlock()
+}
+
+// unrecordedBash reports whether the transcript doesn't record execution:
+// it is running, excluded from context, or settled without joining the
+// conversation.
+func unrecordedBash(execution BashExecution) bool {
+	return execution.Status == BashExecutionRunning || execution.ExcludeFromContext || execution.Status == BashExecutionInterrupted
+}
+
+// snapshotBashExecutionsLocked lists, in sequence order, the commands the
+// transcript doesn't record that started no earlier than since (any time when
+// since is zero), keeping the most recent. The running command is always
+// listed, as its in-memory record, even after its settled record is stored.
+// Callers hold m.bashMu.
+func (m *Manager) snapshotBashExecutionsLocked(ctx context.Context, sessionID string, since time.Time) ([]BashExecution, error) {
+	byID := make(map[string]BashExecution)
+	if m.bashHistoryRepository != nil {
+		persisted, err := m.bashHistoryRepository.RecentUnrecordedBashHistory(ctx, sessionID, since, maxSnapshotBashExecutions)
+		if err != nil {
+			return nil, err
+		}
+		for _, execution := range persisted {
+			byID[execution.ID] = execution
+		}
+	}
+	for id, execution := range m.bashHistory[sessionID] {
+		if execution.Status == BashExecutionRunning || unrecordedBash(execution) && !execution.StartedAt.Before(since) {
+			byID[id] = execution
+		} else if _, listed := byID[id]; listed && !unrecordedBash(execution) {
+			delete(byID, id)
+		}
+	}
+	executions := make([]BashExecution, 0, len(byID))
+	for _, execution := range byID {
+		executions = append(executions, execution)
+	}
+	sort.Slice(executions, func(i, j int) bool { return executions[i].Sequence < executions[j].Sequence })
+	if len(executions) > maxSnapshotBashExecutions {
+		executions = executions[len(executions)-maxSnapshotBashExecutions:]
+	}
+	for index := range executions {
+		executions[index] = liveBashExecution(executions[index])
+	}
+	return executions, nil
 }
 
 func (m *Manager) GetBash(ctx context.Context, sessionID, executionID string) (BashExecution, error) {

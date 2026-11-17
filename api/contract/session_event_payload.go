@@ -158,6 +158,30 @@ type FollowUpsChangedEvent struct {
 	FollowUps *FollowUpQueue `json:"followUps"`
 }
 
+// BashStartedEvent carries a direct shell command, from any client, when the
+// server admits it. The execution is running and has no output.
+type BashStartedEvent struct {
+	BashExecution *BashExecution `json:"bashExecution"`
+}
+
+// BashCompletedEvent carries a direct shell command in its terminal state. The
+// session is no longer busy with it, and an included command's boundary was
+// created before it.
+type BashCompletedEvent struct {
+	BashExecution *BashExecution `json:"bashExecution"`
+}
+
+// UnrecognizedSessionEvent stands for an event of a kind this protocol doesn't
+// declare. The session event union is open (ADR 0072): a client decodes such
+// an event's common members, advances its cursor past it, and otherwise
+// ignores it. Servers never send one of their own protocol, and encoding one
+// keeps only the common members.
+type UnrecognizedSessionEvent struct {
+	Kind SessionEventKind
+}
+
+func (event UnrecognizedSessionEvent) sessionEventKind() SessionEventKind { return event.Kind }
+
 // BoundaryCreatedEvent carries a context record the session created. The
 // record is the same one later snapshots list under BoundaryID. Content and
 // Details are bounded for the live stream; ContentTruncated and DetailsOmitted
@@ -331,6 +355,12 @@ func (FollowUpsChangedEvent) sessionEventKind() SessionEventKind {
 func (BoundaryCreatedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventBoundaryCreated
 }
+func (BashStartedEvent) sessionEventKind() SessionEventKind {
+	return SessionEventBashStarted
+}
+func (BashCompletedEvent) sessionEventKind() SessionEventKind {
+	return SessionEventBashCompleted
+}
 func (URLOpenRequestedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventURLOpenRequested
 }
@@ -344,8 +374,13 @@ func (ClientPluginCallResolvedEvent) sessionEventKind() SessionEventKind {
 func sessionEventVariants() []UnionVariant {
 	return []UnionVariant{
 		{Kind: string(SessionEventTurnStarted), Payload: TurnStartedEvent{}}, {Kind: string(SessionEventUserMessageAdded), Payload: UserMessageAddedEvent{}}, {Kind: string(SessionEventPluginMessageAdded), Payload: PluginMessageAddedEvent{}}, {Kind: string(SessionEventAssistantStarted), Payload: AssistantStartedEvent{}}, {Kind: string(SessionEventAssistantTextDelta), Payload: AssistantTextDeltaEvent{}}, {Kind: string(SessionEventThinkingDelta), Payload: ThinkingDeltaEvent{}}, {Kind: string(SessionEventAssistantCompleted), Payload: AssistantCompletedEvent{}}, {Kind: string(SessionEventToolPlanned), Payload: ToolPlannedEvent{}}, {Kind: string(SessionEventToolStarted), Payload: ToolStartedEvent{}}, {Kind: string(SessionEventToolOutputDelta), Payload: ToolOutputDeltaEvent{}}, {Kind: string(SessionEventToolCompleted), Payload: ToolCompletedEvent{}}, {Kind: string(SessionEventCompactionStarted), Payload: CompactionStartedEvent{}}, {Kind: string(SessionEventCompactionCompleted), Payload: CompactionCompletedEvent{}}, {Kind: string(SessionEventProviderRetryScheduled), Payload: ProviderRetryScheduledEvent{}}, {Kind: string(SessionEventProviderRetryStarted), Payload: ProviderRetryStartedEvent{}}, {Kind: string(SessionEventContextChanged), Payload: ContextChangedEvent{}}, {Kind: string(SessionEventUsageChanged), Payload: UsageChangedEvent{}}, {Kind: string(SessionEventTurnCompleted), Payload: TurnCompletedEvent{}}, {Kind: string(SessionEventSessionNameChanged), Payload: SessionNameChangedEvent{}}, {Kind: string(SessionEventSessionCWDChanged), Payload: SessionCWDChangedEvent{}}, {Kind: string(SessionEventSubagentChanged), Payload: SubagentChangedEvent{}}, {Kind: string(SessionEventPeerQueryChanged), Payload: PeerQueryChangedEvent{}}, {Kind: string(SessionEventInteractionRequested), Payload: InteractionRequestedEvent{}}, {Kind: string(SessionEventInteractionResolved), Payload: InteractionResolvedEvent{}}, {Kind: string(SessionEventAnnotationCreated), Payload: AnnotationCreatedEvent{}}, {Kind: string(SessionEventAnnotationUpdated), Payload: AnnotationUpdatedEvent{}}, {Kind: string(SessionEventAnnotationDeleted), Payload: AnnotationDeletedEvent{}}, {Kind: string(SessionEventAnnotationSubmitted), Payload: AnnotationSubmittedEvent{}}, {Kind: string(SessionEventScratchpadChanged), Payload: ScratchpadChangedEvent{}}, {Kind: string(SessionEventBoundaryCreated), Payload: BoundaryCreatedEvent{}}, {Kind: string(SessionEventURLOpenRequested), Payload: URLOpenRequestedEvent{}}, {Kind: string(SessionEventClientPluginCallRequested), Payload: ClientPluginCallRequestedEvent{}}, {Kind: string(SessionEventClientPluginCallResolved), Payload: ClientPluginCallResolvedEvent{}}, {Kind: string(SessionEventSessionConfigurationChanged), Payload: SessionConfigurationChangedEvent{}}, {Kind: string(SessionEventFollowUpsChanged), Payload: FollowUpsChangedEvent{}},
+		{Kind: string(SessionEventBashStarted), Payload: BashStartedEvent{}}, {Kind: string(SessionEventBashCompleted), Payload: BashCompletedEvent{}},
 	}
 }
+
+// OpenUnion reports that SessionEvent's kind vocabulary is open: clients skip
+// an event whose kind they don't know (ADR 0072).
+func (SessionEvent) OpenUnion() bool { return true }
 
 // UnionVariants declares the kinds of SessionEvent for contract generation.
 // Each variant's published schema is the event's common fields plus that

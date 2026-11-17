@@ -888,6 +888,9 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		PendingInteractions:   make([]protocol.InteractionRequest, 0, len(snapshot.PendingInteractions)),
 		Annotations:           annotations,
 	}
+	for _, execution := range snapshot.BashExecutions {
+		result.BashExecutions = append(result.BashExecutions, projectBashExecution(execution))
+	}
 	for _, server := range snapshot.MCPServers {
 		result.MCPServers = append(result.MCPServers, protocol.MCPServerStatus{
 			Name: server.Name, State: server.State, Transport: server.Transport, ToolCount: server.ToolCount,
@@ -1637,6 +1640,15 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 		}
 		queue := projectFollowUpQueue(*event.FollowUps)
 		return protocol.FollowUpsChangedEvent{FollowUps: &queue}
+	case kitsession.EventBashStarted, kitsession.EventBashCompleted:
+		if event.Bash == nil {
+			return nil
+		}
+		execution := projectBashExecution(*event.Bash)
+		if event.Kind == kitsession.EventBashStarted {
+			return protocol.BashStartedEvent{BashExecution: &execution}
+		}
+		return protocol.BashCompletedEvent{BashExecution: &execution}
 	case kitsession.EventURLOpenRequested:
 		return protocol.URLOpenRequestedEvent{URL: event.URL}
 	case kitsession.EventClientPluginCallRequested:

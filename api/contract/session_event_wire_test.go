@@ -110,11 +110,11 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 	}
 }
 
-func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
+func TestSessionEventPayloadVocabularyIsDeclared(t *testing.T) {
 	t.Parallel()
 	variants := sessionEventVariants()
-	if len(variants) != 35 {
-		t.Fatalf("session event variants = %d; want 35", len(variants))
+	if len(variants) != 37 {
+		t.Fatalf("session event variants = %d; want 37", len(variants))
 	}
 	seen := make(map[SessionEventKind]bool, len(variants))
 	for _, variant := range variants {
