@@ -929,6 +929,8 @@ final class WorkspaceState {
     /// Browser element annotations waiting in the composer.
     let browserAnnotations = BrowserAnnotationDraft()
     let diagramAnnotations = DiagramAnnotationDraft()
+    /// Comments on selected text waiting in the composer (ADR 0070).
+    let textComments = TextCommentDraft()
     var editingLine: Int?
     var noteDraft = ""
 

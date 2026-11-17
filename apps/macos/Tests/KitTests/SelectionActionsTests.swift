@@ -4,14 +4,14 @@ import Testing
 @testable import Kit
 
 @MainActor struct SelectionActionsTests {
-    @Test func quoteAppearsOnlyForAChangedNonemptySelection() throws {
+    @Test func commentAppearsOnlyForAChangedNonemptySelection() throws {
         _ = NSApplication.shared
         let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
         textView.string = "alpha alpha"
         let window = NSWindow(testContentRect: textView.frame)
         window.contentView = textView
         #expect(window.makeFirstResponder(textView))
-        let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), quote: { _ in })
+        let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), comments: TextCommentDraft())
 
         textView.setSelectedRange(NSRange(location: 0, length: 5))
         let first = try #require(coordinator.selection(in: window))
@@ -49,7 +49,7 @@ import Testing
         content.addSubview(textView)
         let window = NSWindow(testContentRect: content.bounds)
         window.contentView = content
-        let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), quote: { _ in })
+        let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), comments: TextCommentDraft())
 
         // SwiftUI starts tracking with the window as responder, then installs
         // its text view and handles mouse-up inside its own event loop.
@@ -78,7 +78,7 @@ import Testing
         let window = NSWindow(testContentRect: NSRect(x: -10000, y: -10000, width: 300, height: 150))
         window.contentView = content
         #expect(window.makeFirstResponder(composer))
-        let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), quote: { _ in })
+        let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), comments: TextCommentDraft())
         let selection = try #require(coordinator.selection(in: window, accessibilityElement: transcript))
         #expect(selection.text == "alpha")
         #expect(selection.viaAccessibility)

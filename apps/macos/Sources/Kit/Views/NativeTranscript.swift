@@ -204,7 +204,8 @@ struct NativeTranscript: NSViewRepresentable {
             .environment(\.diagramAnnotations, DiagramAnnotationContext(draft: input.workspace.diagramAnnotations))
             .environment(\.transcriptSessionLink, input.sessionLink)
             .environment(\.transcriptToolContext, input.toolContext)
-            .environment(\.openURL, .transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink))
+            .environment(\.openURL, .reopeningTextComments(.transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink),
+                                                             theme: input.theme))
             .foregroundStyle(input.theme.text)
             .environment(\.colorScheme, input.theme.dark ? .dark : .light)
             .frame(width: TranscriptLayout.rowWidth(pane: scroll.frame.width, fullWidth: input.fullWidth),
@@ -777,8 +778,10 @@ private struct NativeMessageRow: View {
                                     if message.role == "preview" {
                                         Text("Preview").font(.kit(size: 12, weight: .semibold))
                                     }
-                                    let parts = message.role == "user" ? BrowserAnnotationText.split(message.text)
-                                        : (text: message.text, annotations: [BrowserAnnotationText.Sent]())
+                                    let comments = message.role == "user" ? TextAnnotationText.split(message.text)
+                                        : (text: message.text, annotations: [TextAnnotationText.Sent]())
+                                    let parts = message.role == "user" ? BrowserAnnotationText.split(comments.text)
+                                        : (text: comments.text, annotations: [BrowserAnnotationText.Sent]())
                                     let diagramParts = message.role == "user" ? DiagramAnnotationText.split(parts.text)
                                         : (text: parts.text, annotations: [DiagramAnnotationText.Sent]())
                                     if !diagramParts.text.isEmpty { MarkdownView(source: diagramParts.text, onSections: message.role == "assistant" ? onSections : nil) }
@@ -789,8 +792,12 @@ private struct NativeMessageRow: View {
                                     TranscriptDiagramAnnotations(annotations: diagramParts.annotations,
                                                                  state: presentation.drawer(for: TranscriptPresentationState.diagramAnnotationsKey(message.id)),
                                                                  onExpand: onExpand)
+                                    TranscriptTextComments(comments: comments.annotations,
+                                                           state: presentation.drawer(for: TranscriptPresentationState.textCommentsKey(message.id)),
+                                                           onExpand: onExpand)
                                     TranscriptAttachments(attachments: message.attachments ?? [])
                                 }
+                                .environment(\.textCommentMarks, workspace.textComments.marks(in: message.id))
                                 .padding(.horizontal, message.role == "user" ? 20 : 0)
                                 .padding(.vertical, message.role == "user" ? 18 : 0)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -802,6 +809,8 @@ private struct NativeMessageRow: View {
                                 }
                                 .padding(.vertical, message.role == "user" ? 6 : 0)
                                 .background(MessageCopyRegion(markdown: message.text))
+                                .background(CommentSourceRegion(source: .init(
+                                    label: message.role == "user" ? "Your message" : "Assistant reply", scope: message.id)))
         }
     }
 }

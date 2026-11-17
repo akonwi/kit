@@ -36,6 +36,7 @@ struct BashExecutionView: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                 }.frame(height: min(240, CGFloat(execution.output.split(separator: "\n", omittingEmptySubsequences: false).count) * 18 + 24))
+                    .background(CommentSourceRegion(source: .init(label: "Shell output · " + execution.command)))
                     .defaultScrollAnchor(.topLeading, for: .alignment)
             }
             if let error = execution.error { Text(error).foregroundStyle(theme.danger).padding(12) }

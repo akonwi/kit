@@ -16,6 +16,7 @@ struct ScratchpadEditor: View {
         )
         .id(documentVersion)
         .clipped()
+        .background(CommentSourceRegion(source: .init(label: "Scratchpad")))
         .accessibilityLabel("Scratchpad editor")
     }
 }

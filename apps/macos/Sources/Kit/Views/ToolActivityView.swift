@@ -110,6 +110,10 @@ private struct ToolCallRow: View {
     @State private var hovering = false
 
     private var expandable: Bool { presentation.expandable }
+    /// What a comment on words in the tool's detail names as their source.
+    private var commentSource: String {
+        "Tool output · " + ([presentation.title] + (presentation.chip.map { [$0] } ?? [])).joined(separator: " ")
+    }
     private var shown: Bool { open && expandable }
 
     var body: some View {
@@ -118,6 +122,7 @@ private struct ToolCallRow: View {
             if shown {
                 Rule()
                 ToolCallDetail(tool: tool, workspace: workspace, presentation: presentation)
+                    .background(CommentSourceRegion(source: .init(label: commentSource)))
             }
         }
         .background {

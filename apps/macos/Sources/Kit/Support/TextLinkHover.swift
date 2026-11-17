@@ -411,6 +411,8 @@ enum TranscriptClickable: CaseIterable {
     /// The tooltip a link shows: a file link's path as linked, with its
     /// lines, as `src/server.go#L42-L50`; nil for other links.
     static func toolTip(for url: URL) -> String? {
+        // A waiting comment's mark shows the comment.
+        if let id = TextCommentMark.id(in: url) { return TextCommentDrafts.find(id)?.item.annotation.comment }
         guard let path = FilePaths.path(fromLink: url) else { return nil }
         return FileLocation(path: path, lines: FilePaths.lines(fromLink: url)).withLines
     }

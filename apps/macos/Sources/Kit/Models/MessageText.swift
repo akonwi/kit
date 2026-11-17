@@ -2,11 +2,6 @@ import Foundation
 import KitTranscript
 
 enum MessageText {
-    static func quote(_ selection: String, draft: String) -> String {
-        let quoted = selection.components(separatedBy: .newlines).map { "> " + $0 }.joined(separator: "\n")
-        return draft + (draft.isEmpty ? "" : "\n\n") + quoted + "\n\n"
-    }
-
     static func plain(_ markdown: String) -> String {
         render(MarkdownContent(source: markdown).blocks)
     }

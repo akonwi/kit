@@ -3,10 +3,12 @@ import QuartzCore
 import SwiftUI
 
 /// Window-scoped selection actions; the panel never becomes the key window.
+/// Selected text that can be commented on (ADR 0070) offers Comment beside
+/// it and first in its context menu.
 struct SelectionActions: NSViewRepresentable {
     let theme: MicaTheme
     var enabled = true
-    let quote: (String) -> Void
+    let comments: TextCommentDraft
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -21,16 +23,16 @@ struct SelectionActions: NSViewRepresentable {
             context.coordinator.dismiss()
             context.coordinator.theme = theme
         }
-        context.coordinator.quote = quote
+        context.coordinator.comments = comments
     }
-    func makeCoordinator() -> Coordinator { Coordinator(theme: theme, enabled: enabled, quote: quote) }
+    func makeCoordinator() -> Coordinator { Coordinator(theme: theme, enabled: enabled, comments: comments) }
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) { coordinator.stop() }
 
     @MainActor final class Coordinator {
         weak var host: NSView?
         var theme: MicaTheme
         var enabled: Bool
-        var quote: (String) -> Void
+        var comments: TextCommentDraft
         var monitor: Any?
         var panel: NSPanel?
         var presentedSelection: Selection?
@@ -67,7 +69,67 @@ struct SelectionActions: NSViewRepresentable {
                 return currentRange == range
             }
         }
-        init(theme: MicaTheme, enabled: Bool = true, quote: @escaping (String) -> Void) { self.theme = theme; self.enabled = enabled; self.quote = quote }
+        init(theme: MicaTheme, enabled: Bool = true, comments: TextCommentDraft) {
+            self.theme = theme; self.enabled = enabled; self.comments = comments
+        }
+
+        /// What commenting on a selection does: begin a line annotation
+        /// where its editor takes them, or open the comment box for a text
+        /// comment.
+        enum Destination {
+            case lines(() -> Void)
+            case text(TextCommentSource)
+        }
+
+        /// Where a comment on selection goes, or nil where it can't be
+        /// commented on.
+        func destination(for selection: Selection, in window: NSWindow) -> Destination? {
+            if !selection.viaAccessibility, let range = selection.range,
+               let begin = SelectionLineComments.handler(for: selection.responder as? NSView)?(range) {
+                return .lines(begin)
+            }
+            guard let root = window.contentView else { return nil }
+            let point = window.convertPoint(fromScreen: NSPoint(x: selection.rect.midX, y: selection.rect.midY))
+            guard let region = CommentSourceView.containing(point, in: root) else { return nil }
+            if let begin = region.lines?() { return .lines(begin) }
+            return region.source.map(Destination.text)
+        }
+
+        /// Comments on selection: begins its line annotation, or opens the
+        /// comment box at it.
+        func comment(on selection: Selection, in window: NSWindow) {
+            switch destination(for: selection, in: window) {
+            case .lines(let begin)?:
+                begin()
+            case .text(let source)?:
+                comments.present(quote: selection.text, source: source, at: selection.rect, in: window, theme: theme)
+            case nil: break
+            }
+        }
+
+        /// The context menu for a click on a selection that can be
+        /// commented on: Comment, then what the text view offers, or Copy.
+        func commentMenu(for event: NSEvent, in window: NSWindow) -> NSMenu? {
+            guard let selection = selection(in: window), destination(for: selection, in: window) != nil else { return nil }
+            let menu = OwningMenu()
+            let target = SelectionCommentMenuTarget { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.comment(on: selection, in: window)
+            }
+            menu.owner = target
+            let item = NSMenuItem(title: "Comment", action: #selector(SelectionCommentMenuTarget.comment), keyEquivalent: "")
+            item.target = target
+            menu.addItem(item)
+            menu.addItem(.separator())
+            if let view = selection.responder as? NSTextView, let native = view.menu(for: event) {
+                let items = native.items
+                native.removeAllItems()
+                items.forEach(menu.addItem)
+            } else {
+                menu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: ""))
+            }
+            return menu
+        }
         func start() {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .leftMouseDown, .rightMouseDown, .keyUp, .keyDown, .scrollWheel]) { [weak self] event in
                 guard let self, self.enabled, let window = self.host?.window else { return event }
@@ -81,6 +143,10 @@ struct SelectionActions: NSViewRepresentable {
                 }
                 if event.type == .rightMouseDown, self.hasSelection(in: window) {
                     self.dismiss()
+                    if let menu = self.commentMenu(for: event, in: window), let view = window.contentView {
+                        NSMenu.popUpContextMenu(menu, with: event, for: view)
+                        return nil
+                    }
                     return event
                 }
                 if event.type == .rightMouseDown, let root = window.contentView,
@@ -216,8 +282,7 @@ struct SelectionActions: NSViewRepresentable {
                   let presentedSelection, presentedSelection.isCurrent(in: window) else { dismiss(); return }
         }
         func showSelection(_ selection: Selection, in window: NSWindow) {
-            guard enabled, window.isKeyWindow else { dismiss(); return }
-            let text = selection.text
+            guard enabled, window.isKeyWindow, destination(for: selection, in: window) != nil else { dismiss(); return }
             var rect = selection.rect
             let selectionTop = rect.maxY
             dismiss()
@@ -226,7 +291,11 @@ struct SelectionActions: NSViewRepresentable {
             panel.backgroundColor = .clear
             panel.hasShadow = true
             panel.hidesOnDeactivate = true
-            let content = SelectionActionsMenu(theme: theme) { [weak self] in self?.dismiss(); self?.quote(text) }
+            let content = SelectionActionsMenu(theme: theme) { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.dismiss()
+                self.comment(on: selection, in: window)
+            }
             let hosting = NSHostingView(rootView: content)
             panel.contentView = hosting
             let size = hosting.fittingSize
@@ -261,16 +330,16 @@ struct SelectionActions: NSViewRepresentable {
 /// sizes to its content, since it holds one action centred on the selection.
 struct SelectionActionsMenu: View {
     let theme: MicaTheme
-    let quote: () -> Void
+    let comment: () -> Void
     @State private var hovering = false
 
     static let rowHeight: CGFloat = 28
 
     var body: some View {
-        Button(action: quote) {
+        Button(action: comment) {
             HStack(spacing: 8) {
-                IconView(.quotes).foregroundStyle(theme.muted)
-                Text("Quote").font(.kit(size: 12))
+                IconView(.chatCenteredText).foregroundStyle(theme.muted)
+                Text("Comment").font(.kit(size: 12))
             }
             .padding(.horizontal, 8)
             .frame(height: Self.rowHeight)
@@ -328,4 +397,11 @@ final class MessageCopyView: NSView {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
+}
+
+/// Carries out a selection's Comment menu item.
+@MainActor final class SelectionCommentMenuTarget: NSObject {
+    let action: () -> Void
+    init(_ action: @escaping () -> Void) { self.action = action }
+    @objc func comment() { action() }
 }

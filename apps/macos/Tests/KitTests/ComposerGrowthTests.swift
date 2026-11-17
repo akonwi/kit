@@ -63,7 +63,7 @@ private struct QuoteComposerHost: View {
         }
         let input = try #require(editor(in: host))
         input.setSelectedRange(NSRange(location: 0, length: 0))
-        state.draft = MessageText.quote("Selected 🚀 text", draft: state.draft)
+        state.draft += "\n\n> Selected 🚀 text\n\n"
         state.focusRequest += 1
         state.focusAtEndRequest = state.focusRequest
         for _ in 0..<20 {

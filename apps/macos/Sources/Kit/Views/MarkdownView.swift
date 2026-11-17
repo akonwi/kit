@@ -550,12 +550,20 @@ private struct MarkdownPreviewRow: View {
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .background(CommentSourceRegion(lines: { [annotations, lines] in
+            // A selection in the block comments on its source lines (ADR 0070).
+            guard let annotations, let lines, annotations.canAnnotate else { return nil }
+            let state = annotations.state
+            guard state.editor == nil, !state.pending, !state.uncertain else { return nil }
+            return { annotations.begin(lines) }
+        }))
     }
 }
 
 private struct MarkdownInline: View {
     @Environment(\.mica) private var theme
     @Environment(\.transcriptSessionLink) private var sessionLink
+    @Environment(\.textCommentMarks) private var commentMarks
     let value: AttributedString
 
     /// Every line, whatever height it's offered. A list is placed at its
@@ -583,6 +591,7 @@ private struct MarkdownInline: View {
             case nil: break
             }
         }
+        if !commentMarks.isEmpty { text = TextCommentMarking.marked(text, commentMarks, theme: theme) }
         return SessionMentions.presented(text, link: sessionLink, theme: theme)
     }
 }

@@ -50,12 +50,16 @@ struct ComposerView: View {
             if !state.isDemo && showOperationDetails {
                 ComposerOperationsView(state: state)
             }
-            AnnotationStrip(state: state)
             RestoredAttachmentStrip(state: state)
             if !state.ui.attachments.isEmpty || !state.ui.workspace.notes.isEmpty || !browserAnnotations.isEmpty
-                || !diagramAnnotations.isEmpty {
+                || !diagramAnnotations.isEmpty || !textComments.isEmpty || !state.annotationState.records.isEmpty {
+                // One row for every comment and attachment (ADR 0070).
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
+                        LineAnnotationChips(state: state)
+                        ForEach(textComments.items) { item in
+                            TextCommentChip(item: item, draft: textComments)
+                        }
                         ForEach(browserAnnotations.items) { item in
                             BrowserAnnotationChip(item: item, draft: browserAnnotations)
                         }
@@ -88,12 +92,14 @@ struct ComposerView: View {
                 .background(theme.raised)
                 Rule()
             }
-            if let error = browserAnnotations.error ?? browserAnnotations.screenshots.error ?? diagramAnnotations.error {
+            AnnotationNotices(state: state)
+            if let error = browserAnnotations.error ?? browserAnnotations.screenshots.error ?? diagramAnnotations.error
+                ?? textComments.error {
                 HStack {
                     Text(error).foregroundStyle(theme.muted)
                     Button("Dismiss") {
                         browserAnnotations.error = nil; browserAnnotations.screenshots.error = nil
-                        diagramAnnotations.error = nil
+                        diagramAnnotations.error = nil; textComments.error = nil
                     }
                 }.font(.kit(size: 12)).padding(.horizontal, 16).padding(.vertical, 8)
             }
@@ -152,6 +158,7 @@ struct ComposerView: View {
 
     private var browserAnnotations: BrowserAnnotationDraft { state.ui.workspace.browserAnnotations }
     private var diagramAnnotations: DiagramAnnotationDraft { state.ui.workspace.diagramAnnotations }
+    private var textComments: TextCommentDraft { state.ui.workspace.textComments }
 
     // MARK: Dictation
 
@@ -172,7 +179,7 @@ struct ComposerView: View {
         return ComposerMic.placement(.init(
             dictating: dictation.isActive, draft: state.ui.draft,
             hasOtherContent: !state.annotationState.records.isEmpty || !state.ui.workspace.notes.isEmpty
-                || !browserAnnotations.isEmpty || !diagramAnnotations.isEmpty
+                || !browserAnnotations.isEmpty || !diagramAnnotations.isEmpty || !textComments.isEmpty
                 || !state.ui.attachments.isEmpty || !state.ui.serverAttachmentIDs.isEmpty || !state.ui.uploads.items.isEmpty,
             stoppable: state.running || state.replaying || state.activeBashID != nil,
             shell: state.shellMode != nil, unavailable: state.unavailable))
@@ -294,7 +301,7 @@ struct ComposerView: View {
         if !state.isDemo && (state.connectionState != .connected || state.operations.sending || state.operations.uncertain || state.operations.queuePending) { return true }
         return state.ui.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             state.annotationState.records.isEmpty && state.ui.workspace.notes.isEmpty && state.ui.attachments.isEmpty && state.ui.serverAttachmentIDs.isEmpty && state.ui.uploads.items.isEmpty
-            && browserAnnotations.isEmpty && diagramAnnotations.isEmpty
+            && browserAnnotations.isEmpty && diagramAnnotations.isEmpty && textComments.isEmpty
     }
 
     private var shape: UnevenRoundedRectangle {

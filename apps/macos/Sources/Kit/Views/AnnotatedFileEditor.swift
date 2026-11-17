@@ -126,6 +126,9 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                 self.parent.annotations.begin(anchor: anchor)
                 self.schedule()
             }
+            SelectionLineComments.register(controller.textView) { [weak self] range in
+                self?.commentOnSelection(range)
+            }
             controller.scrollView.contentView.postsBoundsChangedNotifications = true
             scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
                 object: controller.scrollView.contentView, queue: .main) { [weak self] _ in
@@ -165,7 +168,27 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                 guard let self else { return }; self.scheduled = false; self.updateBlocks()
             }
         }
+        /// How to begin a line annotation on the lines a selection covers,
+        /// as picking them in the gutter does (ADR 0070), or nil when the
+        /// editor can't take one now.
+        func commentOnSelection(_ range: NSRange) -> (() -> Void)? {
+            let state = parent.annotations
+            guard parent.canAnnotate, !state.pending, !state.uncertain, state.editor == nil,
+                  let lines = SelectionLineComments.lines(of: range, in: parent.document.content) else { return nil }
+            var side = parent.document.diff?.side
+            if side == nil, let rows = parent.document.diff?.rows, rows.indices.contains(lines.upperBound) {
+                side = rows[lines].allSatisfy { $0.kind == "deletion" } ? "old" : "new"
+            }
+            let anchor = parent.document.anchor(lines, side: side)
+            return { [weak self] in
+                guard let self else { return }
+                guard let anchor else { state.report(DiffSelectionError()); return }
+                state.begin(anchor: anchor)
+                self.schedule()
+            }
+        }
         func destroy() {
+            if let textView = controller?.textView { SelectionLineComments.unregister(textView) }
             parent.splitAlignment?.unregister(self)
             if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
             if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) }
