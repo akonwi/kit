@@ -53,11 +53,11 @@ func Decode(content io.Reader, maxWidth, maxHeight int) (Pixels, error) {
 	if maxWidth <= 0 || maxHeight <= 0 {
 		return Pixels{}, errors.New("preview bounds must be positive")
 	}
-	encoded, err := io.ReadAll(io.LimitReader(content, protocol.MaxImageAttachmentBytes+1))
+	encoded, err := io.ReadAll(io.LimitReader(content, protocol.MaxStoredImageBytes+1))
 	if err != nil {
 		return Pixels{}, err
 	}
-	if len(encoded) > protocol.MaxImageAttachmentBytes {
+	if len(encoded) > protocol.MaxStoredImageBytes {
 		return Pixels{}, errors.New("image is too large to preview")
 	}
 	return DecodeBytes(encoded, maxWidth, maxHeight)

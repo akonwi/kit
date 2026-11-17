@@ -6,7 +6,10 @@ import (
 	"image/color"
 	"image/gif"
 	"image/png"
+	"math/rand/v2"
 	"testing"
+
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func encodePNG(t *testing.T, width, height int, fill color.Color) []byte {
@@ -59,6 +62,27 @@ func TestDecodeReadsGIF(t *testing.T) {
 	}
 	if pixels, err := Decode(&encoded, 10, 10); err != nil || pixels.Width != 4 {
 		t.Fatalf("gif = %+v, %v", pixels, err)
+	}
+}
+
+// show_image stores images up to the stored-image limit, which is larger
+// than an uploaded one.
+func TestDecodePreviewsAShownImageLargerThanAnUpload(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 1800, 1600))
+	random := rand.New(rand.NewPCG(1, 2))
+	for index := range source.Pix {
+		source.Pix[index] = byte(random.Uint32())
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	if encoded.Len() <= protocol.MaxImageAttachmentBytes || encoded.Len() > protocol.MaxStoredImageBytes {
+		t.Fatalf("encoded = %d bytes, want between the upload and stored-image limits", encoded.Len())
+	}
+	pixels, err := Decode(&encoded, 90, 80)
+	if err != nil || pixels.Width != 90 || pixels.Height != 80 {
+		t.Fatalf("preview = %dx%d, %v; want 90x80", pixels.Width, pixels.Height, err)
 	}
 }
 
