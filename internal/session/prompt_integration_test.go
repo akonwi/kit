@@ -7,6 +7,7 @@ import (
 	"errors"
 	"image"
 	"image/png"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,6 +23,7 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
+	"github.com/akonwi/kit/internal/localimage"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
@@ -271,6 +273,88 @@ func TestManagerRejectsUnsupportedImageAttachmentBeforeProviderCall(t *testing.T
 	providers.mu.Unlock()
 	if calls != 0 {
 		t.Fatalf("provider calls = %d, want 0", calls)
+	}
+}
+
+// show_image stores images larger than a model can see. Naming one as a
+// prompt attachment must not put it in the conversation.
+func TestManagerRejectsAShownImageOverTheModelImageLimits(t *testing.T) {
+	t.Parallel()
+	encode := func(t *testing.T, source image.Image) []byte {
+		t.Helper()
+		var encoded bytes.Buffer
+		if err := png.Encode(&encoded, source); err != nil {
+			t.Fatal(err)
+		}
+		return encoded.Bytes()
+	}
+	noise := image.NewNRGBA(image.Rect(0, 0, 1800, 1600))
+	random := rand.New(rand.NewPCG(1, 2))
+	for index := range noise.Pix {
+		noise.Pix[index] = byte(random.Uint32())
+	}
+	accepting := droids.ImagePolicy{
+		Placements: []droids.ImagePlacement{droids.ImagePlacementUser},
+		Formats:    []string{droids.ImagePNG}, Sources: []droids.ImageSourceKind{droids.ImageSourceData},
+	}
+	for _, test := range []struct {
+		name    string
+		data    []byte
+		wantErr string
+	}{
+		{
+			name: "pixels", data: encode(t, image.NewGray(image.Rect(0, 0, 4740, 2626))),
+			wantErr: `invalid session input: attachment "shown.png" cannot be sent to model "echo": the image's 4740×2626 px exceed the 8192 px, 12 MP image limit`,
+		},
+		{
+			name: "bytes", data: encode(t, noise),
+			wantErr: `invalid session input: attachment "shown.png" cannot be sent to model "echo": the image exceeds the 10 MiB image size limit`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if test.name == "bytes" && len(test.data) <= droids.MaxImageBytes {
+				t.Fatalf("noise PNG is %d bytes, want more than %d", len(test.data), droids.MaxImageBytes)
+			}
+			base := t.TempDir()
+			store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			attachments, err := attachment.NewFilesystem(filepath.Join(base, "attachments"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			providers := &authorityProviders{imagePolicy: &accepting}
+			manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")), session.WithAttachmentStore(attachments))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Close)
+			record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo", Temporary: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(base, "shown.png"), test.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			// What show_image stores.
+			shown, err := localimage.Persist(t.Context(), localimage.Options{
+				SessionID: record.ID, CWD: func() string { return base }, Store: attachments,
+				Limits: attachment.ImageLimits{MaxBytes: protocol.MaxStoredImageBytes, MaxPixels: protocol.MaxStoredImagePixels},
+			}, "shown.png")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = manager.RunPromptInput(t.Context(), record.ID, session.PromptInput{Text: "look", AttachmentIDs: []string{shown.ID}})
+			providers.mu.Lock()
+			calls := providers.calls
+			providers.mu.Unlock()
+			if !errors.Is(err, session.ErrInvalidInput) || err.Error() != test.wantErr || calls != 0 {
+				t.Fatalf("RunPromptInput() error = %v with %d provider calls, want %q before any provider call", err, calls, test.wantErr)
+			}
+		})
 	}
 }
 

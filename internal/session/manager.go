@@ -23,6 +23,7 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/mcpruntime"
+	"github.com/akonwi/kit/internal/modelimage"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/subagent"
@@ -1935,6 +1936,9 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 		} else if !model.ImagePolicy().Accepts(droids.ImagePlacementUser) {
 			_ = reader.Close()
 			return nil, fmt.Errorf("%w: model %q does not accept image attachments", ErrInvalidInput, model.ID)
+		} else if reason := exceedsModelImageLimits(record); reason != "" {
+			_ = reader.Close()
+			return nil, fmt.Errorf("%w: attachment %q cannot be sent to model %q: %s", ErrInvalidInput, record.Filename, model.ID, reason)
 		}
 		if totalBytes > maxPromptAttachmentBytes || textBytes > maxPromptTextAttachmentBytes {
 			_ = reader.Close()
@@ -1967,6 +1971,19 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 		}
 	}
 	return content, nil
+}
+
+// exceedsModelImageLimits says why a stored image is larger than an image a
+// conversation may hold, or returns "". An image show_image stored for
+// display may be.
+func exceedsModelImageLimits(record attachment.Record) string {
+	if record.Size > modelimage.MaxBytes {
+		return fmt.Sprintf("the image exceeds the %d MiB image size limit", modelimage.MaxBytes>>20)
+	}
+	if record.Width > modelimage.MaxWidth || record.Height > modelimage.MaxHeight || int64(record.Width)*int64(record.Height) > modelimage.MaxPixels {
+		return fmt.Sprintf("the image's %d×%d px exceed the %d px, %d MP image limit", record.Width, record.Height, modelimage.MaxWidth, modelimage.MaxPixels/1_000_000)
+	}
+	return ""
 }
 
 func validatePromptText(prompt string) error {
