@@ -437,6 +437,9 @@ const (
 	MaxPullRequestCheckTextBytes            = contract.MaxPullRequestCheckTextBytes
 	MaxPullRequestChecks                    = contract.MaxPullRequestChecks
 	MaxSnapshotBashExecutions               = contract.MaxSnapshotBashExecutions
+	MaxStoredImageBytes                     = contract.MaxStoredImageBytes
+	MaxStoredImagePixels                    = contract.MaxStoredImagePixels
+	MaxStoredImageSide                      = contract.MaxStoredImageSide
 	MaxSubmittedAnnotationJSONBytes         = contract.MaxSubmittedAnnotationJSONBytes
 	MaxTextAttachmentBytes                  = contract.MaxTextAttachmentBytes
 	MaxViewRevealLine                       = contract.MaxViewRevealLine

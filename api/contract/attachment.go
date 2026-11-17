@@ -12,9 +12,17 @@ import (
 const (
 	MaxAttachmentsPerPrompt  = 8
 	MaxPromptAttachmentBytes = 20 << 20
-	// MaxImageAttachmentBytes matches the server's model-image limit,
-	// modelimage.MaxBytes, which the protocol does not import.
+	// MaxImageAttachmentBytes bounds an image a client uploads. It matches the
+	// server's model-image limit, modelimage.MaxBytes, which the protocol does
+	// not import.
 	MaxImageAttachmentBytes = 10 << 20
+	// MaxStoredImageBytes bounds any stored image attachment. An image the
+	// show_image tool keeps for display may exceed the model-image limits.
+	MaxStoredImageBytes = 16 << 20
+	// MaxStoredImagePixels bounds a stored image attachment's pixel count.
+	MaxStoredImagePixels = 24_000_000
+	// MaxStoredImageSide bounds a stored image attachment's width and height.
+	MaxStoredImageSide      = 8192
 	MaxTextAttachmentBytes  = 1 << 20
 	MaxAttachmentResolution = 512
 )
@@ -113,7 +121,7 @@ func (info AttachmentInfo) Validate() error {
 	}
 	limit := int64(MaxTextAttachmentBytes)
 	if strings.HasPrefix(mediaType, "image/") {
-		limit = MaxImageAttachmentBytes
+		limit = MaxStoredImageBytes
 	}
 	if info.Size <= 0 || info.Size > limit {
 		return fmt.Errorf("attachment size is invalid")
@@ -129,7 +137,8 @@ func (info AttachmentInfo) Validate() error {
 	if _, err := time.Parse(time.RFC3339Nano, info.CreatedAt); err != nil {
 		return fmt.Errorf("attachment creation time is invalid")
 	}
-	if (info.Width == 0) != (info.Height == 0) || info.Width < 0 || info.Height < 0 || info.Width > 8192 || info.Height > 8192 || int64(info.Width)*int64(info.Height) > 12_000_000 {
+	if (info.Width == 0) != (info.Height == 0) || info.Width < 0 || info.Height < 0 || info.Width > MaxStoredImageSide || info.Height > MaxStoredImageSide ||
+		int64(info.Width)*int64(info.Height) > MaxStoredImagePixels {
 		return fmt.Errorf("attachment dimensions are invalid")
 	}
 	if !strings.HasPrefix(mediaType, "image/") && (info.Width != 0 || info.Height != 0) {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/attachmentmeta"
@@ -17,10 +18,12 @@ import (
 )
 
 const (
-	ToolName        = "show_image"
-	Presentation    = "transcript-image"
-	maxImageBytes   = 16 << 20
-	maxImagePixels  = 24_000_000
+	ToolName     = "show_image"
+	Presentation = "transcript-image"
+	// show_image keeps images for display only, so it allows any image an
+	// attachment may hold rather than only one a model can see.
+	maxImageBytes   = protocol.MaxStoredImageBytes
+	maxImagePixels  = protocol.MaxStoredImagePixels
 	maxCaptionRunes = 200
 )
 

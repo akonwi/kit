@@ -12,12 +12,21 @@ func TestAttachmentInfoValidate(t *testing.T) {
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid attachment: %v", err)
 	}
-	cases := []AttachmentInfo{valid, valid, valid, valid, valid}
+	// The largest image show_image stores, as a Paper export at 2x can be.
+	shown := valid
+	shown.Size, shown.Width, shown.Height = MaxStoredImageBytes, 4740, 5063
+	if err := shown.Validate(); err != nil {
+		t.Fatalf("shown image: %v", err)
+	}
+	cases := []AttachmentInfo{valid, valid, valid, valid, valid, valid, valid, valid}
 	cases[0].Filename = "../photo.png"
 	cases[1].MediaType = "application/octet-stream"
 	cases[2].SHA256 = "not-a-checksum"
 	cases[3].Width = 0
-	cases[4].Size = MaxImageAttachmentBytes + 1
+	cases[4].Size = MaxStoredImageBytes + 1
+	cases[5].Width, cases[5].Height = 4740, 5064
+	cases[6].Width, cases[6].Height = MaxStoredImageSide+1, 2
+	cases[7].MediaType, cases[7].Width, cases[7].Height, cases[7].Size = "text/plain", 0, 0, MaxTextAttachmentBytes+1
 	for index, candidate := range cases {
 		if err := candidate.Validate(); err == nil {
 			t.Fatalf("case %d accepted", index)

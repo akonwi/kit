@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/color"
@@ -11,12 +12,15 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/attachment"
+	"github.com/akonwi/kit/internal/localimage"
 )
 
 type recordingAttachmentService struct {
@@ -184,5 +188,88 @@ func TestInspectAttachmentRejectsMalformedImage(t *testing.T) {
 	}
 	if err := input.Validate(bytes.NewReader(append(encoded.Bytes(), []byte("trailing")...))); err == nil {
 		t.Fatal("PNG with trailing payload accepted")
+	}
+}
+
+// storeAttachmentService serves a real attachment store without a session
+// manager, so route tests cover what the store records.
+type storeAttachmentService struct{ store attachment.Store }
+
+func (service storeAttachmentService) Put(ctx context.Context, sessionID string, input attachment.PutInput) (protocol.AttachmentInfo, error) {
+	input.SessionID = sessionID
+	record, err := service.store.Put(ctx, input)
+	return projectAttachment(record), err
+}
+
+func (service storeAttachmentService) Open(ctx context.Context, sessionID, id string) (protocol.AttachmentInfo, io.ReadCloser, error) {
+	record, content, err := service.store.Open(ctx, sessionID, id)
+	return projectAttachment(record), content, err
+}
+
+func (service storeAttachmentService) Resolve(ctx context.Context, sessionID string, ids []string) (protocol.AttachmentResolution, error) {
+	return resolveAttachmentMetadata(ctx, sessionID, ids, service.store.Stat)
+}
+
+// A show_image image may be larger than one a model can see, as a Paper
+// export at 2x often is; the routes still resolve and serve it.
+func TestAttachmentRoutesServeAShownImageLargerThanAModelImage(t *testing.T) {
+	t.Parallel()
+	cwd := t.TempDir()
+	const filename = "Explore · shell commands@2x.png"
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewGray(image.Rect(0, 0, 2880, 4800))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, filename), encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := attachment.NewFilesystem(filepath.Join(t.TempDir(), "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// show_image's limits.
+	record, err := localimage.Persist(context.Background(), localimage.Options{
+		SessionID: "session_one", CWD: func() string { return cwd }, Store: store,
+		Limits: attachment.ImageLimits{MaxBytes: protocol.MaxStoredImageBytes, MaxPixels: protocol.MaxStoredImagePixels},
+	}, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	details := struct{ AttachmentID string }{record.ID}
+	mux := http.NewServeMux()
+	registerAttachmentRoutes(mux, storeAttachmentService{store: store})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/session_one/attachments/resolve", strings.NewReader(`{"attachmentIds":["`+details.AttachmentID+`"]}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("resolution = %d: %s", response.Code, response.Body.String())
+	}
+	var resolution protocol.AttachmentResolution
+	if err := json.Unmarshal(response.Body.Bytes(), &resolution); err != nil {
+		t.Fatal(err)
+	}
+	want := protocol.AttachmentInfo{
+		ID: details.AttachmentID, SessionID: "session_one", Filename: filename, MediaType: "image/png",
+		Size: int64(encoded.Len()), Width: 2880, Height: 4800,
+	}
+	if len(resolution.Attachments) != 1 || len(resolution.MissingAttachmentIDs) != 0 {
+		t.Fatalf("resolution = %#v", resolution)
+	}
+	got := resolution.Attachments[0]
+	got.SHA256, got.CreatedAt = "", ""
+	if got != want {
+		t.Fatalf("resolved = %#v, want %#v", got, want)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/v1/sessions/session_one/attachments/"+details.AttachmentID, nil)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), encoded.Bytes()) {
+		t.Fatalf("retrieval = %d, %d bytes: %.200s", response.Code, response.Body.Len(), response.Body.String())
+	}
+	if got := response.Header().Get("Content-Disposition"); got != `inline; filename*=utf-8''Explore%20%C2%B7%20shell%20commands%402x.png` {
+		t.Fatalf("Content-Disposition = %q", got)
 	}
 }
