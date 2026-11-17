@@ -8,6 +8,8 @@ export const CLOSE = "</text-annotation>";
 const FENCE = "UNTRUSTED_SELECTED_TEXT";
 /** The most of a quote a block holds, in UTF-8 bytes. */
 export const MAX_QUOTE_BYTES = 4096;
+/** The most comments on selected text one message holds. */
+export const LIMIT = 16;
 
 /** A sent comment on selected text, as a transcript shows it. */
 export interface SentTextComment {
@@ -24,7 +26,8 @@ export interface SentTextComment {
  * A message's own text and the comment blocks after it: blocks numbered
  * from 1 that end the message, after its text and a blank line or alone. A
  * message without them comes back whole, as does one whose blocks are
- * malformed or followed by more text.
+ * malformed, are more than LIMIT, hold a quote over MAX_QUOTE_BYTES, or are
+ * followed by more text.
  */
 export function splitTextComments(message: string): { text: string; comments: SentTextComment[] } {
   const first = `${OPEN}1">\n`;
@@ -45,6 +48,8 @@ function parseBlocks(text: string): SentTextComment[] | undefined {
   const comments: SentTextComment[] = [];
   let rest = text;
   for (;;) {
+    // More blocks than a message holds aren't ones a client wrote.
+    if (comments.length >= LIMIT) return undefined;
     const parsed = parse(rest, comments.length + 1);
     if (!parsed) return undefined;
     comments.push(parsed.comment);
@@ -91,5 +96,7 @@ function parse(text: string, number: number): { comment: SentTextComment; end: n
     cut = true;
     quote = afterSource.slice(cutHead.length);
   } else return undefined;
+  // A quote over the limit isn't one a client wrote.
+  if (new TextEncoder().encode(quote).byteLength > MAX_QUOTE_BYTES) return undefined;
   return { comment: { number, comment, source, quote, cut }, end: offset + end + closing.length };
 }

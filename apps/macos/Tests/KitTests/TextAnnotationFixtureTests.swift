@@ -44,7 +44,7 @@ struct TextAnnotationFixtureTests {
     }
 
     @Test func fixturesArePresent() {
-        #expect(Self.names.count >= 8)
+        #expect(Self.names.count >= 13)
     }
 
     @Test(arguments: names) func readsLikeTheFixture(_ name: String) throws {
@@ -63,7 +63,7 @@ struct TextAnnotationFixtureTests {
         #expect(TextAnnotationText.join(expected.text, TextAnnotationText.text(items)) == message, "\(name)")
     }
 
-    @Test func aLongQuoteIsCutAtACharacterBoundary() {
+    @Test func aLongQuoteIsCutAtAScalarBoundary() {
         let quote = String(repeating: "a", count: TextAnnotationText.maxQuoteBytes - 1) + "é tail"
         let trimmed = TextAnnotationText.trimmedQuote(quote)
         #expect(trimmed.cut)

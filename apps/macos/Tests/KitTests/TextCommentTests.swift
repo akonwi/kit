@@ -168,6 +168,9 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
         #expect(menu.items.first?.title == "Comment")
         #expect(menu.items.dropFirst().first?.isSeparatorItem == true)
         #expect(menu.items.contains { $0.action == #selector(NSText.copy(_:)) })
+        // The text view's own menu keeps its items for later clicks.
+        let native = try #require(fixture.reply.menu(for: event))
+        #expect(native.items.contains { $0.action == #selector(NSText.copy(_:)) })
     }
 
     // MARK: Marks

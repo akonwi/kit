@@ -122,9 +122,8 @@ struct SelectionActions: NSViewRepresentable {
             menu.addItem(item)
             menu.addItem(.separator())
             if let view = selection.responder as? NSTextView, let native = view.menu(for: event) {
-                let items = native.items
-                native.removeAllItems()
-                items.forEach(menu.addItem)
+                // Copies, since the text view may keep its menu for later clicks.
+                for item in native.items { menu.addItem(item.copy() as! NSMenuItem) }
             } else {
                 menu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: ""))
             }

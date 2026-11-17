@@ -36,31 +36,49 @@ public enum TextAnnotationText {
 
     // MARK: The message's text
 
-    /// quote without the blank space around it and carriage returns, cut to
-    /// maxQuoteBytes at a character boundary, and whether it was cut.
+    /// text with every kind of line break as "\n": "\r\n", "\r", U+0085,
+    /// U+2028 and U+2029.
+    public static func normalizedNewlines(_ text: String) -> String {
+        var result = String.UnicodeScalarView()
+        var scalars = text.unicodeScalars.makeIterator()
+        var pending = scalars.next()
+        while let scalar = pending {
+            pending = scalars.next()
+            switch scalar {
+            case "\r":
+                result.append("\n")
+                if pending == "\n" { pending = scalars.next() }
+            case "\u{85}", "\u{2028}", "\u{2029}": result.append("\n")
+            default: result.append(scalar)
+            }
+        }
+        return String(result)
+    }
+
+    /// quote with its line breaks as "\n" and without the blank space around
+    /// it, cut to maxQuoteBytes at a Unicode scalar boundary, and whether it
+    /// was cut. Every client cuts at the same place.
     public static func trimmedQuote(_ quote: String) -> (text: String, cut: Bool) {
-        let text = quote.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = normalizedNewlines(quote).trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.utf8.count > maxQuoteBytes else { return (text, false) }
-        var kept = ""
+        var kept = String.UnicodeScalarView()
         var bytes = 0
-        for character in text {
-            let size = character.utf8.count
+        for scalar in text.unicodeScalars {
+            let size = String(scalar).utf8.count
             if bytes + size > maxQuoteBytes { break }
-            kept.append(character)
+            kept.append(scalar)
             bytes += size
         }
-        return (kept, true)
+        return (String(kept), true)
     }
 
     /// One comment's block, numbered number.
     public static func block(number: Int, _ item: TextAnnotation) -> String {
         // A comment's later lines are indented, so none can pass for a line
         // of the block.
-        let comment = item.comment.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\r\n", with: "\n")
+        let comment = normalizedNewlines(item.comment).trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "\n", omittingEmptySubsequences: false).joined(separator: "\n  ")
-        let source = item.source.split(whereSeparator: \.isNewline).joined(separator: " ")
+        let source = normalizedNewlines(item.source).split(separator: "\n").joined(separator: " ")
         let quote = trimmedQuote(item.quote)
         return [
             "\(open)\(number)\">",
@@ -106,7 +124,8 @@ public enum TextAnnotationText {
     /// Splits a message into its own text and the comment blocks after it:
     /// blocks numbered from 1 that end the message, after its text and a
     /// blank line or alone. A message without them comes back unchanged, as
-    /// does one whose blocks are malformed or followed by more text.
+    /// does one whose blocks are malformed, are more than `limit`, hold a
+    /// quote over `maxQuoteBytes`, or are followed by more text.
     public static func split(_ message: String) -> (text: String, annotations: [Sent]) {
         let first = "\(open)1\">\n"
         var from = message.startIndex
@@ -129,7 +148,7 @@ public enum TextAnnotationText {
         var sent: [Sent] = []
         var rest = text
         while true {
-            guard let (block, end) = parse(rest, number: sent.count + 1) else { return nil }
+            guard sent.count < limit, let (block, end) = parse(rest, number: sent.count + 1) else { return nil }
             sent.append(block)
             rest = rest[end...]
             if rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return sent }
@@ -170,6 +189,7 @@ public enum TextAnnotationText {
         } else {
             return nil
         }
+        guard quote.utf8.count <= maxQuoteBytes else { return nil }
         return (Sent(number: number, comment: comment, source: source, quote: String(quote), cut: cut), end.upperBound)
     }
 }

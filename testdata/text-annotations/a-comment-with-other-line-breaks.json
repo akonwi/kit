@@ -1,0 +1,21 @@
+{
+  "written": true,
+  "text": "Read these.",
+  "comments": [
+    {
+      "number": 1,
+      "comment": "One\nTwo\nThree\nFour\nFive\nSix",
+      "source": "Scratchpad",
+      "quote": "the plan",
+      "cut": false
+    }
+  ],
+  "input": [
+    {
+      "comment": "One Two\rThree\r\nFourFive Six",
+      "source": "Scratchpad",
+      "quote": "the plan",
+      "nonce": "n0001"
+    }
+  ]
+}

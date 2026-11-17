@@ -59,6 +59,7 @@ use kit/tui/subagents
 use kit/tui/tab_strip
 use kit/tui/tabs_picker
 use kit/tui/terminal_status
+use kit/tui/text_annotation
 use kit/tui/text_comment
 use kit/tui/text_notes
 use kit/tui/theme
@@ -1619,9 +1620,7 @@ impl Shell {
         self.attached.load_message_history(fn(entries: [sessionbridge::HistoryEntry]) {
           let recalled = &mut List::new<composer::HistoryEntry>()
           for entry in entries {
-            // Diagram comments were sent as blocks after the text; only the
-            // text is recalled.
-            let text = annotation::split(entry.Text).text
+            let text = recalled_text(entry.Text)
             if text != "" {
               recalled.push(composer::HistoryEntry{id: entry.ID, text: text})
             }
@@ -3160,6 +3159,39 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
 // Commands as the composer recalls them, with the prefix of their mode.
 // The text a selection copies and quotes: a semantic container's copy text,
 // such as a table's tab-separated values, or else the selected text.
+// A sent message's own text, as history recalls it: diagram comments, then
+// comments on selected text, were sent as blocks after it.
+fn recalled_text(message: Str) Str {
+  annotation::split(text_annotation::split(message).text).text
+}
+
+test fn history_recalls_a_message_without_its_comment_blocks() Void!Str {
+  let diagram = annotation::text(
+    [
+      annotation::Annotation{
+        comment: "Say why",
+        source: "flowchart LR\nA --> B",
+        target: canvas::Target::node,
+        index: 0,
+        nonce: "d1",
+      },
+    ],
+  ).expect("a diagram block")
+  let comment = text_annotation::text(
+    [
+      text_annotation::Annotation{
+        comment: "Back off.",
+        source: "Transcript",
+        quote: "every 2 seconds",
+        nonce: "n1",
+      },
+    ],
+  )
+  let message = text_annotation::join(annotation::join("Fix both.", diagram), comment)
+  try testing::assert(recalled_text(message) == "Fix both.", "recalled: {recalled_text(message)}")
+  testing::assert(recalled_text(comment) == "", "comments alone recall nothing")
+}
+
 private fn selection_text(selection: cooper::Selection) Str {
   selection.copy_text.or(selection.selected_text)
 }

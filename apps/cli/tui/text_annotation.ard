@@ -1,5 +1,6 @@
 use ard/testing
 
+use go:strconv
 use go:strings
 
 // Comments on selected text (ADR 0070): the text the model gets for a
@@ -36,10 +37,31 @@ struct Quote {
   cut: Bool,
 }
 
+// A line break the other clients count as one, spelled for Go to unquote:
+// NEL, LINE SEPARATOR and PARAGRAPH SEPARATOR.
+private fn breaks() [Str] {
+  let found = &mut List::new<Str>()
+  for spelled in ["\"\\u0085\"", "\"\\u2028\"", "\"\\u2029\""] {
+    match strconv::Unquote(spelled) {
+      ok(value) => found.push(value),
+      err(_) => (),
+    }
+  }
+  found.*
+}
+
+// text with every kind of line break as "\n".
+fn normalized_newlines(text: Str) Str {
+  mut result = strings::ReplaceAll(strings::ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+  for value in breaks() {
+    result = strings::ReplaceAll(result, value, "\n")
+  }
+  result
+}
+
+// The quote is cut at a Unicode scalar boundary, as every client cuts it.
 fn trimmed_quote(quote: Str) Quote {
-  let text = strings::TrimSpace(
-    strings::ReplaceAll(strings::ReplaceAll(quote, "\r\n", "\n"), "\r", "\n"),
-  )
+  let text = strings::TrimSpace(normalized_newlines(quote))
   match text.size() > max_quote_bytes {
     // Cutting inside a character leaves its first bytes, which aren't valid
     // UTF-8 alone, so they go too.
@@ -53,12 +75,12 @@ fn block(number: Int, item: Annotation) Str {
   // A comment's later lines are indented, so none can pass for a line of
   // the block.
   let comment = strings::ReplaceAll(
-    strings::ReplaceAll(strings::TrimSpace(item.comment), "\r\n", "\n"),
+    strings::TrimSpace(normalized_newlines(item.comment)),
     "\n",
     "\n  ",
   )
   let source_lines = &mut List::new<Str>()
-  for line in strings::Split(strings::ReplaceAll(item.source, "\r", "\n"), "\n") {
+  for line in strings::Split(normalized_newlines(item.source), "\n") {
     if line != "" {
       source_lines.push(line)
     }
@@ -179,12 +201,15 @@ private fn parse_block(text: Str, number: Int) Parsed? {
                       },
                     )
                   }
+                  let plain = strings::TrimPrefix(after_source, "Text:\n")
+                  let cut_quote = strings::TrimPrefix(after_source, cut_head)
+                  // A quote over the limit isn't one a client wrote.
                   match {
-                    strings::HasPrefix(after_source, "Text:\n") => {
-                      parsed(strings::TrimPrefix(after_source, "Text:\n"), false)
+                    strings::HasPrefix(after_source, "Text:\n") and plain.size() <= max_quote_bytes => {
+                      parsed(plain, false)
                     },
-                    strings::HasPrefix(after_source, cut_head) => {
-                      parsed(strings::TrimPrefix(after_source, cut_head), true)
+                    strings::HasPrefix(after_source, cut_head) and cut_quote.size() <= max_quote_bytes => {
+                      parsed(cut_quote, true)
                     },
                     _ => none,
                   }
@@ -206,19 +231,24 @@ private fn parse_blocks(text: Str) [Sent]? {
   mut failed = false
   mut done = false
   while (not failed) and not done {
-    match parse_block(rest, sent.size() + 1) {
-      parsed => {
-        sent.push(parsed.sent)
-        rest = rest.slice(parsed.end, rest.size()).or("")
-        if strings::TrimSpace(rest) == "" {
-          done = true
-        } else if strings::HasPrefix(rest, "\n\n") {
-          rest = rest.slice(2, rest.size()).or("")
-        } else {
-          failed = true
-        }
-      },
-      _ => { failed = true },
+    // More blocks than a message holds aren't ones a client wrote.
+    if sent.size() >= limit {
+      failed = true
+    } else {
+      match parse_block(rest, sent.size() + 1) {
+        parsed => {
+          sent.push(parsed.sent)
+          rest = rest.slice(parsed.end, rest.size()).or("")
+          if strings::TrimSpace(rest) == "" {
+            done = true
+          } else if strings::HasPrefix(rest, "\n\n") {
+            rest = rest.slice(2, rest.size()).or("")
+          } else {
+            failed = true
+          }
+        },
+        _ => { failed = true },
+      }
     }
   }
   match failed {

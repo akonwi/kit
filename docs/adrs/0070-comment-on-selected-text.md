@@ -78,13 +78,15 @@ Text:
   that nonce closes the block, so words that imitate the fence don't end it.
 - `From:` names the source as a person reads it: "Assistant reply",
   "Your message", "Tool output · …", "Scratchpad".
-- The words are kept to 4 KiB, cut at a character boundary, and say so
-  (`Text, cut to 4 KiB:`). A message holds up to 16 text comments.
+- The words are kept to 4 KiB, cut at a Unicode scalar boundary, and say
+  so (`Text, cut to 4 KiB:`). A message holds up to 16 text comments.
+- Every kind of line break in a comment becomes a new, indented line.
 
 The terminal, browser and Apple clients read the same blocks, held to the
 fixtures in `testdata/text-annotations`. The Apple clients share one reader
-and writer in `KitTranscript`. Blocks that are malformed, or are followed by
-more text, are left in the message as written.
+and writer in `KitTranscript`. Blocks that are malformed, more than 16, hold
+words over 4 KiB, or are followed by more text are left in the message as
+written.
 
 ### How clients show them
 
