@@ -73,15 +73,19 @@ struct FileScreen: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { header }
                     .sharedBackgroundVisibility(.hidden)
+                // Find and the menu share one glass group.
                 if reader.text?.content.isEmpty == false {
                     ToolbarItem(placement: .topBarTrailing) { findButton }
-                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
+                ToolbarItem(placement: .topBarTrailing) { viewMenu }
+            }
+            // Preview and Source get a row of their own, so the name keeps
+            // the bar's width.
+            .safeAreaBar(edge: .top, spacing: 0) {
                 if markdown && reader.image == nil {
-                    ToolbarItem(placement: .topBarTrailing) { PreviewSourceSwitch(source: $source) }
-                        .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .topBarTrailing) { viewMenu }
+                    PreviewSourceSwitch(source: $source)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
                 }
             }
             .safeAreaBar(edge: .bottom, spacing: 0) {
@@ -251,7 +255,10 @@ struct FileScreen: View {
 
     private var viewMenu: some View {
         Menu {
-            Toggle("Wrap lines", systemImage: "text.word.spacing", isOn: $wrapLines)
+            // Markdown's source always wraps.
+            if !markdown {
+                Toggle("Wrap lines", systemImage: "text.word.spacing", isOn: $wrapLines)
+            }
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } }
                 .disabled(reader.loading)
         } label: {
@@ -430,7 +437,8 @@ struct FilePreviewBlocks: View {
     }
 }
 
-/// Preview and Source for a Markdown file, as two capsules in a track.
+/// Preview and Source for a Markdown file, as two equal capsules in a
+/// track the width of the screen.
 private struct PreviewSourceSwitch: View {
     @Binding var source: Bool
 
@@ -440,9 +448,8 @@ private struct PreviewSourceSwitch: View {
             segment("Source", selected: source) { source = true }
         }
         .padding(2)
-        .frame(height: 36)
+        .frame(height: 32)
         .background(Theme.hover, in: Capsule())
-        .fixedSize()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("markdown-mode")
     }
@@ -452,8 +459,7 @@ private struct PreviewSourceSwitch: View {
             Text(title)
                 .font(.system(size: 14, weight: selected ? .semibold : .regular))
                 .foregroundStyle(Theme.text)
-                .padding(.horizontal, 12)
-                .frame(maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background {
                     if selected {
                         Capsule().fill(Theme.surface)
