@@ -12,6 +12,7 @@ import { Icon, Spinner } from "../ui/icons";
 import { ReplyAttachments, SentAttachments } from "./AttachmentViews";
 import type { Row, ToolCall } from "./projection";
 import { type ShellRun, shellStatus } from "./shell";
+import { type SentTextComment, splitTextComments } from "./textComments";
 import { formatDuration, presentTool } from "./tools";
 
 /** A clock that ticks every second while anything reads it. */
@@ -36,8 +37,10 @@ export function TranscriptRow(props: { row: Row; last: boolean }) {
   const caption = useContext(UserCaptionContext);
   switch (row.kind) {
     case "user": {
-      // Diagram comments ride after the message's own text.
-      const sent = splitAnnotations(row.text);
+      // Diagram comments, then comments on selected text, ride after the
+      // message's own text.
+      const commented = splitTextComments(row.text);
+      const sent = splitAnnotations(commented.text);
       return (
         <div class="message user">
           <Show when={caption}>
@@ -63,6 +66,7 @@ export function TranscriptRow(props: { row: Row; last: boolean }) {
               </For>
             </ul>
           </Show>
+          <TextComments comments={commented.comments} />
         </div>
       );
     }
@@ -121,6 +125,46 @@ export function TranscriptRow(props: { row: Row; last: boolean }) {
         </div>
       );
   }
+}
+
+/**
+ * The comments on selected text a message carried (ADR 0070), closed under
+ * a count. Open, each shows where its words came from, the words, and the
+ * comment.
+ */
+export function TextComments(props: { comments: SentTextComment[] }) {
+  return (
+    <Show when={props.comments.length > 0}>
+      <details class="text-comments">
+        <summary>
+          <Icon name="chevRight" size={12} />
+          <Icon name="comment" size={16} />
+          {textCommentsTitle(props.comments)}
+        </summary>
+        <ul class="text-comment-list">
+          <For each={props.comments}>
+            {(comment) => (
+              <li class="text-comment">
+                <span class="text-comment-source">{comment.source}</span>
+                <blockquote
+                  class="text-comment-quote"
+                  classList={{ mono: comment.source.startsWith("Tool output") }}
+                >
+                  {comment.cut ? `${comment.quote}…` : comment.quote}
+                </blockquote>
+                <p class="text-comment-body">{comment.comment}</p>
+              </li>
+            )}
+          </For>
+        </ul>
+      </details>
+    </Show>
+  );
+}
+
+/** "1 comment", "2 comments". */
+export function textCommentsTitle(comments: SentTextComment[]): string {
+  return `${comments.length} ${comments.length === 1 ? "comment" : "comments"}`;
 }
 
 /**
