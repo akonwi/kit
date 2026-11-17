@@ -166,8 +166,6 @@ struct Controller {
   bash_admission: Admission?,
   // Escape asked to stop a run that was still starting.
   bash_abort_requested: Bool,
-  // The last reported failure to follow a run, so retries do not repeat it.
-  bash_failure: Str,
   // Bash rows whose output is folded, by execution ID.
   folded_bash: [Str: Bool],
   // Plugin messages shown in full, by turn ID.
@@ -364,7 +362,6 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     bash_id: "",
     bash_admission: Maybe::new<Admission>(),
     bash_abort_requested: false,
-    bash_failure: "",
     folded_bash: [:],
     expanded_plugins: [:],
     expanded_notes: [:],
@@ -690,14 +687,16 @@ impl Controller {
       // content and must not replace it.
       if snapshot.ActiveTurnID == "" or not self.live.blocks_snapshot_replacement() {
         let running = self.running_bash()
+        let settled = self.settled_bash_runs()
         // Finished runs the model has not seen yet are records at the end of
-        // the snapshot transcript.
+        // the snapshot transcript; the commands it doesn't record, from any
+        // client, are placed where they started.
         let merged = transcript::merge_snapshot(
           self.messages,
-          transcript::project(snapshot.Messages),
+          transcript::project_snapshot(snapshot),
         )
         self.messages = merged.messages
-        // A running command is not in the snapshot until it settles.
+        // A command that started after the snapshot was taken isn't in it.
         match running {
           row => {
             if not lists_bash(self.messages, self.bash_id) {
@@ -705,6 +704,22 @@ impl Controller {
             }
           },
           _ => (),
+        }
+        // A lagging snapshot may list a command the stream already settled as
+        // running; it stays settled.
+        for run in settled {
+          for message in self.messages {
+            if transcript::shows_bash(message, run.ID) and message.pending {
+              self.place_bash(run)
+            }
+          }
+        }
+        // A settled row means the command's bash.completed was seen or is in
+        // the snapshot.
+        if snapshot.ActiveBashExecutionID != "" and not self.bash_settled(snapshot.ActiveBashExecutionID) {
+          self.bash_id = snapshot.ActiveBashExecutionID
+        } else if self.bash_settled(self.bash_id) {
+          self.bash_id = ""
         }
         if not merged.preserved {
           self.reset_history(snapshot)
@@ -793,6 +808,18 @@ impl Controller {
       // another client ran.
       if event.Kind == "boundary.created" and not unsafe::is_nil(event.Bash) {
         self.show_bash(event.Bash.*)
+      }
+      // Every client's shell commands, including those kept from the model,
+      // start and settle on the stream (ADR 0072).
+      if event.Kind == "bash.started" and not unsafe::is_nil(event.Bash) {
+        let started = event.Bash.*
+        if not self.bash_settled(started.ID) {
+          self.bash_id = started.ID
+        }
+        self.show_bash(started)
+      }
+      if event.Kind == "bash.completed" and not unsafe::is_nil(event.Bash) {
+        self.settle_bash(event.Bash.*)
       }
       if event.Kind == "session.cwd.changed" and event.CWD != "" {
         self.follow_cwd(event.CWD)
@@ -1354,9 +1381,46 @@ impl Controller {
     found
   }
 
+  // The settled commands shown.
+  private fn settled_bash_runs() [sessionbridge::Bash] {
+    let runs = &mut List::new<sessionbridge::Bash>()
+    for message in self.transcript_messages() {
+      match message.bash {
+        run => {
+          if message.role == transcript::Role::bash and not message.pending {
+            runs.push(run)
+          }
+        },
+        _ => (),
+      }
+    }
+    runs.*
+  }
+
+  // Whether a row shows command id settled.
+  private fn bash_settled(id: Str) Bool {
+    mut settled = false
+    if id != "" {
+      for message in self.transcript_messages() {
+        if transcript::shows_bash(message, id) and not message.pending {
+          settled = true
+        }
+      }
+    }
+    settled
+  }
+
   // Shows the latest state of a shell command: in place when its row is
-  // shown, otherwise after the active turn's rows or the transcript.
+  // shown, otherwise after the active turn's rows or the transcript. A
+  // settled command never shows as running again, since a start's answer
+  // may arrive after the stream reported the command settled.
   fn mut show_bash(run: sessionbridge::Bash) {
+    if not run.Running() and self.bash_settled(run.ID) {
+      self.place_bash(run)
+    }
+  }
+
+  private fn mut place_bash(run: sessionbridge::Bash) {
     let row = transcript::bash_message(run)
     mut replaced = false
     // A shown row keeps its own identity, which may be a history message ID.
@@ -1575,7 +1639,7 @@ impl Controller {
                       if self.active {
                         self.bash_starting = false
                         match started {
-                          ok(execution) => self.adopt_bash(session, ctx, execution),
+                          ok(execution) => self.adopt_bash(execution),
                           err(failure) => self.reject_bash(session, ctx, admission, failure),
                         }
                       }
@@ -1592,22 +1656,19 @@ impl Controller {
     }
   }
 
-  // Follows a command the server accepted, stopping it when Escape was
-  // pressed while it started.
-  private fn mut adopt_bash(
-    session: &mut api::Session,
-    ctx: context::Context,
-    execution: &mut api::BashExecution,
-  ) {
+  // Shows a command the server accepted, stopping it when Escape was pressed
+  // while it started. The stream reports how it settles.
+  private fn mut adopt_bash(execution: &mut api::BashExecution) {
     self.bash_admission = Maybe::new<Admission>()
-    let id = execution.ID()
-    self.bash_id = id
-    self.show_bash(sessionbridge::BashOf(execution.State()))
+    let run = sessionbridge::BashOf(execution.State())
+    self.show_bash(run)
+    if run.Running() and not self.bash_settled(run.ID) {
+      self.bash_id = run.ID
+    }
     if self.bash_abort_requested {
       self.bash_abort_requested = false
       self.abort_bash()
     }
-    self.follow_bash(session, ctx, id, Maybe::new(execution))
   }
 
   // A command that did not start returns to the composer. A start that was
@@ -1646,92 +1707,11 @@ impl Controller {
     }
   }
 
-  // Picks up a command that was running when this session was attached.
+  // Picks up a command that was running when this session was attached. The
+  // stream reports how it settles.
   private fn mut resume_bash(id: Str) {
-    if id != "" {
-      match self.lifetime {
-        lifetime => {
-          match self.session {
-            session => {
-              self.bash_id = id
-              self.follow_bash(session, lifetime.Context, id, Maybe::new<&mut api::BashExecution>())
-            },
-            _ => (),
-          }
-        },
-        _ => (),
-      }
-    }
-  }
-
-  // Waits for a command to settle. A lost connection is reported once and the
-  // command is looked up again every second until it can be followed.
-  private fn mut follow_bash(
-    session: &mut api::Session,
-    ctx: context::Context,
-    id: Str,
-    known: (&mut api::BashExecution)?,
-  ) {
-    let dispatch = self.host.dispatch
-    async::start(fn() {
-      mut handle = known
-      mut following = true
-      while following {
-        match handle {
-          execution => {
-            match execution.Wait(ctx) {
-              ok(outcome) => {
-                following = false
-                let _ = dispatch(fn() {
-                  if self.active {
-                    self.settle_bash(sessionbridge::BashOf(outcome))
-                  }
-                })
-              },
-              err(failure) => {
-                handle = Maybe::new<&mut api::BashExecution>()
-                following = self.keep_following_bash(ctx, id, "Bash update failed", failure)
-              },
-            }
-          },
-          _ => {
-            match session.Bash(ctx, id) {
-              ok(found) => {
-                let state = found.State()
-                handle = Maybe::new(found)
-                let _ = dispatch(fn() {
-                  if self.active and self.bash_id == id {
-                    self.show_bash(sessionbridge::BashOf(state))
-                  }
-                })
-              },
-              err(failure) => { following = self.keep_following_bash(ctx, id, "Could not resume bash", failure) },
-            }
-          },
-        }
-      }
-    })
-  }
-
-  // Reports a failure to follow command id and waits to retry. Returns false
-  // when following should stop. Called from a follower's goroutine.
-  private fn mut keep_following_bash(ctx: context::Context, id: Str, title: Str, failure: Error) Bool {
-    match contextbridge::Done(ctx) {
-      true => false,
-      false => {
-        let _ = (self.host.dispatch)(
-          fn() {
-            if self.active and self.bash_id == id and (not self.absorbs(failure)) {
-              let reported = "{id}: {title}: {failure.error()}"
-              if reported != self.bash_failure {
-                self.bash_failure = reported
-                (self.host.toast)(title, failure.error(), toast::Variant::error, true)
-              }
-            }
-          },
-        )
-        (not sessionbridge::Incompatible(failure)) and contextbridge::Wait(ctx, 1000)
-      },
+    if id != "" and not self.bash_settled(id) {
+      self.bash_id = id
     }
   }
 
@@ -1739,7 +1719,6 @@ impl Controller {
   fn mut settle_bash(run: sessionbridge::Bash) {
     if self.bash_id == run.ID {
       self.bash_id = ""
-      self.bash_failure = ""
     }
     self.show_bash(run)
   }
@@ -4750,6 +4729,152 @@ test fn command_history_starts_from_the_finished_commands_shown() Void!Str {
   testing::assert(
     commands.size() == 2 and first.ID == "bash_2" and first.Exclude and commands.at(1).expect("older").ID == "bash_1",
     "newest first, without the running command",
+  )
+}
+
+test fn another_clients_command_starts_and_settles_from_the_stream() Void!Str {
+  let effects = &mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["a"], 1),
+    },
+  )
+  let started = &mut run("bash_1", "running")
+  started.Exclude = true
+  subject.apply_events([sessionbridge::Event{Kind: "bash.started", Bash: started}])
+  try testing::assert(
+    shown(subject) == "a bash_1" and subject.messages.at(1).expect("row").pending and subject.bash_id == "bash_1",
+    "a running command from elsewhere keeps the session busy",
+  )
+  try testing::assert(subject.can_abort_bash(), "Escape stops it")
+  let settled = &mut run("bash_1", "completed")
+  settled.Exclude = true
+  settled.Output = "file"
+  subject.apply_events([sessionbridge::Event{Kind: "bash.completed", Bash: settled}])
+  let row = subject.messages.at(1).expect("row")
+  testing::assert(
+    shown(subject) == "a bash_1" and (not row.pending) and row.bash.expect("run").Output == "file" and row.bash.expect("run").Exclude and subject.bash_id == "",
+    "its outcome replaces the row and frees the composer",
+  )
+}
+
+test fn a_start_answered_after_its_command_settled_stays_settled() Void!Str {
+  let effects = &mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_events(
+    [sessionbridge::Event{Kind: "bash.started", Bash: &mut run("bash_1", "running")}],
+  )
+  subject.apply_events(
+    [sessionbridge::Event{Kind: "bash.completed", Bash: &mut run("bash_1", "completed")}],
+  )
+  subject.show_bash(run("bash_1", "running"))
+  subject.resume_bash("bash_1")
+  testing::assert(
+    bash_ids(subject.messages) == "bash_1" and (not subject.messages.at(0).expect("row").pending) and subject.bash_id == "",
+    "the late answer neither shows it running nor holds the composer",
+  )
+}
+
+test fn a_snapshot_places_unrecorded_commands_where_they_started() Void!Str {
+  let effects = &mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  let messages = &mut List::new<protocol::TranscriptMessage>()
+  for message, index in transcript_messages(["a", "b"], 1) {
+    mut created = message
+    created.CreatedAt = "2026-01-01T00:00:0{index * 2 + 1}Z"
+    messages.push(created)
+  }
+  subject.bash_id = "bash_0"
+  subject.show_bash(run("bash_0", "running"))
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: messages.*,
+      ActiveBashExecutionID: "bash_2",
+      BashExecutions: [
+        protocol::BashExecution{
+          ID: "bash_0",
+          SessionID: "session-1",
+          Sequence: 0,
+          Command: "ls",
+          Status: protocol::BashExecutionAborted,
+          ErrorMessage: "aborted",
+          StartedAt: "2026-01-01T00:00:00Z",
+          CompletedAt: "2026-01-01T00:00:00Z",
+        },
+        protocol::BashExecution{
+          ID: "bash_1",
+          SessionID: "session-1",
+          Sequence: 1,
+          Command: "ls",
+          Status: protocol::BashExecutionCompleted,
+          ExcludeFromContext: true,
+          StartedAt: "2026-01-01T00:00:02Z",
+          CompletedAt: "2026-01-01T00:00:02Z",
+        },
+        protocol::BashExecution{
+          ID: "bash_2",
+          SessionID: "session-1",
+          Sequence: 2,
+          Command: "sleep 9",
+          Status: protocol::BashExecutionRunning,
+          StartedAt: "2026-01-01T00:00:04Z",
+        },
+      ],
+    },
+  )
+  testing::assert(
+    shown(subject) == "bash_0 a bash_1 b bash_2" and subject.bash_id == "bash_2" and subject.messages.at(4).expect("row").pending,
+    "got {shown(subject)} with {subject.bash_id} running",
+  )
+}
+
+test fn a_lagging_snapshot_does_not_restart_a_settled_command() Void!Str {
+  let effects = &mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_events(
+    [sessionbridge::Event{Kind: "bash.started", Bash: &mut run("bash_1", "running")}],
+  )
+  subject.apply_events(
+    [sessionbridge::Event{Kind: "bash.completed", Bash: &mut run("bash_1", "completed")}],
+  )
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      ActiveBashExecutionID: "bash_1",
+      BashExecutions: [
+        protocol::BashExecution{
+          ID: "bash_1",
+          SessionID: "session-1",
+          Sequence: 1,
+          Command: "ls",
+          Status: protocol::BashExecutionRunning,
+          StartedAt: "2026-01-01T00:00:00Z",
+        },
+      ],
+    },
+  )
+  testing::assert(
+    bash_ids(subject.messages) == "bash_1" and (not subject.messages.at(0).expect("row").pending) and subject.bash_id == "",
+    "the command stays settled and the composer free",
   )
 }
 

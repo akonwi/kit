@@ -194,8 +194,18 @@ fn shows_bash(message: Message, id: Str) Bool {
 // Projects persisted transcript messages into displayable messages, skipping
 // messages with no displayable content.
 fn project(messages: [protocol::TranscriptMessage]) [Message] {
+  project_sources(sessionbridge::Messages(messages))
+}
+
+// Projects a snapshot's transcript with the shell commands it lists but
+// doesn't record, each after the last message created before it started.
+fn project_snapshot(snapshot: protocol::SessionSnapshot) [Message] {
+  project_sources(sessionbridge::SnapshotMessages(snapshot.Messages, snapshot.BashExecutions))
+}
+
+private fn project_sources(sources: [sessionbridge::Message]) [Message] {
   let result = &mut List::new<Message>()
-  for source in sessionbridge::Messages(messages) {
+  for source in sources {
     let text_parts = &mut List::new<Str>()
     let thinking_parts = &mut List::new<Str>()
     let calls = &mut List::new<ToolCall>()
@@ -248,7 +258,7 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
     if text == "" and source.ErrorMessage != "" {
       text = source.ErrorMessage
     }
-    let empty = strings::TrimSpace(text) == "" and strings::TrimSpace(thinking) == "" and source.ToolName == "" and calls.size() == 0 and source.Content.size() == 0 and attached.size() == 0
+    let empty = strings::TrimSpace(text) == "" and strings::TrimSpace(thinking) == "" and source.ToolName == "" and calls.size() == 0 and source.Content.size() == 0 and attached.size() == 0 and unsafe::is_nil(source.Bash)
     if not empty {
       let kind = role(source.Role)
       let projected = &mut message(source.ID, source.TurnID, kind)
@@ -277,6 +287,7 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
       if not unsafe::is_nil(source.Bash) {
         let run = source.Bash.*
         projected.text = run.Command
+        projected.pending = run.Running()
         projected.bash = Maybe::new(run)
       }
       result.push(projected.*)

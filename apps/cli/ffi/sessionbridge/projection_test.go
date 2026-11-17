@@ -183,3 +183,50 @@ func TestToolCallsCarryTheirArgumentsAndResultsTheirDetails(t *testing.T) {
 		t.Fatalf("events = %+v, want the arguments and details", events)
 	}
 }
+
+func TestEventsProjectsShellCommandsFromAnyClient(t *testing.T) {
+	code := 1
+	running := protocol.BashExecution{ID: "bash_1", SessionID: "session_test", Command: "make", Status: protocol.BashExecutionRunning, ExcludeFromContext: true, StartedAt: "2026-01-01T00:00:00Z"}
+	settled := running
+	settled.Status, settled.Output, settled.ExitCode, settled.CompletedAt = protocol.BashExecutionCompleted, "fail", &code, "2026-01-01T00:00:01Z"
+	projected := Events([]protocol.SessionEvent{
+		{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: protocol.BashStartedEvent{BashExecution: &running}},
+		{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", Payload: protocol.UnrecognizedSessionEvent{Kind: "widget.spun"}},
+		{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", Payload: protocol.BashCompletedEvent{BashExecution: &settled}},
+	})
+	want := []Event{
+		{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Kind: "bash.started", Bash: &Bash{ID: "bash_1", Command: "make", Status: "running", Exclude: true}},
+		{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", Kind: "bash.completed", Bash: &Bash{ID: "bash_1", Command: "make", Status: "completed", ExitCode: 1, HasExitCode: true, Exclude: true, Output: "fail"}},
+	}
+	if !reflect.DeepEqual(projected, want) {
+		t.Fatalf("Events() = %+v\nwant %+v", projected, want)
+	}
+}
+
+func TestSnapshotMessagesPlacesCommandsByStartTime(t *testing.T) {
+	message := func(id, createdAt string) protocol.TranscriptMessage {
+		return protocol.TranscriptMessage{ID: id, TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock(id)}, CreatedAt: createdAt}
+	}
+	execution := func(id string, sequence int64, startedAt string) protocol.BashExecution {
+		return protocol.BashExecution{ID: id, SessionID: "session_test", Sequence: sequence, Command: "ls", Status: protocol.BashExecutionCompleted, ExcludeFromContext: true, StartedAt: startedAt, CompletedAt: startedAt}
+	}
+	projected := SnapshotMessages(
+		[]protocol.TranscriptMessage{message("message_1", "2026-01-01T00:00:01Z"), message("message_2", "2026-01-01T00:00:03Z")},
+		[]protocol.BashExecution{
+			execution("bash_1", 1, "2026-01-01T00:00:00Z"),
+			execution("bash_2", 2, "2026-01-01T00:00:02Z"),
+			execution("bash_3", 3, "2026-01-01T00:00:04Z"),
+		},
+	)
+	var order []string
+	for _, message := range projected {
+		order = append(order, message.Role+":"+message.ID)
+	}
+	want := []string{"bash:bash_1", "user:message_1", "bash:bash_2", "user:message_2", "bash:bash_3"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("SnapshotMessages() order = %v; want %v", order, want)
+	}
+	if projected[2].Bash == nil || !projected[2].Bash.Exclude {
+		t.Fatalf("placed command = %+v; want its excluded run", projected[2])
+	}
+}

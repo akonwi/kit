@@ -1,6 +1,10 @@
 package sessionbridge
 
-import protocol "github.com/akonwi/kit/api/contract"
+import (
+	"time"
+
+	protocol "github.com/akonwi/kit/api/contract"
+)
 
 // Event is the client-owned flat projection of one canonical session event.
 // It keeps Ard rendering code independent of protocol union representation.
@@ -49,7 +53,8 @@ type Event struct {
 	// event reports.
 	SubagentConversationID string
 	// Bash is the run a boundary.created event records when the boundary is
-	// a composer command.
+	// a composer command, and the command a bash.started or bash.completed
+	// event carries.
 	Bash *Bash
 	// SessionName is the session's new name after session.name.changed.
 	SessionName string
@@ -109,6 +114,10 @@ type Message struct {
 func Events(source []protocol.SessionEvent) []Event {
 	result := make([]Event, 0, len(source))
 	for _, event := range source {
+		// Kinds this protocol doesn't declare change nothing shown (ADR 0072).
+		if _, unrecognized := event.Payload.(protocol.UnrecognizedSessionEvent); unrecognized {
+			continue
+		}
 		projected := Event{StreamID: event.StreamID, Sequence: event.Sequence, SessionID: event.SessionID, TurnID: event.TurnID, Kind: string(event.Kind())}
 		switch payload := event.Payload.(type) {
 		case protocol.UserMessageAddedEvent:
@@ -182,6 +191,16 @@ func Events(source []protocol.SessionEvent) []Event {
 			projected.FollowUps = payload.FollowUps
 		case protocol.SubagentChangedEvent:
 			projected.SubagentConversationID = payload.SubagentConversationID
+		case protocol.BashStartedEvent:
+			if payload.BashExecution != nil {
+				bash := BashOf(*payload.BashExecution)
+				projected.Bash = &bash
+			}
+		case protocol.BashCompletedEvent:
+			if payload.BashExecution != nil {
+				bash := BashOf(*payload.BashExecution)
+				projected.Bash = &bash
+			}
 		case protocol.BoundaryCreatedEvent:
 			if bash, ok := bashBoundary(payload.BoundaryID, payload.BoundaryKind, payload.BoundarySource, payload.Content, payload.Details); ok {
 				projected.Bash = &bash
@@ -214,6 +233,41 @@ func Messages(source []protocol.TranscriptMessage) []Message {
 		result = append(result, projected)
 	}
 	return result
+}
+
+// SnapshotMessages projects a snapshot's transcript with the shell commands it
+// lists but doesn't record. Each command is a "bash" message placed after the
+// last message created before it started.
+func SnapshotMessages(source []protocol.TranscriptMessage, executions []protocol.BashExecution) []Message {
+	messages := Messages(source)
+	result := make([]Message, 0, len(messages)+len(executions))
+	next := 0
+	place := func(before string) {
+		for ; next < len(executions); next++ {
+			if before != "" && !startedBefore(executions[next].StartedAt, before) {
+				return
+			}
+			bash := BashOf(executions[next])
+			result = append(result, Message{ID: bash.ID, Role: "bash", Bash: &bash})
+		}
+	}
+	for index, message := range messages {
+		place(source[index].CreatedAt)
+		result = append(result, message)
+	}
+	place("")
+	return result
+}
+
+// startedBefore reports whether a command that started at started began before
+// a message created at created. Unparseable times sort the command last.
+func startedBefore(started, created string) bool {
+	start, err := time.Parse(time.RFC3339Nano, started)
+	if err != nil {
+		return false
+	}
+	creation, err := time.Parse(time.RFC3339Nano, created)
+	return err == nil && start.Before(creation)
 }
 
 func content(source []protocol.TranscriptContent) []Content {
