@@ -1277,7 +1277,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         let input = WireAttachmentResolutionInput(attachmentIds: ids)
         let body: Components.Schemas.AttachmentResolutionInput = try generated(input, as: Components.Schemas.AttachmentResolutionInput.self)
         let output = try await api.resolveAttachments(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body))
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let result: WireAttachmentResolution = try generated(try response.body.json, as: WireAttachmentResolution.self)
         let found = result.attachments ?? []
         let returned = found.map(\.id) + (result.missingAttachmentIds ?? [])

@@ -20,10 +20,14 @@ import ImageIO
     }
     public enum Failure: LocalizedError {
         case unavailable, invalidImage
+        /// The server refused the download or answered it wrongly.
+        case notLoaded(image: Bool)
         public var errorDescription: String? {
             switch self {
             case .unavailable: return "Attachment unavailable"
             case .invalidImage: return "Image preview unavailable"
+            case .notLoaded(image: true): return "Couldn’t load the image"
+            case .notLoaded(image: false): return "Couldn’t load the attachment"
             }
         }
     }
@@ -37,9 +41,12 @@ import ImageIO
     public func load(_ reference: TranscriptAttachment) async throws -> Content {
         guard let id = reference.id, !id.isEmpty else { throw Failure.unavailable }
         if let content = cache.object(forKey: id as NSString) { return content }
-        let resolved = try await client.resolveAttachments(session, ids: [id])
-        guard let info = resolved.attachments?.first(where: { $0.id == id }) else { throw Failure.unavailable }
-        let data = try await client.attachmentContent(session, info: info)
+        let image = reference.isImage || reference.mediaType?.hasPrefix("image/") == true
+        let (info, data) = try await Self.notLoaded(image: image) {
+            let resolved = try await client.resolveAttachments(session, ids: [id])
+            guard let info = resolved.attachments?.first(where: { $0.id == id }) else { throw Failure.unavailable }
+            return (info, try await client.attachmentContent(session, info: info))
+        }
         try Task.checkCancellation()
         let decoded = await Task.detached(priority: .utility) {
             var image: CGImage?
@@ -61,5 +68,20 @@ import ImageIO
         let cost = data.count + (decoded.0.map { $0.bytesPerRow * $0.height } ?? 0)
         cache.setObject(result, forKey: id as NSString, cost: cost)
         return result
+    }
+
+    /// Runs a download, reporting a refused or malformed response as
+    /// `Failure.notLoaded`. A closed connection or sign-in failure keeps its
+    /// own error, which says what to do.
+    private static func notLoaded<T>(image: Bool, _ download: () async throws -> T) async throws -> T {
+        do { return try await download() }
+        catch let error as ClientError {
+            switch error {
+            case .invalidPayload, .oversized, .http: break
+            default: throw error
+            }
+            if case .http(let status) = error, status == 401 || status == 403 { throw error }
+            throw Failure.notLoaded(image: image)
+        }
     }
 }

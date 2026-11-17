@@ -19,7 +19,33 @@ private final class AttachmentResponse: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+/// The server refuses to resolve attachments, as it did for an image
+/// show_image stored over the model-image limits.
+private final class ResolveRefusal: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        #expect(request.url?.path == "/v1/sessions/session_test/attachments/resolve")
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"error":{"code":"internal","message":"internal server error"}}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 struct TranscriptAttachmentTests {
+    @Test func aRefusedResolutionKeepsItsStatus() async throws {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ResolveRefusal.self]
+        let client = try HTTPClient(endpoint: URL(string: "http://127.0.0.1:19411")!, token: "test", instance: "test", serverID: "test", configuration: config)
+        do {
+            _ = try await client.resolveAttachments("session_test", ids: ["attachment_test"])
+            Issue.record("A refused resolution succeeded")
+        } catch {
+            #expect(error.localizedDescription == ClientError.http(500).localizedDescription)
+        }
+    }
+
     @Test func downloadsAuthenticateAndValidateIdentitySizeAndDigest() async throws {
         let info = WireAttachmentInfo(id: "attachment_test", sessionId: "session_test", filename: "note.txt",
             mediaType: "text/plain", size: 5, sha256: SHA256.hash(data: Data("hello".utf8)).map { String(format: "%02x", $0) }.joined(),
@@ -57,11 +83,15 @@ private actor AttachmentFixtureClient: AttachmentClient {
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
     func resolveAttachments(_ session: String, ids: [String]) async throws -> WireAttachmentResolution {
         if ids == ["missing"] { return .init(attachments: [], missingAttachmentIds: ids) }
+        if ids == ["refused"] { throw ClientError.http(500) }
+        if ids == ["closed"] { throw ClientError.disconnected }
+        if ids == ["signed-out"] { throw ClientError.http(401) }
         return .init(attachments: [.init(id: ids[0], sessionId: session, filename: "long.txt", mediaType: "text/plain",
             size: Int64(data.count), sha256: "", createdAt: "now", width: nil, height: nil)], missingAttachmentIds: [])
     }
     func attachmentContent(_ session: String, info: WireAttachmentInfo) async throws -> Data {
         #expect(info.sessionId == session)
+        if info.id == "malformed" { throw ClientError.invalidPayload }
         reads += 1
         return data
     }
@@ -84,5 +114,23 @@ extension TranscriptAttachmentTests {
         await #expect(throws: TranscriptAttachmentStore.Failure.self) {
             _ = try await store.load(.init(id: "missing", filename: "gone.png", mediaType: "image/png", isImage: true))
         }
+    }
+}
+
+extension TranscriptAttachmentTests {
+    /// The card shows the error's description beside Retry.
+    @MainActor @Test func aFailedDownloadSaysTheAttachmentDidNotLoad() async throws {
+        let store = TranscriptAttachmentStore(client: AttachmentFixtureClient(), session: "session_a")
+        func failure(_ id: String, image: Bool) async -> String? {
+            do {
+                _ = try await store.load(.init(id: id, filename: "Explore · shell commands@2x.png", mediaType: image ? "image/png" : "text/plain", isImage: image))
+                return nil
+            } catch { return error.localizedDescription }
+        }
+        #expect(await failure("refused", image: true) == "Couldn’t load the image")
+        #expect(await failure("malformed", image: false) == "Couldn’t load the attachment")
+        #expect(await failure("closed", image: true) == "The server connection closed.")
+        #expect(await failure("signed-out", image: true) == "Server authentication failed. Reconnect to refresh credentials.")
+        #expect(await failure("missing", image: true) == "Attachment unavailable")
     }
 }
