@@ -29,8 +29,8 @@ output, without that output entering the model's context.
 The session's live event stream already reaches every attached client in
 order, resumes from a cursor, and tells a client that has fallen behind its
 retained events to resynchronize from a snapshot. The session event union is
-closed for a protocol version (ADR 0032), and clients decode snapshots
-strictly.
+closed for a protocol version (ADR 0032), and the Go client rejects session
+events and snapshot members it doesn't know.
 
 ## Decision
 
@@ -76,7 +76,9 @@ of them when the snapshot includes the whole transcript, keeping only the 32
 most recent. They are in sequence order and carry their output.
 
 Persisted sessions read the list from durable shell history, and temporary
-sessions read it from memory.
+sessions read it from memory. History records an included command that
+settled without joining the conversation as `interrupted`, so the list keeps
+it after a restart.
 
 ### Reconnecting and recovering from gaps
 
@@ -135,10 +137,11 @@ of top-level snapshot members:
 - A client skips a session event whose kind it doesn't know. It still checks
   the event's common fields (`streamId`, `sequence`, `sessionId`) and its place
   in the batch, so its cursor advances past the event and the stream continues.
-  An event of a kind the client knows is still decoded strictly: an unknown
-  field, or a field that kind doesn't carry, is a protocol violation.
-- A client ignores a top-level snapshot member it doesn't know. Members it
-  knows, and every record inside them, are still decoded strictly.
+- A client ignores a top-level snapshot member it doesn't know.
+
+This doesn't change how a client decodes the event kinds and snapshot members
+it knows. The Go client still rejects an unknown field in them, or a field the
+kind doesn't carry.
 
 A server can therefore add a session event kind, or a top-level snapshot
 member, without a protocol change. Changing an existing kind's fields, or

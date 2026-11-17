@@ -1415,7 +1415,8 @@ impl Controller {
   // settled command never shows as running again, since a start's answer
   // may arrive after the stream reported the command settled.
   fn mut show_bash(run: sessionbridge::Bash) {
-    if not run.Running() and self.bash_settled(run.ID) {
+    let stale = run.Running() and self.bash_settled(run.ID)
+    if not stale {
       self.place_bash(run)
     }
   }

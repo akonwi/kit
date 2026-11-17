@@ -97,13 +97,27 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 	if m.sessionDeleting(sessionID) {
 		return BashExecution{}, ErrDeleteBusy
 	}
+	execution, started, err := m.admitBash(ctx, loaded, sessionID, executionID, command, exclude)
+	if err != nil || !started {
+		return execution, err
+	}
+	// The start is announced under the runtime's lock, which the command's
+	// completion also takes, so bash.started precedes its bash.completed.
+	publishBash(loaded.events, EventBashStarted, execution)
+	return execution, nil
+}
+
+// admitBash returns the session's existing execution with executionID, or
+// starts command as a new one and reports that it started. Callers hold
+// loaded.mu.
+func (m *Manager) admitBash(ctx context.Context, loaded *runtime, sessionID, executionID, command string, exclude bool) (BashExecution, bool, error) {
 	cwd := loaded.workspace.CWD()
 	m.bashMu.Lock()
 	defer m.bashMu.Unlock()
 	if m.bashHistoryRepository != nil && m.bashNextSequence[sessionID] == 0 {
 		persisted, err := m.bashHistoryRepository.ListBashHistory(ctx, sessionID)
 		if err != nil {
-			return BashExecution{}, err
+			return BashExecution{}, false, err
 		}
 		for _, execution := range persisted {
 			if execution.Sequence >= m.bashNextSequence[sessionID] {
@@ -114,55 +128,55 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 	if history := m.bashHistory[sessionID]; history != nil {
 		if existing, ok := history[executionID]; ok {
 			if existing.Command != command || existing.ExcludeFromContext != exclude {
-				return BashExecution{}, fmt.Errorf("%w: bash execution id was reused", ErrInvalidInput)
+				return BashExecution{}, false, fmt.Errorf("%w: bash execution id was reused", ErrInvalidInput)
 			}
-			return existing, nil
+			return existing, false, nil
 		}
 	}
 	if m.bashHistoryRepository != nil {
 		persisted, err := m.bashHistoryRepository.ListBashHistory(ctx, sessionID)
 		if err != nil {
-			return BashExecution{}, err
+			return BashExecution{}, false, err
 		}
 		for _, execution := range persisted {
 			if execution.ID != executionID {
 				continue
 			}
 			if execution.Command != command || execution.ExcludeFromContext != exclude {
-				return BashExecution{}, fmt.Errorf("%w: bash execution id was reused", ErrInvalidInput)
+				return BashExecution{}, false, fmt.Errorf("%w: bash execution id was reused", ErrInvalidInput)
 			}
 			if m.bashHistory[sessionID] == nil {
 				m.bashHistory[sessionID] = make(map[string]BashExecution)
 			}
 			m.bashHistory[sessionID][executionID] = execution
-			return execution, nil
+			return execution, false, nil
 		}
 	}
 	received, err := loaded.droid.BoundaryReceived(ctx, executionID)
 	if err != nil {
-		return BashExecution{}, err
+		return BashExecution{}, false, err
 	}
 	if received {
-		return BashExecution{}, fmt.Errorf("%w: bash execution %q is already durable in droid history", ErrBashNotAbortable, executionID)
+		return BashExecution{}, false, fmt.Errorf("%w: bash execution %q is already durable in droid history", ErrBashNotAbortable, executionID)
 	}
 	if m.bashActive[sessionID] != nil {
-		return BashExecution{}, fmt.Errorf("%w: session already has an active bash execution", ErrBashBusy)
+		return BashExecution{}, false, fmt.Errorf("%w: session already has an active bash execution", ErrBashBusy)
 	}
 	select {
 	case m.bashSlots <- struct{}{}:
 	case <-ctx.Done():
-		return BashExecution{}, ctx.Err()
+		return BashExecution{}, false, ctx.Err()
 	default:
-		return BashExecution{}, fmt.Errorf("%w: daemon bash capacity is exhausted", ErrBashBusy)
+		return BashExecution{}, false, fmt.Errorf("%w: daemon bash capacity is exhausted", ErrBashBusy)
 	}
 	if m.isClosed() {
 		<-m.bashSlots
-		return BashExecution{}, ErrClosed
+		return BashExecution{}, false, ErrClosed
 	}
 	startedAt := time.Now().UTC()
 	if err := m.touchSessionActivity(ctx, sessionID, startedAt); err != nil {
 		<-m.bashSlots
-		return BashExecution{}, err
+		return BashExecution{}, false, err
 	}
 	sequence := m.bashNextSequence[sessionID]
 	m.bashNextSequence[sessionID] = sequence + 1
@@ -178,10 +192,9 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 	runContext, cancel := context.WithCancelCause(m.bashContext)
 	active := &activeBashExecution{id: executionID, cancel: cancel, runtime: loaded, done: make(chan struct{})}
 	m.bashActive[sessionID] = active
-	publishBash(loaded.events, EventBashStarted, execution)
 	m.bashRuns.Add(1)
 	go m.executeBash(runContext, execution, active)
-	return execution, nil
+	return execution, true, nil
 }
 
 // publishBash appends a bash event for execution to the session's live
@@ -277,22 +290,29 @@ func (m *Manager) executeBash(ctx context.Context, execution BashExecution, acti
 		}
 	}
 	if informErr != nil && historyPersisted {
-		// The session record remains authoritative even if model-context delivery
-		// is interrupted; do not rewrite the durable terminal payload here. The
-		// command never reached the model, so it reads as interrupted here.
+		// The command never reached the model, so it reads as interrupted,
+		// durably too, so snapshots keep listing it after a restart.
 		settled.Status = BashExecutionInterrupted
 		settled.ErrorMessage = "persist bash boundary: " + informErr.Error()
+		if !temporary && m.bashHistoryRepository != nil {
+			if err := m.bashHistoryRepository.MarkBashHistoryInterrupted(context.Background(), settled.SessionID, settled.ID, settled.ErrorMessage); err != nil {
+				settled.ErrorMessage += "; " + err.Error()
+			}
+		}
 	}
-	// The session stops being busy with the command in the same step that
-	// announces it, so its bash.completed precedes the next command's
-	// bash.started.
+	// The session stops being busy with the command in the same step, under
+	// the runtime's lock, that announces it, so its bash.completed precedes
+	// the next command's bash.started and no snapshot sees one without the
+	// other.
+	active.runtime.mu.Lock()
+	defer active.runtime.mu.Unlock()
 	m.bashMu.Lock()
 	m.bashHistory[execution.SessionID][execution.ID] = settled
 	if m.bashActive[execution.SessionID] == active {
 		delete(m.bashActive, execution.SessionID)
 	}
-	publishBash(active.runtime.events, EventBashCompleted, settled)
 	m.bashMu.Unlock()
+	publishBash(active.runtime.events, EventBashCompleted, settled)
 }
 
 // unrecordedBash reports whether the transcript doesn't record execution:

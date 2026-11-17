@@ -75,22 +75,62 @@ except (OSError, json.JSONDecodeError) as error:
 if not isinstance(changes, list) or not any(change.get("level") == 3 for change in changes):
     raise SystemExit("oasdiff failed without reporting an error-level breaking change")
 
-def schemas(path):
+def load(path):
     with open(path, encoding="utf-8") as source:
-        return json.load(source).get("components", {}).get("schemas", {})
+        return json.load(source)
 
-released, current = schemas(sys.argv[2]), schemas(sys.argv[3])
-open_variants = set()
-for name, schema in current.items():
-    if schema.get("x-kit-open-union") is True and released.get(name, {}).get("x-kit-open-union") is True:
-        open_variants.update(variant.get("$ref") for variant in schema.get("oneOf", []))
+released_document, current_document = load(sys.argv[2]), load(sys.argv[3])
+released = released_document.get("components", {}).get("schemas", {})
+current = current_document.get("components", {}).get("schemas", {})
+schema_prefix = "#/components/schemas/"
+
+def resolve(schema):
+    while isinstance(schema, dict) and isinstance(schema.get("$ref"), str) and schema["$ref"].startswith(schema_prefix):
+        schema = current.get(schema["$ref"][len(schema_prefix):])
+    return schema if isinstance(schema, dict) else None
+
+def union_at(schema, segments):
+    """Names the component schema at the response property path, or None."""
+    for segment in segments:
+        schema = resolve(schema)
+        if schema is None:
+            return None
+        if segment in schema.get("properties", {}):
+            schema = schema["properties"][segment]
+        elif segment == "items" and "items" in schema:
+            schema = schema["items"]
+        else:
+            return None
+    reference = schema.get("$ref") if isinstance(schema, dict) else None
+    if not isinstance(reference, str) or not reference.startswith(schema_prefix):
+        return None
+    return reference[len(schema_prefix):]
+
+def variants(schema):
+    return {variant.get("$ref") for variant in schema.get("oneOf", [])}
 
 def open_union_addition(change):
+    """Whether change only adds variants to a union both contracts declare open."""
     if change.get("id") != "response-property-one-of-added":
         return False
     # oasdiff lists every variant one change added, separated by commas.
-    match = re.match(r"added `([^`]+)` to the ", change.get("text", ""))
-    return match is not None and all(ref.strip() in open_variants for ref in match.group(1).split(","))
+    match = re.match(r"added `([^`]+)` to the `([^`]*)` response property `oneOf` list for the response status `(\d+)`$",
+                     change.get("text", ""))
+    if match is None:
+        return False
+    added = {reference.strip() for reference in match.group(1).split(",")}
+    segments = [segment for segment in match.group(2).split("/") if segment]
+    operation = current_document.get("paths", {}).get(change.get("path"), {}).get(str(change.get("operation", "")).lower(), {})
+    content = operation.get("responses", {}).get(match.group(3), {}).get("content", {})
+    if not content:
+        return False
+    for media in content.values():
+        name = union_at(media.get("schema"), segments)
+        if name is None or released.get(name, {}).get("x-kit-open-union") is not True or current[name].get("x-kit-open-union") is not True:
+            return False
+        if not added <= variants(current[name]) - variants(released[name]):
+            return False
+    return True
 
 breaking = False
 for change in changes:

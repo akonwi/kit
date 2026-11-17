@@ -85,6 +85,27 @@ func (s *Store) RecentUnrecordedBashHistory(ctx context.Context, sessionID strin
 		sessionID, session.BashExecutionInterrupted, formatTimestamp(since), limit)
 }
 
+// MarkBashHistoryInterrupted records that a settled execution never joined
+// the conversation, keeping its output.
+func (s *Store) MarkBashHistoryInterrupted(ctx context.Context, sessionID, executionID, message string) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store is closed")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE direct_bash_history SET status = ?, error_message = ?
+		WHERE session_id = ? AND execution_id = ?`,
+		session.BashExecutionInterrupted, message, sessionID, executionID)
+	if err != nil {
+		return fmt.Errorf("mark bash history interrupted: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("mark bash history interrupted: %w", err)
+	} else if rows != 1 {
+		return fmt.Errorf("mark bash history interrupted: execution %q is not recorded", executionID)
+	}
+	return nil
+}
+
 func (s *Store) queryBashHistory(ctx context.Context, query string, arguments ...any) ([]session.BashExecution, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("store is closed")

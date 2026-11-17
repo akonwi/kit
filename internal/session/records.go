@@ -118,6 +118,9 @@ type BashHistoryRepository interface {
 	// executions the transcript doesn't record (excluded from context or
 	// interrupted) that started no earlier than since.
 	RecentUnrecordedBashHistory(ctx context.Context, sessionID string, since time.Time, limit int) ([]BashExecution, error)
+	// MarkBashHistoryInterrupted records that a settled execution never
+	// joined the conversation, keeping its output.
+	MarkBashHistoryInterrupted(ctx context.Context, sessionID, executionID, message string) error
 }
 
 // Repository is the persistence port for Kit's session registry. DeleteSession

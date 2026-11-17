@@ -129,6 +129,42 @@ func TestBashCommandsAnnounceStartAndCompletionInOrder(t *testing.T) {
 	}
 }
 
+// Regression: a completion announced while holding the bash lock deadlocked
+// against a snapshot, which takes the event log before the bash lock.
+func TestSnapshotsDuringCompletionsDoNotDeadlock(t *testing.T) {
+	manager, created := newBashEventManager(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	snapshots := make(chan error, 1)
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				snapshots <- nil
+				return
+			default:
+			}
+			if _, err := manager.Snapshot(ctx, created.ID); err != nil {
+				snapshots <- err
+				return
+			}
+		}
+	}()
+	for index := range 40 {
+		id := fmt.Sprintf("bash_%032x", index+1)
+		execution, err := manager.StartBash(ctx, created.ID, id, "true", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settleBash(t, manager, created.ID, execution)
+	}
+	close(stop)
+	if err := <-snapshots; err != nil {
+		t.Fatalf("Snapshot() = %v", err)
+	}
+}
+
 func TestIncludedBashBoundaryPrecedesItsCompletion(t *testing.T) {
 	manager, created := newBashEventManager(t)
 	before, err := manager.Snapshot(t.Context(), created.ID)
