@@ -1,0 +1,10 @@
+Fix this before the release.
+
+<text-annotation n="1">
+Comment: Back off exponentially, capped at 30 s.
+[UNTRUSTED_SELECTED_TEXT nonce=n0001]
+From: Assistant reply
+Text:
+every 2 seconds with no backoff
+[/UNTRUSTED_SELECTED_TEXT nonce=n0001]
+</text-annotation>

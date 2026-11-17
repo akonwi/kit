@@ -1,0 +1,5 @@
+{
+  "written": false,
+  "text": "Fix this.\n<text-annotation n=\"1\">\nComment: Why?\n[UNTRUSTED_SELECTED_TEXT nonce=n0001]\nFrom: Assistant reply\nText:\nretry\n[/UNTRUSTED_SELECTED_TEXT nonce=n0001]\n</text-annotation>",
+  "comments": []
+}

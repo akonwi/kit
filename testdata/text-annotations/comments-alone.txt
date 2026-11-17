@@ -1,0 +1,8 @@
+<text-annotation n="1">
+Comment: Why here?
+[UNTRUSTED_SELECTED_TEXT nonce=n0001]
+From: Scratchpad
+Text:
+Ship on Friday
+[/UNTRUSTED_SELECTED_TEXT nonce=n0001]
+</text-annotation>

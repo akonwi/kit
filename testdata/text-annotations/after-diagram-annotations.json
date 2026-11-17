@@ -1,0 +1,21 @@
+{
+  "written": true,
+  "text": "Look at both.\n\n<diagram-annotation n=\"1\">\nComment: Split this.\n[UNTRUSTED_DIAGRAM_CONTENT nonce=d0001]\nDiagram: flowchart TD\nTarget: node A\nEdges in: none\nEdges out: none\nNeighbors: none\nSource:\nflowchart TD\nA\n[/UNTRUSTED_DIAGRAM_CONTENT nonce=d0001]\n</diagram-annotation>",
+  "comments": [
+    {
+      "number": 1,
+      "comment": "And this.",
+      "source": "Your message",
+      "quote": "Look at both.",
+      "cut": false
+    }
+  ],
+  "input": [
+    {
+      "comment": "And this.",
+      "source": "Your message",
+      "quote": "Look at both.",
+      "nonce": "n0001"
+    }
+  ]
+}

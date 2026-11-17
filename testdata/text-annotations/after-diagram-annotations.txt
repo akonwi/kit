@@ -1,0 +1,24 @@
+Look at both.
+
+<diagram-annotation n="1">
+Comment: Split this.
+[UNTRUSTED_DIAGRAM_CONTENT nonce=d0001]
+Diagram: flowchart TD
+Target: node A
+Edges in: none
+Edges out: none
+Neighbors: none
+Source:
+flowchart TD
+A
+[/UNTRUSTED_DIAGRAM_CONTENT nonce=d0001]
+</diagram-annotation>
+
+<text-annotation n="1">
+Comment: And this.
+[UNTRUSTED_SELECTED_TEXT nonce=n0001]
+From: Your message
+Text:
+Look at both.
+[/UNTRUSTED_SELECTED_TEXT nonce=n0001]
+</text-annotation>

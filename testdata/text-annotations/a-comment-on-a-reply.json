@@ -1,0 +1,21 @@
+{
+  "written": true,
+  "text": "Fix this before the release.",
+  "comments": [
+    {
+      "number": 1,
+      "comment": "Back off exponentially, capped at 30 s.",
+      "source": "Assistant reply",
+      "quote": "every 2 seconds with no backoff",
+      "cut": false
+    }
+  ],
+  "input": [
+    {
+      "comment": "Back off exponentially, capped at 30 s.",
+      "source": "Assistant reply",
+      "quote": "every 2 seconds with no backoff",
+      "nonce": "n0001"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "written": false,
+  "text": "See below.",
+  "comments": [
+    {
+      "number": 1,
+      "comment": "All of this is noise.",
+      "source": "Tool output · npm install",
+      "quote": "npm warn deprecated inflight@1.0.6",
+      "cut": true
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "written": true,
+  "text": "",
+  "comments": [
+    {
+      "number": 1,
+      "comment": "Why here?",
+      "source": "Scratchpad",
+      "quote": "Ship on Friday",
+      "cut": false
+    }
+  ],
+  "input": [
+    {
+      "comment": "Why here?",
+      "source": "Scratchpad",
+      "quote": "Ship on Friday",
+      "nonce": "n0001"
+    }
+  ]
+}

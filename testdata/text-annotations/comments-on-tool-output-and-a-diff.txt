@@ -1,0 +1,21 @@
+Two things:
+
+<text-annotation n="1">
+Comment: This timeout is the same bug.
+  It only shows on CI.
+[UNTRUSTED_SELECTED_TEXT nonce=n0001]
+From: Tool output · go test ./internal/pair
+Text:
+--- FAIL: TestPairRetries (30.02s)
+    pair_test.go:41: still retrying
+[/UNTRUSTED_SELECTED_TEXT nonce=n0001]
+</text-annotation>
+
+<text-annotation n="2">
+Comment: Use the shared retry helper here.
+[UNTRUSTED_SELECTED_TEXT nonce=n0002]
+From: Diff · internal/pair/client.go:42 · commit 1a2b3c4
+Text:
+time.Sleep(2 * time.Second)
+[/UNTRUSTED_SELECTED_TEXT nonce=n0002]
+</text-annotation>

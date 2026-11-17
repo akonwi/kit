@@ -1,0 +1,9 @@
+Fix this.
+<text-annotation n="1">
+Comment: Why?
+[UNTRUSTED_SELECTED_TEXT nonce=n0001]
+From: Assistant reply
+Text:
+retry
+[/UNTRUSTED_SELECTED_TEXT nonce=n0001]
+</text-annotation>

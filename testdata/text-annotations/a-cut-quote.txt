@@ -1,0 +1,10 @@
+See below.
+
+<text-annotation n="1">
+Comment: All of this is noise.
+[UNTRUSTED_SELECTED_TEXT nonce=n0001]
+From: Tool output · npm install
+Text, cut to 4 KiB:
+npm warn deprecated inflight@1.0.6
+[/UNTRUSTED_SELECTED_TEXT nonce=n0001]
+</text-annotation>

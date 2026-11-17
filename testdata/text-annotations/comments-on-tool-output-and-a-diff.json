@@ -1,0 +1,34 @@
+{
+  "written": true,
+  "text": "Two things:",
+  "comments": [
+    {
+      "number": 1,
+      "comment": "This timeout is the same bug.\nIt only shows on CI.",
+      "source": "Tool output · go test ./internal/pair",
+      "quote": "--- FAIL: TestPairRetries (30.02s)\n    pair_test.go:41: still retrying",
+      "cut": false
+    },
+    {
+      "number": 2,
+      "comment": "Use the shared retry helper here.",
+      "source": "Diff · internal/pair/client.go:42 · commit 1a2b3c4",
+      "quote": "time.Sleep(2 * time.Second)",
+      "cut": false
+    }
+  ],
+  "input": [
+    {
+      "comment": "This timeout is the same bug.\nIt only shows on CI.",
+      "source": "Tool output · go test ./internal/pair",
+      "quote": "--- FAIL: TestPairRetries (30.02s)\n    pair_test.go:41: still retrying",
+      "nonce": "n0001"
+    },
+    {
+      "comment": "Use the shared retry helper here.",
+      "source": "Diff · internal/pair/client.go:42 · commit 1a2b3c4",
+      "quote": "time.Sleep(2 * time.Second)",
+      "nonce": "n0002"
+    }
+  ]
+}
