@@ -236,6 +236,10 @@ type Manager struct {
 	peerWorkers       map[string]*mailboxReactionWorker
 	peerStarted       bool
 
+	// bashMu guards the bash maps below. A runtime's mu or event-log mu may be
+	// held while taking it (a snapshot takes the event log, then bashMu), but
+	// neither may be taken while holding it. Bash events are therefore
+	// appended after bashMu is released, under the runtime's mu.
 	bashMu           sync.Mutex
 	bashActive       map[string]*activeBashExecution
 	bashHistory      map[string]map[string]BashExecution
