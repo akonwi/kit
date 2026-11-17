@@ -34,9 +34,12 @@ struct TranscriptRow: View {
                 }
             }
         } else if message.role == "user" {
-            // Diagram comments ride after the message's own text.
-            let parts = DiagramAnnotationText.split(message.text)
-            UserMessage(message: message, text: parts.text, diagramComments: parts.annotations)
+            // Diagram comments, then comments on selected text, ride after
+            // the message's own text.
+            let commented = TextAnnotationText.split(message.text)
+            let parts = DiagramAnnotationText.split(commented.text)
+            UserMessage(message: message, text: parts.text, diagramComments: parts.annotations,
+                        textComments: commented.annotations)
                 .modifier(MessageMenu(text: parts.text))
         } else if message.plugin != nil {
             VStack(alignment: .leading, spacing: 6) {
@@ -78,6 +81,7 @@ private struct UserMessage: View {
     let message: TranscriptMessage
     let text: String
     let diagramComments: [DiagramAnnotationText.Sent]
+    let textComments: [TextAnnotationText.Sent]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -96,6 +100,9 @@ private struct UserMessage: View {
             }
             if !diagramComments.isEmpty {
                 SentDiagramComments(annotations: diagramComments)
+            }
+            if !textComments.isEmpty {
+                SentTextComments(comments: textComments)
             }
         }
         .padding(.horizontal, 16)
