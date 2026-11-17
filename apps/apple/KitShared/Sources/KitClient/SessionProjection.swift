@@ -23,8 +23,12 @@ public enum SessionProjection {
         // Boundaries that have not joined a completed turn follow the turns as
         // records without a turn or history sequence.
         let history = (snapshot.messages ?? []).filter { !$0.turnId.isEmpty }
+        let shells = try (snapshot.bashExecutions ?? []).map { try (BashExecution($0, session: snapshot.session.id), $0.startedAt) }
+        guard shells.count <= 32, Set(shells.map(\.0.id)).count == shells.count,
+              shells.filter(\.0.running).allSatisfy({ $0.0.id == snapshot.activeBashExecutionId }) else { throw ClientError.invalidPayload }
         var session = try summary(snapshot.session, messages: transcript(snapshot.messages ?? [],
-            settled: { $0 != snapshot.activeTurnId }, finished: { $0 != snapshot.activeTurnId }, carried: carried))
+            settled: { $0 != snapshot.activeTurnId }, finished: { $0 != snapshot.activeTurnId }, carried: carried,
+            shells: shells))
         session.historyCursor = try TranscriptHistoryPage.cursor(snapshot.previousMessageCursor,
             hasMore: snapshot.hasMoreMessages, firstSequence: history.first?.sequence)
         session.annotations = try (snapshot.annotations ?? []).map(FileAnnotation.init)
@@ -65,10 +69,15 @@ public enum SessionProjection {
     /// waiting to retry, reads as failed unless the live stream saw it end. `carried` holds rows the
     /// live stream already showed for a turn; they win over the stored reason
     /// so a refresh doesn't relabel them.
+    ///
+    /// `shells` are a snapshot's shell commands the transcript doesn't record,
+    /// in sequence order with their start times. Each goes after the last
+    /// message created before it started (ADR 0072).
     public static func transcript(_ source: [WireTranscriptMessage],
                            settled: (String) -> Bool = { _ in false },
                            finished: (String) -> Bool = { _ in false },
-                           carried: [TranscriptMessage] = []) throws -> [TranscriptMessage] {
+                           carried: [TranscriptMessage] = [],
+                           shells: [(BashExecution, startedAt: String)] = []) throws -> [TranscriptMessage] {
         var messages: [TranscriptMessage] = []
         var seen = Set<String>()
         var calls = Set<String>()
@@ -112,7 +121,22 @@ public enum SessionProjection {
             flush()
             messages.append(row)
         }
+        var nextShell = 0
+        /// Places the commands that started before `created`, or all that
+        /// remain when it is nil.
+        func placeShells(before created: String?) {
+            let limit = created.flatMap(Self.date)
+            while nextShell < shells.count {
+                if created != nil {
+                    guard let limit, let started = Self.date(shells[nextShell].startedAt), started < limit else { return }
+                }
+                flush()
+                messages.append(shells[nextShell].0.message)
+                nextShell += 1
+            }
+        }
         for (index, message) in source.enumerated() {
+            placeShells(before: message.createdAt)
             defer { if !message.turnId.isEmpty, lastIndex[message.turnId] == index { endTurn(message.turnId) } }
             // Results enrich the original call; they do not create transcript rows.
             if message.role == "tool", let id = message.toolCallId, calls.contains(id) { continue }
@@ -175,7 +199,16 @@ public enum SessionProjection {
         flush()
         // A live row whose turn stored nothing still closes the transcript.
         for (turn, row) in carriedByTurn.sorted(by: { $0.key < $1.key }) where finished(turn) { messages.append(row) }
+        placeShells(before: nil)
         return messages
+    }
+
+    /// A wire timestamp, with or without fractional seconds.
+    static func date(_ value: String) -> Date? {
+        let parser = ISO8601DateFormatter()
+        if let date = parser.date(from: value) { return date }
+        parser.formatOptions.insert(.withFractionalSeconds)
+        return parser.date(from: value)
     }
 
     /// Structured JSON as compact text, or nil when absent.

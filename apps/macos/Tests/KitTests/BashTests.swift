@@ -77,41 +77,6 @@ private actor ShellResults {
         #expect(cases.map { BashExecutionView.status(of: $0.0) } == cases.map(\.1))
     }
 
-    @Test func pollingPreservesLiveMessagesAndTerminalState() async throws {
-        let sink = ShellResults()
-        let projection = BashWatchProjection { await sink.accept($0) }
-        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "server", model: "model", thinking: "off", workspace: "tmp", date: "", messages: [.init(id: "assistant", role: "assistant", text: "Live response", tools: [])])
-        session.activeBashID = "bash_test"
-        await projection.stream(session)
-        #expect(await projection.pollTargets() == ["bash_test"])
-        #expect(await sink.latest?.activeBashID == "bash_test")
-        await projection.poll([try execution()])
-        #expect(await projection.pollTargets() == ["bash_test"])
-        await projection.poll([try execution(status: .value1, output: "test")])
-        #expect(await projection.pollTargets() == [])
-        // Later live deliveries still carry the stream snapshot's stale active ID.
-        await projection.stream(session)
-        let rows = await sink.latest?.messages
-        #expect(rows?.map(\.id) == ["assistant", "bash_test"])
-        #expect(rows?.first?.text == "Live response")
-        #expect(rows?.last?.bash?.statusLabel == "Completed")
-        #expect(await sink.latest?.activeBashID == nil)
-    }
-
-    @Test func recordsThatLeaveTheDeliveredWindowAreNotMovedToTheEnd() async throws {
-        let sink = ShellResults()
-        let projection = BashWatchProjection { await sink.accept($0) }
-        func row(_ id: String) -> TranscriptMessage { .init(id: id, role: "assistant", text: id, tools: []) }
-        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "server", model: "model", thinking: "off", workspace: "tmp", date: "",
-            messages: [row("before"), try execution("bash_old", status: .value1, output: "done").message, row("after")])
-        await projection.stream(session)
-        #expect(await sink.latest?.messages.map(\.id) == ["before", "bash_old", "after"])
-        // Later turns slide the bounded snapshot window past the command's record.
-        session.messages = [row("later"), row("latest")]
-        await projection.stream(session)
-        #expect(await sink.latest?.messages.map(\.id) == ["later", "latest"])
-    }
-
     @Test func submittedCommandsKeepTheirPlaceOnlyWhileItIsShown() async throws {
         let operation = BashOperation(), client = ShellClient()
         await operation.submit("!printf test", session: "s", client: client, after: "before") { _ in }
@@ -135,32 +100,82 @@ private actor ShellResults {
         #expect(BashExecution.merge([running], anchors: ["bash_running": "before"], into: [row("later")]).map(\.id) == ["later", "bash_running"])
     }
 
-    @Test func idleSessionsDoNotPollAndRunningRowsArePolledUntilSettled() async throws {
-        actor Reads {
-            var ids: [String] = []
-            func record(_ id: String) { ids.append(id) }
+    private static let snapshotJSON = #"{"session":{"id":"s","name":"Test","cwd":"/tmp","model":"m","thinkingLevel":"high","configurationRevision":0,"createdAt":"","updatedAt":""},"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"followUps":{"count":0}"#
+    private func snapshot(_ members: String = "") throws -> WireSessionSnapshot {
+        try JSONDecoder().decode(WireSessionSnapshot.self, from: Data((Self.snapshotJSON + members + "}").utf8))
+    }
+    private func wire(_ id: String, sequence: Int = 1, running: Bool = false, excluded: Bool = true, startedAt: String = "2026-09-15T12:00:02Z") -> [String: Any] {
+        var value: [String: Any] = ["id": id, "sessionId": "s", "sequence": sequence, "command": "ls",
+            "status": running ? "running" : "completed", "excludeFromContext": excluded, "startedAt": startedAt]
+        if !running { value["output"] = "a.swift"; value["exitCode"] = 0; value["completedAt"] = "2026-09-15T12:00:03Z" }
+        return value
+    }
+    private func batch(_ events: [[String: Any]], first: Int = 1) throws -> WireSessionEventBatch {
+        let numbered = events.enumerated().map { index, event in
+            event.merging(["streamId": "stream", "sequence": first + index, "sessionId": "s"]) { current, _ in current }
         }
-        let sink = ShellResults(), reads = Reads()
-        let projection = BashWatchProjection { await sink.accept($0) }
-        let watch = Task {
-            try await projection.watch(interval: .milliseconds(10)) { id in
-                await reads.record(id)
-                return try execution(id, status: .value1, output: "done")
-            }
-        }
-        defer { watch.cancel() }
-        let idle = SessionExcerpt(id: "s", title: "Test", sourceTitle: "server", model: "model", thinking: "off", workspace: "tmp", date: "", messages: [])
-        await projection.stream(idle)
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(await reads.ids == [])
-        var running = idle
-        running.messages = [try execution("bash_row").message]
-        await projection.stream(running)
-        try await eventually { await sink.latest?.messages.first?.bash?.running == false }
-        #expect(await sink.latest?.messages.map(\.id) == ["bash_row"])
-        #expect(await sink.latest?.messages.first?.bash?.output == "done")
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(await reads.ids == ["bash_row"])
+        let json: [String: Any] = ["streamId": "stream", "firstSequence": first, "lastSequence": first + events.count - 1, "events": numbered]
+        return try JSONDecoder().decode(WireSessionEventBatch.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    @Test func anotherClientsCommandStartsAndSettlesFromTheStream() throws {
+        var state = try SessionEventProjection(snapshot(#","messages":[{"id":"a","turnId":"t","sequence":1,"role":"assistant","content":[{"kind":"text","text":"Before"}],"stopReason":"stop","createdAt":"2026-09-15T12:00:01Z"}]"#))
+        let events = try batch([
+            ["kind": "bash.started", "bashExecution": wire("bash_1", running: true)],
+            ["kind": "bash.completed", "bashExecution": wire("bash_1")],
+            // A late copy of the start leaves the command settled.
+            ["kind": "bash.started", "bashExecution": wire("bash_1", running: true)],
+        ])
+        try state.apply(events.events![0])
+        #expect(state.session.messages.map(\.id) == ["a", "bash_1"])
+        #expect(state.session.messages.last?.bash?.running == true)
+        #expect(state.session.messages.last?.bash?.excluded == true)
+        #expect(state.session.activeBashID == "bash_1")
+        try state.apply(events.events![1])
+        try state.apply(events.events![2])
+        #expect(state.session.messages.map(\.id) == ["a", "bash_1"])
+        #expect(state.session.messages.last?.bash?.output == "a.swift")
+        #expect(state.session.messages.last?.bash?.running == false)
+        #expect(state.session.activeBashID == nil)
+    }
+
+    @Test func aSnapshotPlacesTheCommandsItListsWhereTheyStarted() throws {
+        let message = { (id: String, at: String) in #"{"id":"\#(id)","turnId":"t\#(id)","sequence":1,"role":"user","content":[{"kind":"text","text":"\#(id)"}],"createdAt":"\#(at)"}"# }
+        let executions = try String(data: JSONSerialization.data(withJSONObject: [
+            wire("bash_0", sequence: 0, startedAt: "2026-09-15T12:00:00Z"),
+            wire("bash_1", sequence: 1, startedAt: "2026-09-15T12:00:02Z"),
+            wire("bash_2", sequence: 2, running: true, startedAt: "2026-09-15T12:00:04Z")]), encoding: .utf8)!
+        let state = try SessionEventProjection(snapshot(#","activeBashExecutionId":"bash_2","messages":["# +
+            message("a", "2026-09-15T12:00:01Z") + "," + message("b", "2026-09-15T12:00:03Z") + #"],"bashExecutions":"# + executions))
+        #expect(state.session.messages.map(\.id) == ["bash_0", "a", "bash_1", "b", "bash_2"])
+        #expect(state.session.messages.last?.bash?.running == true)
+        #expect(state.session.activeBashID == "bash_2")
+        // A running command must be the active one.
+        #expect(throws: ClientError.self) { try SessionEventProjection(snapshot(#","bashExecutions":"# + executions)) }
+    }
+
+    @Test func eventsOfUnknownKindsAreSkippedAndAdvanceTheCursor() throws {
+        var state = try SessionEventProjection(snapshot())
+        let events = try batch([
+            ["kind": "widget.spun", "status": "spinning", "widget": ["speed": 3]],
+            ["kind": "bash.started", "bashExecution": wire("bash_1", running: true)],
+        ], first: 5)
+        #expect(events.events?.first?.kind == .unrecognized)
+        #expect(try EventCursor.accept(events, session: "s", stream: "stream", cursor: 4) == 6)
+        for event in events.events ?? [] { try state.apply(event) }
+        #expect(state.session.messages.map(\.id) == ["bash_1"])
+        // A kind that breaks the event grammar is still malformed.
+        #expect(throws: (any Error).self) { try batch([["kind": "Widget Spun"]]) }
+    }
+
+    @Test func aSnapshotIgnoresMembersItDoesNotKnow() throws {
+        let data = Data((Self.snapshotJSON + #","messages":[],"widgets":[{"speed":3}]}"#).utf8)
+        let generated = try JSONDecoder().decode(Components.Schemas.SessionSnapshot.self, from: data)
+        #expect(generated.session.id == "s")
+        #expect(try snapshot(#","widgets":[{"speed":3}]"#).session.id == "s")
+        // A member it knows is still decoded strictly.
+        let nested = Data(Self.snapshotJSON.replacingOccurrences(of: #""session":{"#, with: #""session":{"widget":1,"#).appending(#","messages":[]}"#).utf8)
+        #expect(throws: (any Error).self) { try JSONDecoder().decode(Components.Schemas.SessionSnapshot.self, from: nested) }
     }
     @Test(.enabled(if: ProcessInfo.processInfo.environment["KIT_BASH_LIVE_TEST"] == "1"))
     func liveExecutionContextAndAbort() async throws {

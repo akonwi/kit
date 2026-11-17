@@ -1764,6 +1764,92 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/BashCompletedEvent`.
+        public struct BashCompletedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashCompletedEvent/bashExecution`.
+            public var bashExecution: Components.Schemas.BashExecution
+            /// - Remark: Generated from `#/components/schemas/BashCompletedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case bash_completed = "bash.completed"
+            }
+            /// - Remark: Generated from `#/components/schemas/BashCompletedEvent/kind`.
+            public var kind: Components.Schemas.BashCompletedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/BashCompletedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/BashCompletedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashCompletedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashCompletedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `BashCompletedEvent`.
+            ///
+            /// - Parameters:
+            ///   - bashExecution:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                bashExecution: Components.Schemas.BashExecution,
+                kind: Components.Schemas.BashCompletedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.bashExecution = bashExecution
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case bashExecution
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.bashExecution = try container.decode(
+                    Components.Schemas.BashExecution.self,
+                    forKey: .bashExecution
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.BashCompletedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "bashExecution",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/BashCredentialExpiredError`.
         public struct BashCredentialExpiredError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/BashCredentialExpiredError/code`.
@@ -2206,6 +2292,92 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/BashStartedEvent`.
+        public struct BashStartedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashStartedEvent/bashExecution`.
+            public var bashExecution: Components.Schemas.BashExecution
+            /// - Remark: Generated from `#/components/schemas/BashStartedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case bash_started = "bash.started"
+            }
+            /// - Remark: Generated from `#/components/schemas/BashStartedEvent/kind`.
+            public var kind: Components.Schemas.BashStartedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/BashStartedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/BashStartedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashStartedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashStartedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `BashStartedEvent`.
+            ///
+            /// - Parameters:
+            ///   - bashExecution:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                bashExecution: Components.Schemas.BashExecution,
+                kind: Components.Schemas.BashStartedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.bashExecution = bashExecution
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case bashExecution
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.bashExecution = try container.decode(
+                    Components.Schemas.BashExecution.self,
+                    forKey: .bashExecution
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.BashStartedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "bashExecution",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
                 ])
             }
         }
@@ -12557,6 +12729,10 @@ extension Components {
             case assistant_text_delta(Components.Schemas.AssistantTextDeltaEvent)
             /// - Remark: Generated from `#/components/schemas/SessionEvent/ThinkingDeltaEvent`.
             case assistant_thinking_delta(Components.Schemas.ThinkingDeltaEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/BashCompletedEvent`.
+            case bash_completed(Components.Schemas.BashCompletedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/BashStartedEvent`.
+            case bash_started(Components.Schemas.BashStartedEvent)
             /// - Remark: Generated from `#/components/schemas/SessionEvent/BoundaryCreatedEvent`.
             case boundary_created(Components.Schemas.BoundaryCreatedEvent)
             /// - Remark: Generated from `#/components/schemas/SessionEvent/ClientPluginCallRequestedEvent`.
@@ -12637,6 +12813,10 @@ extension Components {
                     self = .assistant_text_delta(try .init(from: decoder))
                 case "assistant.thinking.delta":
                     self = .assistant_thinking_delta(try .init(from: decoder))
+                case "bash.completed":
+                    self = .bash_completed(try .init(from: decoder))
+                case "bash.started":
+                    self = .bash_started(try .init(from: decoder))
                 case "boundary.created":
                     self = .boundary_created(try .init(from: decoder))
                 case "client_plugin.call.requested":
@@ -12716,6 +12896,10 @@ extension Components {
                 case let .assistant_text_delta(value):
                     try value.encode(to: encoder)
                 case let .assistant_thinking_delta(value):
+                    try value.encode(to: encoder)
+                case let .bash_completed(value):
+                    try value.encode(to: encoder)
+                case let .bash_started(value):
                     try value.encode(to: encoder)
                 case let .boundary_created(value):
                     try value.encode(to: encoder)
@@ -13316,6 +13500,8 @@ extension Components {
             public var activeTurnId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SessionSnapshot/annotations`.
             public var annotations: [Components.Schemas.AnnotationSummary]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/bashExecutions`.
+            public var bashExecutions: [Components.Schemas.BashExecution]?
             /// - Remark: Generated from `#/components/schemas/SessionSnapshot/contextTokens`.
             public var contextTokens: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/SessionSnapshot/contextWindow`.
@@ -13375,6 +13561,7 @@ extension Components {
             ///   - activeCompaction:
             ///   - activeTurnId:
             ///   - annotations:
+            ///   - bashExecutions:
             ///   - contextTokens:
             ///   - contextWindow:
             ///   - eventCursor:
@@ -13406,6 +13593,7 @@ extension Components {
                 activeCompaction: Components.Schemas.ActiveCompaction? = nil,
                 activeTurnId: Swift.String? = nil,
                 annotations: [Components.Schemas.AnnotationSummary]? = nil,
+                bashExecutions: [Components.Schemas.BashExecution]? = nil,
                 contextTokens: Swift.Int? = nil,
                 contextWindow: Swift.Int? = nil,
                 eventCursor: Swift.Int64? = nil,
@@ -13437,6 +13625,7 @@ extension Components {
                 self.activeCompaction = activeCompaction
                 self.activeTurnId = activeTurnId
                 self.annotations = annotations
+                self.bashExecutions = bashExecutions
                 self.contextTokens = contextTokens
                 self.contextWindow = contextWindow
                 self.eventCursor = eventCursor
@@ -13469,6 +13658,7 @@ extension Components {
                 case activeCompaction
                 case activeTurnId
                 case annotations
+                case bashExecutions
                 case contextTokens
                 case contextWindow
                 case eventCursor
@@ -13495,161 +13685,6 @@ extension Components {
                 case usage
                 case warnings
                 case workspace
-            }
-            public init(from decoder: any Swift.Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.activeBashExecutionId = try container.decodeIfPresent(
-                    Swift.String.self,
-                    forKey: .activeBashExecutionId
-                )
-                self.activeCompaction = try container.decodeIfPresent(
-                    Components.Schemas.ActiveCompaction.self,
-                    forKey: .activeCompaction
-                )
-                self.activeTurnId = try container.decodeIfPresent(
-                    Swift.String.self,
-                    forKey: .activeTurnId
-                )
-                self.annotations = try container.decodeIfPresent(
-                    [Components.Schemas.AnnotationSummary].self,
-                    forKey: .annotations
-                )
-                self.contextTokens = try container.decodeIfPresent(
-                    Swift.Int.self,
-                    forKey: .contextTokens
-                )
-                self.contextWindow = try container.decodeIfPresent(
-                    Swift.Int.self,
-                    forKey: .contextWindow
-                )
-                self.eventCursor = try container.decodeIfPresent(
-                    Swift.Int64.self,
-                    forKey: .eventCursor
-                )
-                self.eventReplayAvailable = try container.decodeIfPresent(
-                    Swift.Bool.self,
-                    forKey: .eventReplayAvailable
-                )
-                self.eventReplayFrom = try container.decodeIfPresent(
-                    Swift.Int64.self,
-                    forKey: .eventReplayFrom
-                )
-                self.eventStreamId = try container.decodeIfPresent(
-                    Swift.String.self,
-                    forKey: .eventStreamId
-                )
-                self.followUps = try container.decode(
-                    Components.Schemas.FollowUpQueue.self,
-                    forKey: .followUps
-                )
-                self.hasMoreMessages = try container.decodeIfPresent(
-                    Swift.Bool.self,
-                    forKey: .hasMoreMessages
-                )
-                self.mcpServers = try container.decodeIfPresent(
-                    [Components.Schemas.MCPServerStatus].self,
-                    forKey: .mcpServers
-                )
-                self.mcpWarnings = try container.decodeIfPresent(
-                    [Swift.String].self,
-                    forKey: .mcpWarnings
-                )
-                self.messages = try container.decode(
-                    [Components.Schemas.TranscriptMessage].self,
-                    forKey: .messages
-                )
-                self.pendingInteractions = try container.decodeIfPresent(
-                    [Components.Schemas.InteractionRequest].self,
-                    forKey: .pendingInteractions
-                )
-                self.pluginCommands = try container.decodeIfPresent(
-                    [Components.Schemas.PluginCommand].self,
-                    forKey: .pluginCommands
-                )
-                self.pluginFooter = try container.decodeIfPresent(
-                    Components.Schemas.PluginFooter.self,
-                    forKey: .pluginFooter
-                )
-                self.previousMessageCursor = try container.decodeIfPresent(
-                    Swift.String.self,
-                    forKey: .previousMessageCursor
-                )
-                self.promptCommands = try container.decodeIfPresent(
-                    [Components.Schemas.PromptCommand].self,
-                    forKey: .promptCommands
-                )
-                self.providerRetry = try container.decodeIfPresent(
-                    Components.Schemas.ProviderRetry.self,
-                    forKey: .providerRetry
-                )
-                self.scratchpad = try container.decodeIfPresent(
-                    Components.Schemas.Scratchpad.self,
-                    forKey: .scratchpad
-                )
-                self.session = try container.decode(
-                    Components.Schemas.SessionInfo.self,
-                    forKey: .session
-                )
-                self.subagentConversations = try container.decodeIfPresent(
-                    [Components.Schemas.SubagentConversation].self,
-                    forKey: .subagentConversations
-                )
-                self.subagentDefinitions = try container.decodeIfPresent(
-                    [Components.Schemas.SubagentDefinition].self,
-                    forKey: .subagentDefinitions
-                )
-                self.subagentDiagnostics = try container.decodeIfPresent(
-                    [Components.Schemas.SubagentDiagnostic].self,
-                    forKey: .subagentDiagnostics
-                )
-                self.subagentMailbox = try container.decodeIfPresent(
-                    [Components.Schemas.SubagentMailboxItem].self,
-                    forKey: .subagentMailbox
-                )
-                self.usage = try container.decode(
-                    Components.Schemas.SessionUsage.self,
-                    forKey: .usage
-                )
-                self.warnings = try container.decodeIfPresent(
-                    [Swift.String].self,
-                    forKey: .warnings
-                )
-                self.workspace = try container.decodeIfPresent(
-                    Components.Schemas.WorkspaceRef.self,
-                    forKey: .workspace
-                )
-                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "activeBashExecutionId",
-                    "activeCompaction",
-                    "activeTurnId",
-                    "annotations",
-                    "contextTokens",
-                    "contextWindow",
-                    "eventCursor",
-                    "eventReplayAvailable",
-                    "eventReplayFrom",
-                    "eventStreamId",
-                    "followUps",
-                    "hasMoreMessages",
-                    "mcpServers",
-                    "mcpWarnings",
-                    "messages",
-                    "pendingInteractions",
-                    "pluginCommands",
-                    "pluginFooter",
-                    "previousMessageCursor",
-                    "promptCommands",
-                    "providerRetry",
-                    "scratchpad",
-                    "session",
-                    "subagentConversations",
-                    "subagentDefinitions",
-                    "subagentDiagnostics",
-                    "subagentMailbox",
-                    "usage",
-                    "warnings",
-                    "workspace"
-                ])
             }
         }
         /// - Remark: Generated from `#/components/schemas/SessionUsage`.

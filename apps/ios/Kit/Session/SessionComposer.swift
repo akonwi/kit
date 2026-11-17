@@ -18,7 +18,8 @@ final class SessionComposer {
     enum Action: Equatable {
         /// Sends the draft, or queues it behind a running turn.
         case send(enabled: Bool)
-        /// Stops the running turn. Shown while one runs and the draft is empty.
+        /// Stops the running shell command, from any client, or else the
+        /// running turn. Shown while either runs and the draft is empty.
         case stop(enabled: Bool)
         /// Waiting on the server: a send whose answer hasn't come, or a stop
         /// whose run hasn't ended.
@@ -109,6 +110,7 @@ final class SessionComposer {
     /// Takes in each snapshot the session's stream delivers.
     func reconcile(_ snapshot: SessionExcerpt) {
         latest = snapshot
+        if stoppingShell != snapshot.activeBashID { stoppingShell = nil }
         operations.reconcile(snapshot)
         annotations.observe(snapshot.annotations ?? [])
     }
@@ -116,6 +118,11 @@ final class SessionComposer {
     // MARK: State
 
     var running: Bool { latest?.activeRunID != nil }
+    /// The shell command running in the session, whichever client started it.
+    var shellRunning: String? { latest?.activeBashID }
+    /// The shell command a stop was asked for, until the stream reports it
+    /// settled.
+    private var stoppingShell: String?
     private var hasContent: Bool {
         command != nil || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !restoredAttachmentIDs.isEmpty
             || !uploads.items.isEmpty || !annotations.records.isEmpty || !diagrams.isEmpty
@@ -137,6 +144,9 @@ final class SessionComposer {
 
     var action: Action {
         if operations.sending || operations.uncertain { return .waiting }
+        if let shell = shellRunning, !hasContent {
+            return stoppingShell == shell ? .waiting : .stop(enabled: live)
+        }
         if running && !hasContent {
             return operations.abortingRun == nil ? .stop(enabled: live) : .waiting
         }
@@ -152,7 +162,7 @@ final class SessionComposer {
 
     /// Whether the mic takes Send's slot, with nothing to send or stop.
     /// Otherwise it sits beside Stop, or beside Send for attachments and comments.
-    var dictatesInSendSlot: Bool { canDictate && !hasContent && !running }
+    var dictatesInSendSlot: Bool { canDictate && !hasContent && !running && shellRunning == nil }
 
     /// Whether the queue's Edit and Clear can act.
     var queueEnabled: Bool { live && editable && !operations.queuePending }
@@ -358,9 +368,21 @@ final class SessionComposer {
         for id in result.missingAttachmentIds ?? [] { restoredNames[id] = "Attachment unavailable" }
     }
 
-    /// Stops the running turn.
+    /// Stops the running shell command, which takes precedence, or else the
+    /// running turn.
     func stop() {
-        guard case .stop(enabled: true) = action, let run = latest?.activeRunID else { return }
+        guard case .stop(enabled: true) = action else { return }
+        if let shell = shellRunning {
+            guard let bash = client as? any BashClient else { return }
+            stoppingShell = shell
+            let session = session
+            Task { [weak self] in
+                do { try await bash.abortBash(session, id: shell) }
+                catch { await MainActor.run { if self?.stoppingShell == shell { self?.stoppingShell = nil } } }
+            }
+            return
+        }
+        guard let run = latest?.activeRunID else { return }
         operations.abort(client: client, session: session, turn: run)
     }
 

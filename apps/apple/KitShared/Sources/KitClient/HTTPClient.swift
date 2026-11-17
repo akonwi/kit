@@ -457,7 +457,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
 
     private func childTranscript(session id: String, conversation: String, before: String? = nil) async throws -> WireSubagentTranscript {
         guard [id, conversation].allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } }) else { throw ClientError.invalidPayload }
-        let output = try await api.getSubagentTranscript(path: .init(sessionID: id, conversationID: conversation), query: .init(before: before), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+        let output = try await api.getSubagentTranscript(path: .init(sessionID: id, conversationID: conversation), query: .init(before: before), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
         switch output {
         case .ok(let response):
             let result: WireSubagentTranscript = try generated(try response.body.json, as: WireSubagentTranscript.self)
@@ -530,7 +530,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
             let oldStream = projection.stream
             let page: WireSubagentLiveEventPage
             do {
-                let output = try await api.getSubagentEvents(path: .init(sessionID: id, conversationID: conversation), query: .init(stream: projection.stream, after: Int(projection.cursor)), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+                let output = try await api.getSubagentEvents(path: .init(sessionID: id, conversationID: conversation), query: .init(stream: projection.stream, after: Int(projection.cursor)), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
                 switch output {
                 case .ok(let response): page = try generated(try response.body.json, as: WireSubagentLiveEventPage.self)
                 case .notFound: throw ClientError.http(404)
@@ -582,7 +582,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     }
 
     public func diffTargets(_ id: String) async throws -> WireDiffTargetCatalog {
-        let workspaceOutput = try await api.getWorkspace(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+        let workspaceOutput = try await api.getWorkspace(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
         guard case let .ok(workspaceResponse) = workspaceOutput else { throw WorkspaceFileError.unavailable }
         let workspace: WireWorkspaceRef = try generated(try workspaceResponse.body.json, as: WireWorkspaceRef.self)
         guard Self.validScratchpadSession(id), workspace.sessionId == id, workspace.state == "ready",
@@ -750,7 +750,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         let input = WireSubagentOperationInput(action: .init(rawValue: "dismiss")!, agent: nil, message: nil,
             conversationId: conversation, taskId: nil, timeoutMs: nil, generation: generation)
         let body: Components.Schemas.SubagentOperationInput = try generated(input, as: Components.Schemas.SubagentOperationInput.self)
-        let output = try await api.operateSubagent(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body))
+        let output = try await api.operateSubagent(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body))
         guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let result: WireSubagentOperationResult = try generated(try response.body.json, as: WireSubagentOperationResult.self)
         guard result.dismissed == true else { throw ClientError.invalidPayload }
@@ -780,7 +780,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         let body = Components.Schemas.ConfigureSubagentInput(generation: Int(generation), model: model, thinkingLevel: thinking)
         let output = try await generatedOperation {
             try await api.configureSubagent(path: .init(sessionID: session, conversationID: conversation),
-                headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body))
+                headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body))
         }
         switch output {
         case .ok(let response):
@@ -827,7 +827,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         let input = WireSubagentOperationInput(action: .init(rawValue: conversation == nil ? "start" : "message")!, agent: conversation == nil ? agent : nil,
             message: message, conversationId: conversation, taskId: nil, timeoutMs: nil, generation: nil)
         let body: Components.Schemas.SubagentOperationInput = try generated(input, as: Components.Schemas.SubagentOperationInput.self)
-        let output = try await api.operateSubagent(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body))
+        let output = try await api.operateSubagent(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body))
         guard case let .accepted(response) = output else { throw ClientError.invalidPayload }
         let result: WireSubagentOperationResult = try generated(try response.body.json, as: WireSubagentOperationResult.self)
         return try SubagentReceipt(result, agent: agent, conversation: conversation)
@@ -837,7 +837,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         guard input.executionId.hasPrefix("bash_"), !input.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               input.command.utf8.count <= 64 * 1024, !input.command.contains("\0") else { throw MutationNotSent(reason: "Invalid shell command.") }
         let body: Components.Schemas.BashExecutionInput = try generated(input, as: Components.Schemas.BashExecutionInput.self)
-        let output = try await api.startBash(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body))
+        let output = try await api.startBash(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body))
         guard case let .accepted(response) = output else { throw ClientError.invalidPayload }
         let wire: WireBashExecution = try generated(try response.body.json, as: WireBashExecution.self)
         guard wire.id == input.executionId, wire.command == input.command,
@@ -845,14 +845,14 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         return try BashExecution(wire, session: session)
     }
     public func bash(_ session: String, id: String) async throws -> BashExecution {
-        let output = try await api.getBash(path: .init(sessionID: session, executionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+        let output = try await api.getBash(path: .init(sessionID: session, executionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let wire: WireBashExecution = try generated(try response.body.json, as: WireBashExecution.self)
         guard wire.id == id else { throw ClientError.invalidPayload }
         return try BashExecution(wire, session: session)
     }
     public func abortBash(_ session: String, id: String) async throws {
-        let output = try await api.abortBash(path: .init(sessionID: session, executionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+        let output = try await api.abortBash(path: .init(sessionID: session, executionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
         guard case let .accepted(response) = output else { throw ClientError.invalidPayload }
         let reply: [String: Bool] = try generated(try response.body.json, as: [String: Bool].self)
         guard reply["aborting"] == true else { throw ClientError.invalidPayload }
@@ -1093,7 +1093,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         let output: Operations.ReadHostFile.Output
         do {
             output = try await generatedOperation {
-                try await api.readHostFile(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50),
+                try await api.readHostFile(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51),
                                            body: .json(.init(path: path)))
             }
         } catch ClientError.http(404) {
@@ -1125,14 +1125,14 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     private func readWorkspaceFileNow(_ id: String, path: String, expectedRevision: String?) async throws -> WireWorkspaceFileRead {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { throw ClientError.invalidPayload }
-        let workspaceOutput = try await api.getWorkspace(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+        let workspaceOutput = try await api.getWorkspace(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
         guard case let .ok(workspaceResponse) = workspaceOutput else { throw WorkspaceFileError.unavailable }
         let workspace: WireWorkspaceRef = try generated(try workspaceResponse.body.json, as: WireWorkspaceRef.self)
         guard workspace.sessionId == id, workspace.state == "ready" else { throw WorkspaceFileError.unavailable }
         do {
             let input = WireReadWorkspaceFileInput(workspaceId: workspace.workspaceId, path: path, expectedFileRevision: expectedRevision)
             let body: Components.Schemas.ReadWorkspaceFileInput = try generated(input, as: Components.Schemas.ReadWorkspaceFileInput.self)
-            let output = try await api.readWorkspaceFile(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body))
+            let output = try await api.readWorkspaceFile(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body))
             guard case let .ok(response) = output else { throw Self.statusFailure(output) }
             let result: WireWorkspaceFileRead = try generated(try response.body.json, as: WireWorkspaceFileRead.self)
             guard result.sessionId == id, result.path == path,
@@ -1180,14 +1180,14 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     }
 
     public func models() async throws -> [WireModelCapability] {
-        let output = try await api.listModels(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+        let output = try await api.listModels(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let catalog: WireModelCatalog = try generated(try response.body.json, as: WireModelCatalog.self)
         return try validatedModels(catalog)
     }
 
     public func refreshModels() async throws -> [WireModelCapability] {
-        let output = try await api.refreshModels(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+        let output = try await api.refreshModels(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let catalog: WireModelCatalog = try generated(try response.body.json, as: WireModelCatalog.self)
         return try validatedModels(catalog)
@@ -1223,7 +1223,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
 
     public func fileIndex(_ id: String, refresh: Bool) async throws -> FileIndex {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
-        let output = try await api.getSessionFileIndex(path: .init(sessionID: id), query: .init(refresh: refresh ? true : nil), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+        let output = try await api.getSessionFileIndex(path: .init(sessionID: id), query: .init(refresh: refresh ? true : nil), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let index: WireSessionFileIndex = try generated(try response.body.json, as: WireSessionFileIndex.self)
         guard index.sessionId == id, index.cwd.hasPrefix("/"), let entries = index.entries,
@@ -1276,7 +1276,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     public func resolveAttachments(_ id: String, ids: [String]) async throws -> WireAttachmentResolution {
         let input = WireAttachmentResolutionInput(attachmentIds: ids)
         let body: Components.Schemas.AttachmentResolutionInput = try generated(input, as: Components.Schemas.AttachmentResolutionInput.self)
-        let output = try await api.resolveAttachments(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body))
+        let output = try await api.resolveAttachments(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body))
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let result: WireAttachmentResolution = try generated(try response.body.json, as: WireAttachmentResolution.self)
         let found = result.attachments ?? []
@@ -1312,7 +1312,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     public func respond(_ id: String, input: WireInteractionResponse) async throws {
         guard input.requestId.hasPrefix("interaction_"), input.requestId.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { throw ClientError.invalidPayload }
         let body: Components.Schemas.InteractionResponse = try generated(input, as: Components.Schemas.InteractionResponse.self)
-        let output = try await generatedOperation { try await api.respondInteraction(path: .init(sessionID: id, interactionID: input.requestId), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body)) }
+        let output = try await generatedOperation { try await api.respondInteraction(path: .init(sessionID: id, interactionID: input.requestId), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body)) }
         guard case let .ok(response) = output, try response.body.json.settled else { throw ClientError.invalidPayload }
     }
 
@@ -1343,7 +1343,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
 
     public func submit(_ id: String, input: WirePromptInput) async throws -> WirePromptSubmission {
         let body: Components.Schemas.PromptInput = try generated(input, as: Components.Schemas.PromptInput.self)
-        let output = try await generatedOperation { try await api.submitPrompt(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body)) }
+        let output = try await generatedOperation { try await api.submitPrompt(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body)) }
         guard case let .accepted(response) = output else { throw ClientError.invalidPayload }
         let result: WirePromptSubmission = try generated(try response.body.json, as: WirePromptSubmission.self)
         _ = try FollowUpState(result.queue)
@@ -1363,7 +1363,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     }
 
     public func restoreFollowUps(_ id: String) async throws -> WireRestoreFollowUpsResult {
-        let output = try await generatedOperation { try await api.restoreTurnFollowUps(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.restoreTurnFollowUps(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let result: WireRestoreFollowUpsResult = try generated(try response.body.json, as: WireRestoreFollowUpsResult.self)
         _ = try FollowUpState(result.queue)
@@ -1372,7 +1372,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         return result
     }
     public func promoteFollowUps(_ id: String) async throws -> WirePromoteFollowUpsResult {
-        let output = try await generatedOperation { try await api.promoteTurnFollowUps(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.promoteTurnFollowUps(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let result: WirePromoteFollowUpsResult = try generated(try response.body.json, as: WirePromoteFollowUpsResult.self)
         _ = try FollowUpState(result.queue)
@@ -1381,7 +1381,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     }
     public func abort(_ id: String, turn: String) async throws {
         guard !turn.isEmpty, turn.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw MutationNotSent(reason: "The turn identity is invalid.") }
-        let output = try await generatedOperation { try await api.abortTurn(path: .init(sessionID: id, turnID: turn), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.abortTurn(path: .init(sessionID: id, turnID: turn), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case let .accepted(response) = output, try response.body.json.aborting else { throw ClientError.invalidPayload }
     }
 
@@ -1437,7 +1437,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     }
 
     public func sessionActivity() async throws -> [String: SessionTabStatus] {
-        let output = try await generatedOperation { try await api.getSessionActivity(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.getSessionActivity(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         return try Self.activity(try response.body.json.sessions)
     }
@@ -1457,7 +1457,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     public func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               let cursor = UInt64(before), cursor > 0 else { throw ClientError.invalidPayload }
-        let output = try await generatedOperation { try await api.getTranscriptPage(path: .init(sessionID: id), query: .init(before: String(cursor)), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.getTranscriptPage(path: .init(sessionID: id), query: .init(before: String(cursor)), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let page: WireTranscriptPage = try generated(try response.body.json, as: WireTranscriptPage.self)
         return try TranscriptHistoryPage(page, sessionID: id, before: before)
@@ -1467,7 +1467,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         guard Self.validHistorySession(id),
               before == nil || (before.flatMap(UInt64.init) ?? 0) > 0 else { throw ClientError.invalidPayload }
         let cursor = before.flatMap(Int.init)
-        let output = try await generatedOperation { try await api.getMessagePage(path: .init(sessionID: id), query: .init(before: cursor, limit: 100, role: ["user"]), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.getMessagePage(path: .init(sessionID: id), query: .init(before: cursor, limit: 100, role: ["user"]), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let page: WireMessageHistoryPage = try generated(try response.body.json, as: WireMessageHistoryPage.self)
         let source = try page.validatedMessages(session: id, before: before)
@@ -1482,7 +1482,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         guard Self.validHistorySession(id), (1...200).contains(limit),
               before == nil || (before.flatMap(UInt64.init) ?? 0) > 0 else { throw ClientError.invalidPayload }
         do {
-            let output = try await api.getBashHistory(path: .init(sessionID: id), query: .init(before: before.flatMap(Int.init), limit: limit), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50))
+            let output = try await api.getBashHistory(path: .init(sessionID: id), query: .init(before: before.flatMap(Int.init), limit: limit), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
             guard case let .ok(response) = output else { throw ClientError.invalidPayload }
             let page: WireBashHistoryPage = try generated(try response.body.json, as: WireBashHistoryPage.self)
             return try ComposerBashHistoryPage(page, session: id, before: before)
@@ -1626,18 +1626,15 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     /// (ADR 0051).
     public func watch(_ id: String, hosting: ClientPluginHosting?,
                receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
-        let projection = BashWatchProjection(receive: receive)
+        // Shell commands start and settle on the stream like everything else
+        // (ADR 0072).
         let publisher = LatestValuePublisher<SessionExcerpt>(interval: Self.liveDeliveryInterval) {
-            await projection.stream($0)
+            await receive($0)
         }
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { await publisher.run() }
             group.addTask {
                 try await self.watchEvents(id, hosting: hosting) { session, live in await publisher.send(session, coalesce: live) }
-            }
-            // Shell executions have no events; poll only the ones that are running.
-            group.addTask {
-                try await projection.watch(interval: .seconds(1)) { try await self.bash(id, id: $0) }
             }
             defer { group.cancelAll() }
             try await group.next()
@@ -1673,7 +1670,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     public func acceptedAnnotationMessage(session id: String, event: WireSessionEvent) async throws -> WireTranscriptMessage {
         guard let acceptedID = event.acceptedMessageId, let ids = event.annotationIds,
               !acceptedID.isEmpty, !ids.isEmpty else { throw ClientError.invalidPayload }
-        let output = try await generatedOperation { try await api.getMessagePage(path: .init(sessionID: id), query: .init(limit: 100, role: ["user"]), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.getMessagePage(path: .init(sessionID: id), query: .init(limit: 100, role: ["user"]), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let page: WireMessageHistoryPage = try generated(try response.body.json, as: WireMessageHistoryPage.self)
         let messages = try page.validatedMessages(session: id, before: nil)
@@ -1686,7 +1683,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     /// A turn's stored user message: the earliest of the turn's on the
     /// latest page of user messages. Nil when it isn't there.
     func storedUserMessage(session id: String, turn: String) async throws -> WireTranscriptMessage? {
-        let output = try await generatedOperation { try await api.getMessagePage(path: .init(sessionID: id), query: .init(limit: 20, role: ["user"]), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.getMessagePage(path: .init(sessionID: id), query: .init(limit: 20, role: ["user"]), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let page: WireMessageHistoryPage = try generated(try response.body.json, as: WireMessageHistoryPage.self)
         // Newest first, so the turn's prompt is its last.
@@ -1889,7 +1886,7 @@ extension HTTPClient {
     /// stops the session's own stream.
     fileprivate func openEventStream(_ id: String, stream: String, after: Int,
                                      hosting: ClientPluginHosting?) async throws -> Operations.StreamSessionEvents.Output.Ok {
-        let headers = Operations.StreamSessionEvents.Input.Headers(xKitInstanceID: instance, xKitProtocolVersion: ._50)
+        let headers = Operations.StreamSessionEvents.Input.Headers(xKitInstanceID: instance, xKitProtocolVersion: ._51)
         if let hosting {
             do {
                 let output = try await generatedOperation { try await api.streamSessionEvents(path: .init(sessionID: id), query: .init(stream: stream, after: after, clientPlugin: hosting.instanceID), headers: headers) }
@@ -1907,13 +1904,13 @@ extension HTTPClient {
     public func attachClientPlugin(session id: String, instance instanceID: String, input: WireAttachClientPluginInput) async throws {
         guard ClientPluginHosting.validInstanceID(instanceID) else { throw ClientError.invalidPayload }
         let body: Components.Schemas.AttachClientPluginInput = try generated(input, as: Components.Schemas.AttachClientPluginInput.self)
-        let output = try await generatedOperation { try await api.attachClientPlugin(path: .init(sessionID: id, instanceID: instanceID), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body)) }
+        let output = try await generatedOperation { try await api.attachClientPlugin(path: .init(sessionID: id, instanceID: instanceID), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body)) }
         guard case .noContent = output else { throw ClientError.invalidPayload }
     }
 
     public func detachClientPlugin(session id: String, instance instanceID: String) async throws {
         guard ClientPluginHosting.validInstanceID(instanceID) else { throw ClientError.invalidPayload }
-        let output = try await generatedOperation { try await api.detachClientPlugin(path: .init(sessionID: id, instanceID: instanceID), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        let output = try await generatedOperation { try await api.detachClientPlugin(path: .init(sessionID: id, instanceID: instanceID), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51)) }
         guard case .noContent = output else { throw ClientError.invalidPayload }
     }
 
@@ -1921,7 +1918,7 @@ extension HTTPClient {
                                   result: WireCompleteClientPluginCallInput) async throws {
         guard ClientPluginHosting.validInstanceID(instanceID), ClientPluginHosting.validCallID(call) else { throw ClientError.invalidPayload }
         let body: Components.Schemas.CompleteClientPluginCallInput = try generated(result, as: Components.Schemas.CompleteClientPluginCallInput.self)
-        let output = try await generatedOperation { try await api.completeClientPluginCall(path: .init(sessionID: id, instanceID: instanceID, callID: call), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body)) }
+        let output = try await generatedOperation { try await api.completeClientPluginCall(path: .init(sessionID: id, instanceID: instanceID, callID: call), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body)) }
         guard case .noContent = output else { throw ClientError.invalidPayload }
     }
 }

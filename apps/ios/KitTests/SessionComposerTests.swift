@@ -104,6 +104,22 @@ struct SessionComposerTests {
         #expect(composer.action == .send(enabled: false))
     }
 
+    @Test func stopStopsAnotherClientsShellCommandFirst() async {
+        let client = FakeComposerClient()
+        var shell = Self.snapshot(running: "t1")
+        shell.activeBashID = "bash_1"
+        let composer = Self.composer(client, snapshot: shell)
+        #expect(composer.action == .stop(enabled: true))
+        composer.stop()
+        #expect(composer.action == .waiting)
+        await Self.settle()
+        #expect(client.abortedShells == ["bash_1"])
+        #expect(client.aborted == [])
+        // The command settles on the stream; the turn is stopped next.
+        composer.reconcile(Self.snapshot(running: "t1"))
+        #expect(composer.action == .stop(enabled: true))
+    }
+
     @Test func aHeldQueueBlocksSendingUntilItIsChanged() throws {
         let held = WireFollowUpQueue(count: 2, previews: ["a", "b"], annotationIds: nil,
                                      admissionFailure: WireFollowUpAdmissionFailure(message: "the provider rejected the API key"))
@@ -293,6 +309,7 @@ final class FakeComposerClient: SessionSendClient, @unchecked Sendable {
     }
     func respond(_ session: String, input: WireInteractionResponse) async throws {}
 
+    fileprivate var _abortedShells: [String] = []
     private var _deletedAnnotations: [UInt64] = []
     var deletedAnnotations: [UInt64] { lock.withLock { _deletedAnnotations } }
     func annotations(_ session: String) async throws -> [FileAnnotation] { [] }
@@ -305,4 +322,11 @@ final class FakeComposerClient: SessionSendClient, @unchecked Sendable {
     func deleteAnnotation(_ session: String, id: UInt64) async throws {
         lock.withLock { _deletedAnnotations.append(id) }
     }
+}
+
+extension FakeComposerClient: BashClient {
+    var abortedShells: [String] { lock.withLock { _abortedShells } }
+    func startBash(_ session: String, input: WireBashExecutionInput) async throws -> BashExecution { throw ClientError.http(409) }
+    func bash(_ session: String, id: String) async throws -> BashExecution { throw ClientError.http(404) }
+    func abortBash(_ session: String, id: String) async throws { lock.withLock { _abortedShells.append(id) } }
 }

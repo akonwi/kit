@@ -84,12 +84,6 @@ import Observation
             record(value); self.admission = nil; error = nil; acknowledged(admission.draft)
         } catch { self.error = error.localizedDescription }
     }
-    func refresh(session: String, client: any BashClient) async {
-        for execution in executions where execution.running {
-            do { record(try await client.bash(session, id: execution.id)) }
-            catch { self.error = error.localizedDescription }
-        }
-    }
     func abort(session: String, id: String, client: any BashClient) async {
         guard !stopping else { return }
         stopping = true; error = nil

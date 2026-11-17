@@ -114,6 +114,9 @@ public struct SessionEventProjection {
         case .value19: return try changeDirectory(event)
         case .value33: return try configure(event)
         case .value34: return try changeQueue(event)
+        case .value35, .value36: return try shell(event)
+        // A kind this protocol doesn't declare changes nothing (ADR 0072).
+        case .unrecognized: return
         default: break
         }
         var value = TranscriptEvent(event)
@@ -379,6 +382,29 @@ public struct SessionEventProjection {
     private mutating func changeQueue(_ event: WireSessionEvent) throws {
         guard (event.turnId ?? "").isEmpty, let queue = event.followUps else { throw ClientError.invalidPayload }
         session.followUps = try FollowUpState(queue)
+    }
+
+    /// Shows a shell command, from any client, as it starts and as it settles
+    /// (ADR 0072): in place when its row is shown, otherwise after the last
+    /// row. A settled command never shows as running again.
+    private mutating func shell(_ event: WireSessionEvent) throws {
+        guard (event.turnId ?? "").isEmpty, let wire = event.bashExecution else { throw ClientError.invalidPayload }
+        let execution = try BashExecution(wire, session: session.id)
+        guard execution.running == (event.kind == .value35) else { throw ClientError.invalidPayload }
+        if let index = session.messages.lastIndex(where: { $0.role == "bash" && $0.bash?.id == execution.id }) {
+            if !(execution.running && session.messages[index].bash?.running == false) {
+                var row = execution.message
+                row.id = session.messages[index].id
+                session.messages[index] = row
+            }
+        } else {
+            session.messages.append(execution.message)
+        }
+        if execution.running {
+            if session.messages.last(where: { $0.bash?.id == execution.id })?.bash?.running == true { session.activeBashID = execution.id }
+        } else if session.activeBashID == execution.id {
+            session.activeBashID = nil
+        }
     }
 
     /// Pages kept for the app to open, beyond which the oldest are dropped.

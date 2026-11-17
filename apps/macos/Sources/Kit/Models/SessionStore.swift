@@ -227,7 +227,13 @@ final class SessionStore {
         let value = BashOperation(); shells[selectedID] = value; return value
     }
     var bashClient: (any BashClient)? { replica.client as? any BashClient }
-    var activeBashID: String? { bashOperation.active?.id ?? selected?.activeBashID }
+    /// The running shell command from any client, which the stream reports
+    /// (ADR 0072). This window's own command counts from the server's answer
+    /// until the stream shows it.
+    var activeBashID: String? {
+        if let own = bashOperation.active, !replica.messages.contains(where: { $0.bash?.id == own.id }) { return own.id }
+        return selected?.activeBashID
+    }
     var shellMode: BashDraft? { BashDraft(ui.draft) }
     func sendBash() {
         guard let client = bashClient, connectionState == .connected, !unavailable,
@@ -279,11 +285,12 @@ final class SessionStore {
             do { try await Task.sleep(for: interval) } catch { return }
         }
     }
+    /// Settles a start whose answer was lost. The stream reports every
+    /// command's progress, so nothing else is polled.
     func monitorBash() async {
         guard let client = bashClient else { return }
         let session = selectedID, operation = bashOperation
         while !Task.isCancelled {
-            await operation.refresh(session: session, client: client)
             if operation.unresolved {
                 await operation.resolve(session: session, client: client) { text in
                     if self.selectedID == session, self.ui.draft == text { self.ui.draft = "" }

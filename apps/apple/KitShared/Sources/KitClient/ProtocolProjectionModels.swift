@@ -623,8 +623,12 @@ public struct WireSessionSnapshot: Codable, Sendable {
     public let `pendingInteractions`: [WireInteractionRequest]?
     public let `annotations`: [WireAnnotationSummary]?
     public let `scratchpad`: WireScratchpad?
+    /// The shell commands the transcript doesn't record, in sequence order
+    /// (ADR 0072).
+    public let `bashExecutions`: [WireBashExecution]?
 
-    public init(`session`: WireSessionInfo, `workspace`: WireWorkspaceRef?, `messages`: [WireTranscriptMessage]?, `previousMessageCursor`: String?, `hasMoreMessages`: Bool?, `activeTurnId`: String?, `providerRetry`: WireProviderRetry?, `activeCompaction`: WireActiveCompaction?, `activeBashExecutionId`: String?, `eventStreamId`: String?, `eventCursor`: Int64?, `eventReplayFrom`: Int64?, `eventReplayAvailable`: Bool?, `contextTokens`: Int?, `contextWindow`: Int?, `usage`: WireSessionUsage, `pluginFooter`: WirePluginFooter?, `pluginCommands`: [WirePluginCommand]?, `promptCommands`: [WirePromptCommand]?, `followUps`: WireFollowUpQueue, `warnings`: [String]?, `mcpServers`: [WireMCPServerStatus]?, `mcpWarnings`: [String]?, `subagentDefinitions`: [WireSubagentDefinition]?, `subagentDiagnostics`: [WireSubagentDiagnostic]?, `subagentConversations`: [WireSubagentConversation]?, `subagentMailbox`: [WireSubagentMailboxItem]?, `pendingInteractions`: [WireInteractionRequest]?, `annotations`: [WireAnnotationSummary]?, `scratchpad`: WireScratchpad?) {
+    public init(`session`: WireSessionInfo, `workspace`: WireWorkspaceRef?, `messages`: [WireTranscriptMessage]?, `previousMessageCursor`: String?, `hasMoreMessages`: Bool?, `activeTurnId`: String?, `providerRetry`: WireProviderRetry?, `activeCompaction`: WireActiveCompaction?, `activeBashExecutionId`: String?, `eventStreamId`: String?, `eventCursor`: Int64?, `eventReplayFrom`: Int64?, `eventReplayAvailable`: Bool?, `contextTokens`: Int?, `contextWindow`: Int?, `usage`: WireSessionUsage, `pluginFooter`: WirePluginFooter?, `pluginCommands`: [WirePluginCommand]?, `promptCommands`: [WirePromptCommand]?, `followUps`: WireFollowUpQueue, `warnings`: [String]?, `mcpServers`: [WireMCPServerStatus]?, `mcpWarnings`: [String]?, `subagentDefinitions`: [WireSubagentDefinition]?, `subagentDiagnostics`: [WireSubagentDiagnostic]?, `subagentConversations`: [WireSubagentConversation]?, `subagentMailbox`: [WireSubagentMailboxItem]?, `pendingInteractions`: [WireInteractionRequest]?, `annotations`: [WireAnnotationSummary]?, `scratchpad`: WireScratchpad?, `bashExecutions`: [WireBashExecution]? = nil) {
+        self.`bashExecutions` = `bashExecutions`
         self.`session` = `session`
         self.`workspace` = `workspace`
         self.`messages` = `messages`
@@ -694,6 +698,33 @@ public enum WireSessionEventKind: String, Codable, Sendable {
     case value32 = "client_plugin.call.resolved"
     case value33 = "session.configuration.changed"
     case value34 = "follow_ups.changed"
+    case value35 = "bash.started"
+    case value36 = "bash.completed"
+    /// A kind this protocol doesn't declare. The session event union is open
+    /// (ADR 0072): such an event advances the cursor and changes nothing.
+    /// The wire never names it; decoding maps every unknown kind to it.
+    case unrecognized = ""
+
+    public init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        if let known = Self(rawValue: raw), known != .unrecognized {
+            self = known
+        } else if Self.grammatical(raw) {
+            self = .unrecognized
+        } else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Session event kind \(raw) is invalid."))
+        }
+    }
+
+    /// Whether raw follows the event kind grammar: lowercase dotted segments,
+    /// multi-word segments in snake_case (ADR 0033).
+    static func grammatical(_ raw: String) -> Bool {
+        let segments = raw.split(separator: ".", omittingEmptySubsequences: false)
+        return raw.utf8.count <= 128 && segments.count >= 2 && segments.allSatisfy { segment in
+            guard let first = segment.first, first.isASCII, first.isLowercase else { return false }
+            return segment.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "_") }
+        }
+    }
 }
 
 public enum WireTurnStatus: String, Codable, Sendable {
@@ -805,8 +836,11 @@ public struct WireSessionEvent: Codable, Sendable {
     public let `clientPluginCallResolution`: String?
     public let `configuration`: WireSessionConfiguration?
     public let `followUps`: WireFollowUpQueue?
+    /// The command of a bash.started or bash.completed event.
+    public let `bashExecution`: WireBashExecution?
 
-    public init(`streamId`: String, `sequence`: Int64, `sessionId`: String, `turnId`: String?, `messageId`: String?, `kind`: WireSessionEventKind, `contentIndex`: Int?, `delta`: String?, `text`: String?, `pluginId`: String?, `thinking`: String?, `toolCallId`: String?, `toolName`: String?, `arguments`: String?, `argumentsTruncated`: Bool?, `content`: [WireTranscriptContent]?, `contentTruncated`: Bool?, `details`: WireJSON?, `detailsOmitted`: Bool?, `isError`: Bool?, `status`: WireTurnStatus?, `errorKind`: WireProviderErrorKind?, `errorMessage`: String?, `compactionId`: String?, `compactionFailureReason`: WireCompactionFailureReason?, `providerRetry`: WireProviderRetry?, `contextTokens`: Int?, `contextWindow`: Int?, `usage`: WireSessionUsage?, `sessionName`: String?, `workspace`: WireWorkspaceRef?, `subagentConversationId`: String?, `subagentTaskId`: String?, `peerRequestId`: String?, `interaction`: WireInteractionRequest?, `interactionId`: String?, `interactionResolution`: String?, `annotationId`: UInt64?, `annotation`: WireAnnotation?, `annotationIds`: [UInt64]?, `acceptedMessageId`: String?, `scratchpad`: WireScratchpad?, `boundaryId`: String?, `boundaryKind`: String?, `boundarySource`: String?, `createdAt`: String?, `url`: String?, `clientPluginCallId`: String?, `clientPluginInstanceId`: String?, `clientPluginCall`: WireClientPluginCall?, `clientPluginCallResolution`: String?, `configuration`: WireSessionConfiguration?, `followUps`: WireFollowUpQueue?) {
+    public init(`streamId`: String, `sequence`: Int64, `sessionId`: String, `turnId`: String?, `messageId`: String?, `kind`: WireSessionEventKind, `contentIndex`: Int?, `delta`: String?, `text`: String?, `pluginId`: String?, `thinking`: String?, `toolCallId`: String?, `toolName`: String?, `arguments`: String?, `argumentsTruncated`: Bool?, `content`: [WireTranscriptContent]?, `contentTruncated`: Bool?, `details`: WireJSON?, `detailsOmitted`: Bool?, `isError`: Bool?, `status`: WireTurnStatus?, `errorKind`: WireProviderErrorKind?, `errorMessage`: String?, `compactionId`: String?, `compactionFailureReason`: WireCompactionFailureReason?, `providerRetry`: WireProviderRetry?, `contextTokens`: Int?, `contextWindow`: Int?, `usage`: WireSessionUsage?, `sessionName`: String?, `workspace`: WireWorkspaceRef?, `subagentConversationId`: String?, `subagentTaskId`: String?, `peerRequestId`: String?, `interaction`: WireInteractionRequest?, `interactionId`: String?, `interactionResolution`: String?, `annotationId`: UInt64?, `annotation`: WireAnnotation?, `annotationIds`: [UInt64]?, `acceptedMessageId`: String?, `scratchpad`: WireScratchpad?, `boundaryId`: String?, `boundaryKind`: String?, `boundarySource`: String?, `createdAt`: String?, `url`: String?, `clientPluginCallId`: String?, `clientPluginInstanceId`: String?, `clientPluginCall`: WireClientPluginCall?, `clientPluginCallResolution`: String?, `configuration`: WireSessionConfiguration?, `followUps`: WireFollowUpQueue?, `bashExecution`: WireBashExecution? = nil) {
+        self.`bashExecution` = `bashExecution`
         self.`streamId` = `streamId`
         self.`sequence` = `sequence`
         self.`sessionId` = `sessionId`
@@ -946,6 +980,38 @@ public struct WireSessionEventBatch: Codable, Sendable {
     public let `resyncRequired`: Bool?
     public let `usageBaseline`: WireSessionUsage?
     public let `events`: [WireSessionEvent]?
+
+    private enum CodingKeys: String, CodingKey {
+        case streamId, firstSequence, lastSequence, resyncRequired, usageBaseline, events
+    }
+
+    /// An event of a kind this protocol doesn't declare keeps only the members
+    /// every kind shares, so its own members can't fail decoding (ADR 0072).
+    private struct Element: Decodable {
+        let event: WireSessionEvent
+        private enum Common: String, CodingKey { case streamId, sequence, sessionId, turnId, kind }
+        init(from decoder: any Decoder) throws {
+            let common = try decoder.container(keyedBy: Common.self)
+            guard try common.decode(WireSessionEventKind.self, forKey: .kind) == .unrecognized else {
+                event = try WireSessionEvent(from: decoder)
+                return
+            }
+            event = .unrecognized(streamId: try common.decode(String.self, forKey: .streamId),
+                sequence: try common.decode(Int64.self, forKey: .sequence),
+                sessionId: try common.decode(String.self, forKey: .sessionId),
+                turnId: try common.decodeIfPresent(String.self, forKey: .turnId))
+        }
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        streamId = try container.decodeIfPresent(String.self, forKey: .streamId)
+        firstSequence = try container.decodeIfPresent(Int64.self, forKey: .firstSequence)
+        lastSequence = try container.decodeIfPresent(Int64.self, forKey: .lastSequence)
+        resyncRequired = try container.decodeIfPresent(Bool.self, forKey: .resyncRequired)
+        usageBaseline = try container.decodeIfPresent(WireSessionUsage.self, forKey: .usageBaseline)
+        events = try container.decodeIfPresent([Element].self, forKey: .events)?.map(\.event)
+    }
 
     public init(`streamId`: String?, `firstSequence`: Int64?, `lastSequence`: Int64?, `resyncRequired`: Bool?, `usageBaseline`: WireSessionUsage?, `events`: [WireSessionEvent]?) {
         self.`streamId` = `streamId`
@@ -1919,3 +1985,19 @@ public enum WireDiffErrorCode: String, Codable, Sendable {
 
 public let kitWireVersion = Operations.ListSessions.Input.Headers.XKitProtocolVersionPayload.allCases[0].rawValue
 
+
+extension WireSessionEvent {
+    /// An event of a kind this protocol doesn't declare, with only the members
+    /// every kind shares.
+    static func unrecognized(streamId: String, sequence: Int64, sessionId: String, turnId: String?) -> WireSessionEvent {
+        WireSessionEvent(streamId: streamId, sequence: sequence, sessionId: sessionId, turnId: turnId, messageId: nil, kind: .unrecognized,
+            contentIndex: nil, delta: nil, text: nil, pluginId: nil, thinking: nil, toolCallId: nil, toolName: nil, arguments: nil,
+            argumentsTruncated: nil, content: nil, contentTruncated: nil, details: nil, detailsOmitted: nil, isError: nil, status: nil,
+            errorKind: nil, errorMessage: nil, compactionId: nil, compactionFailureReason: nil, providerRetry: nil, contextTokens: nil,
+            contextWindow: nil, usage: nil, sessionName: nil, workspace: nil, subagentConversationId: nil, subagentTaskId: nil,
+            peerRequestId: nil, interaction: nil, interactionId: nil, interactionResolution: nil, annotationId: nil, annotation: nil,
+            annotationIds: nil, acceptedMessageId: nil, scratchpad: nil, boundaryId: nil, boundaryKind: nil, boundarySource: nil,
+            createdAt: nil, url: nil, clientPluginCallId: nil, clientPluginInstanceId: nil, clientPluginCall: nil,
+            clientPluginCallResolution: nil, configuration: nil, followUps: nil)
+    }
+}
