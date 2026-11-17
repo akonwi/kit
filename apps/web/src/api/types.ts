@@ -76,4 +76,4 @@ export type EventOf<K extends SessionEvent["kind"]> = Extract<SessionEvent, { ki
 
 /** The session protocol this client speaks, as the contract states it. */
 export type ProtocolVersion = paths["/v1/sessions"]["get"]["parameters"]["header"]["X-Kit-Protocol-Version"];
-export const PROTOCOL_VERSION: ProtocolVersion = 50;
+export const PROTOCOL_VERSION: ProtocolVersion = 51;

@@ -29,6 +29,12 @@ describe("acceptBatch", () => {
     expect(() => acceptBatch(batch([], { resyncRequired: true }), "s1", "st", 5)).toThrow(Resync);
   });
 
+  test("advances past an event of a kind this client doesn't know", () => {
+    const unknown = batch([6, 7]);
+    unknown.events[0] = { kind: "widget.spun", sessionId: "s1", streamId: "st", sequence: 6 } as never;
+    expect(acceptBatch(unknown, "s1", "st", 5)).toBe(7);
+  });
+
   test("resyncs on an event of another session", () => {
     expect(() => acceptBatch(batch([6]), "s2", "st", 5)).toThrow(Resync);
   });

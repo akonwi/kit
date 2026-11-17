@@ -197,23 +197,11 @@ export function SessionPage(props: { id: string }) {
     library.dispose();
   });
 
-  // This device's shell commands, shown among the transcript's rows until
-  // the transcript records them; a `!!` command never is.
-  const shell = createShell(
-    ready.api,
-    () => props.id,
-    (error) => kit.fail(error),
-  );
+  // The session's shell commands from every device, shown among the
+  // transcript's rows until the transcript records them; a `!!` command never
+  // is.
+  const shell = createShell(ready.api, () => props.id, state);
   const rows = createMemo(() => placeShellRuns(state()?.rows ?? [], shell.runs(), shell.anchors()));
-  // A command the transcript has recorded has finished, whatever the last poll said.
-  createEffect(() => {
-    for (const row of state()?.rows ?? []) if (row.kind === "shell") shell.settle(row.run);
-  });
-  // A command already running when the page loaded, from any device.
-  createEffect(() => {
-    const id = state()?.activeShellId;
-    if (id) shell.follow(id);
-  });
 
   const watch: Watch = watchSession(ready.api, props.id, {
     state: setState,

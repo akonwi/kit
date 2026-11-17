@@ -1,11 +1,12 @@
 // Shell commands (`!` and `!!`) as Kit's other clients show them: a command
 // the agent sees is recorded in the transcript as a `bash` boundary when it
-// finishes; one it doesn't see (`!!`) is never recorded, so it shows only on
-// the device that ran it, after the row that was last when it was sent.
-import { type Accessor, createSignal, onCleanup } from "solid-js";
+// finishes; one it doesn't see (`!!`) is never recorded. Every device sees
+// both as they start and settle on the session's stream, and a snapshot
+// lists the recent ones the transcript doesn't record (ADR 0072).
+import { type Accessor, createMemo, createSignal } from "solid-js";
 import { type Api, ApiError, NetworkError } from "../api/client";
 import type { TranscriptContent } from "../api/types";
-import type { Row } from "./projection";
+import type { Row, SessionState } from "./projection";
 
 /** One shell command and, once it settles, how it went. */
 export interface ShellRun {
@@ -129,11 +130,11 @@ function withoutFraming(
 }
 
 /**
- * Places this device's commands among the transcript's rows. A command the
- * transcript has recorded is shown from its record. Any other goes after the
- * row that was last when it was sent (at the start when there was none); if
- * that row is no longer shown, a running command follows the transcript and
- * a settled one is left out, since its place isn't shown.
+ * Places the session's commands among the transcript's rows. A command the
+ * transcript has recorded is shown from its record. Any other goes after its
+ * anchor (at the start when that is ""); if that row is no longer shown, a
+ * running command follows the transcript and a settled one is left out, since
+ * its place isn't shown.
  */
 export function placeShellRuns(
   rows: readonly Row[],
@@ -172,75 +173,58 @@ export function newShellId(): string {
   return `bash_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-const POLL_MS = 1000;
 const KEEP = 64;
 
 export interface Shell {
-  /** This device's commands, oldest first. */
+  /** The session's commands from every device, oldest first. */
   runs: Accessor<ShellRun[]>;
-  /** Where each command goes: the row last shown when it was sent. */
+  /** Where each command goes: the row it follows, or "" for the start. */
   anchors: Accessor<ReadonlyMap<string, string>>;
-  /** The command still running, if any. */
+  /** The command still running, if any, from any device. */
   active: Accessor<ShellRun | undefined>;
   starting: Accessor<boolean>;
   stopping: Accessor<boolean>;
   /** Runs a draft's command after the row `after`; resolves true once the server took it. */
   start(text: string, after: string): Promise<boolean>;
-  /** Follows a command started elsewhere, such as the snapshot's running one. */
-  follow(id: string): void;
-  /** Takes a command's outcome from the transcript, which can record it before a poll sees it. */
-  settle(run: ShellRun): void;
+  /** Stops the running command, whichever device started it. */
   stop(): Promise<void>;
 }
 
-/** This device's shell commands in a session, kept current while they run. */
-export function createShell(api: Api, session: Accessor<string>, fail: (error: unknown) => void): Shell {
-  const [runs, setRuns] = createSignal<ShellRun[]>([]);
-  const [anchors, setAnchors] = createSignal<ReadonlyMap<string, string>>(new Map());
+/**
+ * The session's shell commands. The stream reports every device's commands
+ * as they start and settle (ADR 0072); a command this device started shows
+ * from the server's answer until the stream reports it.
+ */
+export function createShell(
+  api: Api,
+  session: Accessor<string>,
+  state: Accessor<SessionState | undefined>,
+): Shell {
+  const [started, setStarted] = createSignal<ShellRun[]>([]);
+  const [sent, setSent] = createSignal<ReadonlyMap<string, string>>(new Map());
   const [starting, setStarting] = createSignal(false);
   const [stopping, setStopping] = createSignal(false);
   // An answer lost in flight leaves the command's id to look up or reuse, so
   // a retry of the same draft never starts a second command.
   let admission: { id: string; text: string } | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let disposed = false;
 
-  const record = (run: ShellRun) => {
-    setRuns((current) => {
-      const index = current.findIndex((value) => value.id === run.id);
-      // A settled command never goes back to running.
-      if (index >= 0 && current[index]?.status !== "running" && run.status === "running") return current;
-      const next = index >= 0 ? current.map((value, at) => (at === index ? run : value)) : [...current, run];
-      return next.slice(-KEEP);
-    });
-    schedule();
-  };
-
-  const active = () => runs().findLast((run) => run.status === "running");
-
-  const poll = async () => {
-    timer = undefined;
-    for (const run of runs().filter((value) => value.status === "running")) {
-      try {
-        const next = shellFromWire(await api.getBash(session(), run.id));
-        if (next) record(next);
-      } catch (failure) {
-        if (failure instanceof NetworkError) continue;
-        fail(failure);
-      }
-    }
-    schedule();
-  };
-
-  function schedule() {
-    if (disposed || timer || !active()) return;
-    timer = setTimeout(() => void poll(), POLL_MS);
-  }
-
-  onCleanup(() => {
-    disposed = true;
-    clearTimeout(timer);
+  const runs = createMemo(() => {
+    const reported = state()?.shellRuns ?? [];
+    const recorded = new Set(
+      (state()?.rows ?? []).filter((row) => row.kind === "shell").map((row) => row.id),
+    );
+    const known = new Set(reported.map((run) => run.id));
+    return [...reported, ...started().filter((run) => !known.has(run.id) && !recorded.has(run.id))];
   });
+  // Where a command was sent wins over where the stream reached it.
+  const anchors = createMemo(() => new Map([...(state()?.shellAnchors ?? new Map()), ...sent()]));
+  // A reported command runs while the stream says so; one only this device
+  // knows of runs until the stream reports it.
+  const active = () => {
+    const id = state()?.activeShellId;
+    const reported = new Set((state()?.shellRuns ?? []).map((run) => run.id));
+    return runs().findLast((run) => run.status === "running" && (!reported.has(run.id) || run.id === id));
+  };
 
   return {
     runs,
@@ -254,7 +238,7 @@ export function createShell(api: Api, session: Accessor<string>, fail: (error: u
       if (admission && admission.text !== text) admission = undefined;
       const id = admission?.id ?? newShellId();
       admission = { id, text };
-      setAnchors((current) => (current.has(id) ? current : new Map(current).set(id, after)));
+      setSent((current) => (current.has(id) ? current : new Map(current).set(id, after)));
       setStarting(true);
       try {
         let wire: Parameters<typeof shellFromWire>[0];
@@ -274,7 +258,8 @@ export function createShell(api: Api, session: Accessor<string>, fail: (error: u
         }
         admission = undefined;
         const run = shellFromWire(wire);
-        if (run) record(run);
+        if (run)
+          setStarted((current) => [...current.filter((value) => value.id !== run.id), run].slice(-KEEP));
         return true;
       } catch (failure) {
         if (failure instanceof ApiError && failure.status === 404) admission = undefined;
@@ -283,30 +268,12 @@ export function createShell(api: Api, session: Accessor<string>, fail: (error: u
         setStarting(false);
       }
     },
-    follow(id) {
-      if (runs().some((run) => run.id === id)) return;
-      void api
-        .getBash(session(), id)
-        .then((wire) => {
-          const run = shellFromWire(wire);
-          if (run) record(run);
-        })
-        .catch((failure) => {
-          if (!(failure instanceof NetworkError)) fail(failure);
-        });
-    },
-    settle(run) {
-      const known = runs().find((value) => value.id === run.id);
-      if (known?.status === "running" && run.status !== "running")
-        record({ ...run, excluded: known.excluded });
-    },
     async stop() {
       const run = active();
       if (!run || stopping()) return;
       setStopping(true);
       try {
         await api.abortBash(session(), run.id);
-        void poll();
       } finally {
         setStopping(false);
       }

@@ -19,7 +19,7 @@ import type {
 } from "../api/types";
 import { type Comment, fromAnnotation, fromSummary, mergeComments } from "../changes/comments";
 import { newerScratchpad } from "../scratchpad/pad";
-import { type ShellRun, shellFromBoundary } from "./shell";
+import { type ShellRun, shellFromBoundary, shellFromWire } from "./shell";
 
 export type ToolStatus = "planned" | "running" | "done" | "notRun";
 
@@ -64,8 +64,15 @@ export interface SessionState {
   rows: Row[];
   status: Status;
   activeTurnId?: string;
-  /** The shell command running when the snapshot was taken, from any device. */
+  /** The shell command running now, from any device. */
   activeShellId?: string;
+  /**
+   * Shell commands from every device that the snapshot listed or the stream
+   * reported, oldest first; the transcript records the included ones too.
+   */
+  shellRuns: ShellRun[];
+  /** Where each of those goes: the row it follows, or "" for the start. */
+  shellAnchors: ReadonlyMap<string, string>;
   /** A fixed activity label or the latest line of streamed thinking. */
   activity?: string;
   compacting: boolean;
@@ -94,6 +101,8 @@ export const THINKING = "Thinking…";
 export const COMPACTING = "Compacting session…";
 
 const TURN_END = "turn-end:";
+/** How many shell commands a session's state keeps. */
+const KEEP_SHELL_RUNS = 64;
 const COMPACTION_PREFIX = "[context summary]";
 
 /** A wire record that breaks the contract's rules; the watch starts over. */
@@ -338,6 +347,48 @@ export function transcript(
   return rows;
 }
 
+/**
+ * Where each of a snapshot's shell commands goes: after the last row made
+ * from a message created before the command started, or "" for the start.
+ */
+export function snapshotShellAnchors(
+  source: readonly TranscriptMessage[],
+  rows: readonly Row[],
+  executions: readonly { id: string; startedAt: string }[],
+): Map<string, string> {
+  const anchors = new Map<string, string>();
+  if (executions.length === 0) return anchors;
+  // Each row's position among the messages it was made from.
+  const byMessage = new Map<string, number>();
+  const byCall = new Map<string, number>();
+  const turnEnds = new Map<string, number>();
+  source.forEach((message, index) => {
+    byMessage.set(message.id, index);
+    if (message.boundaryId) byMessage.set(message.boundaryId, index);
+    if (message.turnId) turnEnds.set(message.turnId, index);
+    for (const block of message.content ?? [])
+      if (block.kind === "toolCall" && !byCall.has(block.toolCallId)) byCall.set(block.toolCallId, index);
+  });
+  const placed = rows.map((row) => {
+    if (row.kind === "tools") return byCall.get(row.id.slice("tools-".length));
+    if (row.kind === "turnEnd") return turnEnds.get(row.id.slice(TURN_END.length));
+    return byMessage.get(row.id.replace(/-text-\d+$/, ""));
+  });
+  const created = source.map((message) => Date.parse(message.createdAt ?? ""));
+  for (const execution of executions) {
+    const started = Date.parse(execution.startedAt);
+    let before = created.findIndex((time) => time > started);
+    if (before < 0) before = source.length;
+    let anchor = "";
+    rows.forEach((row, index) => {
+      const position = placed[index];
+      if (position !== undefined && position < before) anchor = row.id;
+    });
+    anchors.set(execution.id, anchor);
+  }
+  return anchors;
+}
+
 function joined(blocks: Map<number, string> | undefined): string {
   if (!blocks) return "";
   return [...blocks.entries()]
@@ -415,11 +466,18 @@ export class Projection {
       (interaction) => interaction.plugin || interaction.turnId === active,
     );
     this.pending = new Set(interactions.map((interaction) => interaction.id));
+    const shellRuns = (snapshot.bashExecutions ?? []).map((wire) => {
+      const run = shellFromWire(wire);
+      if (!run) throw new InvalidPayload("A shell command in the snapshot is malformed.");
+      return run;
+    });
     this.state = {
       info: snapshot.session,
       rows,
       activeTurnId: active,
       activeShellId: snapshot.activeBashExecutionId || undefined,
+      shellRuns,
+      shellAnchors: snapshotShellAnchors(source, rows, snapshot.bashExecutions ?? []),
       activity: snapshot.activeCompaction ? COMPACTING : active ? WORKING : undefined,
       compacting: Boolean(snapshot.activeCompaction),
       status: "idle",
@@ -711,6 +769,23 @@ export class Projection {
       case "follow_ups.changed":
         next.followUps = event.followUps;
         break;
+      case "bash.started":
+      case "bash.completed": {
+        const run = shellFromWire(event.bashExecution);
+        if (!run) throw new InvalidPayload("A shell command is malformed.");
+        const known = next.shellRuns.find((value) => value.id === run.id);
+        // A settled command never goes back to running.
+        if (known && known.status !== "running" && run.status === "running") break;
+        next.shellRuns = known
+          ? next.shellRuns.map((value) => (value.id === run.id ? run : value))
+          : [...next.shellRuns, run].slice(-KEEP_SHELL_RUNS);
+        // A command goes where the stream reached it: after the last row.
+        if (!next.shellAnchors.has(run.id))
+          next.shellAnchors = new Map(next.shellAnchors).set(run.id, next.rows.at(-1)?.id ?? "");
+        if (run.status === "running") next.activeShellId = run.id;
+        else if (next.activeShellId === run.id) next.activeShellId = undefined;
+        break;
+      }
       default:
         // Other kinds change nothing this client shows.
         break;

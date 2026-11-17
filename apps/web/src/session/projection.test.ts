@@ -454,3 +454,119 @@ describe("comments", () => {
     ]);
   });
 });
+
+describe("shell commands", () => {
+  const wire = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    sessionId: "s1",
+    sequence: 1,
+    command: "ls",
+    status: "completed",
+    output: "a.ts",
+    exitCode: 0,
+    excludeFromContext: true,
+    startedAt: "2025-01-01T00:00:02Z",
+    completedAt: "2025-01-01T00:00:03Z",
+    ...overrides,
+  });
+  const turn = (id: string, at: string) => [
+    message({
+      id: `u-${id}`,
+      role: "user",
+      turnId: id,
+      createdAt: at,
+      content: [{ kind: "text", text: id }],
+    }),
+    message({
+      id: `a-${id}`,
+      role: "assistant",
+      turnId: id,
+      createdAt: at,
+      stopReason: "stop",
+      content: [{ kind: "text", text: `${id} done` }],
+    }),
+  ];
+
+  test("a snapshot places the commands it lists after the rows made before they started", () => {
+    const projection = new Projection(
+      snapshot([...turn("t1", "2025-01-01T00:00:01Z"), ...turn("t2", "2025-01-01T00:00:05Z")], {
+        activeBashExecutionId: "bash_3",
+        bashExecutions: [
+          wire("bash_1", { startedAt: "2025-01-01T00:00:00Z" }),
+          wire("bash_2", { sequence: 2 }),
+          wire("bash_3", {
+            sequence: 3,
+            status: "running",
+            output: undefined,
+            exitCode: undefined,
+            completedAt: undefined,
+            startedAt: "2025-01-01T00:00:06Z",
+          }),
+        ],
+      } as Partial<SessionSnapshot>),
+    );
+    const state = projection.session;
+    expect(state.shellRuns.map((run) => [run.id, run.status, run.excluded])).toEqual([
+      ["bash_1", "completed", true],
+      ["bash_2", "completed", true],
+      ["bash_3", "running", true],
+    ]);
+    expect([...state.shellAnchors]).toEqual([
+      ["bash_1", ""],
+      ["bash_2", "a-t1"],
+      ["bash_3", "a-t2"],
+    ]);
+    expect(state.activeShellId).toBe("bash_3");
+  });
+
+  test("another device's command starts after the last row and settles in place", () => {
+    const projection = new Projection(snapshot(turn("t1", "2025-01-01T00:00:01Z")));
+    projection.apply(
+      event({
+        kind: "bash.started",
+        bashExecution: wire("bash_1", {
+          status: "running",
+          output: undefined,
+          exitCode: undefined,
+          completedAt: undefined,
+        }),
+      }),
+    );
+    expect(projection.session.activeShellId).toBe("bash_1");
+    expect(projection.session.shellAnchors.get("bash_1")).toBe("a-t1");
+    projection.apply(event({ kind: "bash.completed", bashExecution: wire("bash_1", { output: "done" }) }));
+    projection.apply(
+      event({
+        kind: "bash.started",
+        bashExecution: wire("bash_1", {
+          status: "running",
+          output: undefined,
+          exitCode: undefined,
+          completedAt: undefined,
+        }),
+      }),
+    );
+    expect(projection.session.shellRuns).toEqual([
+      {
+        id: "bash_1",
+        command: "ls",
+        status: "completed",
+        output: "done",
+        exitCode: 0,
+        excluded: true,
+        truncated: false,
+        timedOut: false,
+        error: undefined,
+      },
+    ]);
+    expect(projection.session.activeShellId).toBeUndefined();
+  });
+
+  test("an event of a kind this client doesn't know changes nothing", () => {
+    const projection = new Projection(snapshot(turn("t1", "2025-01-01T00:00:01Z")));
+    const before = projection.session;
+    projection.apply(event({ kind: "widget.spun", widget: { speed: 3 } }));
+    expect(projection.session.rows).toEqual(before.rows);
+    expect(projection.session.shellRuns).toEqual([]);
+  });
+});

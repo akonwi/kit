@@ -1373,6 +1373,19 @@ export type components = {
         BashAbortResult: {
             aborting: boolean;
         };
+        BashCompletedEvent: {
+            bashExecution: components["schemas"]["BashExecution"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "bash.completed";
+            /** Format: int64 */
+            sequence: number;
+            sessionId: string;
+            streamId: string;
+            turnId?: string;
+        };
         BashCredentialExpiredError: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -1424,6 +1437,19 @@ export type components = {
              */
             code: "rate_limited";
             message: string;
+        };
+        BashStartedEvent: {
+            bashExecution: components["schemas"]["BashExecution"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "bash.started";
+            /** Format: int64 */
+            sequence: number;
+            sessionId: string;
+            streamId: string;
+            turnId?: string;
         };
         BoundaryCreatedEvent: {
             boundaryId: string;
@@ -2731,7 +2757,7 @@ export type components = {
             turnId?: string;
             workspace: components["schemas"]["WorkspaceRef"];
         };
-        SessionEvent: components["schemas"]["TurnStartedEvent"] | components["schemas"]["UserMessageAddedEvent"] | components["schemas"]["PluginMessageAddedEvent"] | components["schemas"]["AssistantStartedEvent"] | components["schemas"]["AssistantTextDeltaEvent"] | components["schemas"]["ThinkingDeltaEvent"] | components["schemas"]["AssistantCompletedEvent"] | components["schemas"]["ToolPlannedEvent"] | components["schemas"]["ToolStartedEvent"] | components["schemas"]["ToolOutputDeltaEvent"] | components["schemas"]["ToolCompletedEvent"] | components["schemas"]["CompactionStartedEvent"] | components["schemas"]["CompactionCompletedEvent"] | components["schemas"]["ProviderRetryScheduledEvent"] | components["schemas"]["ProviderRetryStartedEvent"] | components["schemas"]["ContextChangedEvent"] | components["schemas"]["UsageChangedEvent"] | components["schemas"]["TurnCompletedEvent"] | components["schemas"]["SessionNameChangedEvent"] | components["schemas"]["SessionCWDChangedEvent"] | components["schemas"]["SubagentChangedEvent"] | components["schemas"]["PeerQueryChangedEvent"] | components["schemas"]["InteractionRequestedEvent"] | components["schemas"]["InteractionResolvedEvent"] | components["schemas"]["AnnotationCreatedEvent"] | components["schemas"]["AnnotationUpdatedEvent"] | components["schemas"]["AnnotationDeletedEvent"] | components["schemas"]["AnnotationSubmittedEvent"] | components["schemas"]["ScratchpadChangedEvent"] | components["schemas"]["BoundaryCreatedEvent"] | components["schemas"]["URLOpenRequestedEvent"] | components["schemas"]["ClientPluginCallRequestedEvent"] | components["schemas"]["ClientPluginCallResolvedEvent"] | components["schemas"]["SessionConfigurationChangedEvent"] | components["schemas"]["FollowUpsChangedEvent"];
+        SessionEvent: components["schemas"]["TurnStartedEvent"] | components["schemas"]["UserMessageAddedEvent"] | components["schemas"]["PluginMessageAddedEvent"] | components["schemas"]["AssistantStartedEvent"] | components["schemas"]["AssistantTextDeltaEvent"] | components["schemas"]["ThinkingDeltaEvent"] | components["schemas"]["AssistantCompletedEvent"] | components["schemas"]["ToolPlannedEvent"] | components["schemas"]["ToolStartedEvent"] | components["schemas"]["ToolOutputDeltaEvent"] | components["schemas"]["ToolCompletedEvent"] | components["schemas"]["CompactionStartedEvent"] | components["schemas"]["CompactionCompletedEvent"] | components["schemas"]["ProviderRetryScheduledEvent"] | components["schemas"]["ProviderRetryStartedEvent"] | components["schemas"]["ContextChangedEvent"] | components["schemas"]["UsageChangedEvent"] | components["schemas"]["TurnCompletedEvent"] | components["schemas"]["SessionNameChangedEvent"] | components["schemas"]["SessionCWDChangedEvent"] | components["schemas"]["SubagentChangedEvent"] | components["schemas"]["PeerQueryChangedEvent"] | components["schemas"]["InteractionRequestedEvent"] | components["schemas"]["InteractionResolvedEvent"] | components["schemas"]["AnnotationCreatedEvent"] | components["schemas"]["AnnotationUpdatedEvent"] | components["schemas"]["AnnotationDeletedEvent"] | components["schemas"]["AnnotationSubmittedEvent"] | components["schemas"]["ScratchpadChangedEvent"] | components["schemas"]["BoundaryCreatedEvent"] | components["schemas"]["URLOpenRequestedEvent"] | components["schemas"]["ClientPluginCallRequestedEvent"] | components["schemas"]["ClientPluginCallResolvedEvent"] | components["schemas"]["SessionConfigurationChangedEvent"] | components["schemas"]["FollowUpsChangedEvent"] | components["schemas"]["BashStartedEvent"] | components["schemas"]["BashCompletedEvent"];
         SessionEventBatch: {
             events: components["schemas"]["SessionEvent"][];
             /** Format: int64 */
@@ -2815,6 +2841,7 @@ export type components = {
             activeCompaction?: components["schemas"]["ActiveCompaction"];
             activeTurnId?: string;
             annotations?: components["schemas"]["AnnotationSummary"][];
+            bashExecutions?: components["schemas"]["BashExecution"][];
             contextTokens?: number;
             contextWindow?: number;
             /** Format: int64 */
@@ -3990,7 +4017,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path?: never;
             cookie?: never;
@@ -4645,7 +4672,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path?: never;
             cookie?: never;
@@ -4745,7 +4772,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path?: never;
             cookie?: never;
@@ -5415,7 +5442,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path?: never;
             cookie?: never;
@@ -5537,7 +5564,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path?: never;
             cookie?: never;
@@ -5674,7 +5701,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -5809,7 +5836,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -5942,7 +5969,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -6095,7 +6122,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -6230,7 +6257,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -6380,7 +6407,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -6517,7 +6544,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -6667,7 +6694,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -6817,7 +6844,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 attachmentID: string;
@@ -6968,7 +6995,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -7118,7 +7145,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -7257,7 +7284,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 executionID: string;
@@ -7393,7 +7420,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 executionID: string;
@@ -7532,7 +7559,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -7667,7 +7694,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 instanceID: string;
@@ -7805,7 +7832,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 instanceID: string;
@@ -7939,7 +7966,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 callID: string;
@@ -8089,7 +8116,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -8250,7 +8277,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -8411,7 +8438,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -8561,7 +8588,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -8722,7 +8749,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -8883,7 +8910,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -9044,7 +9071,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -9205,7 +9232,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -9341,7 +9368,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -9503,7 +9530,7 @@ export interface operations {
             header: {
                 "Last-Event-ID"?: string;
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -9662,7 +9689,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -9819,7 +9846,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -9969,7 +9996,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -10130,7 +10157,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 interactionID: string;
@@ -10296,7 +10323,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -10453,7 +10480,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -10601,7 +10628,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -10736,7 +10763,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -10871,7 +10898,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -11006,7 +11033,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -11141,7 +11168,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -11291,7 +11318,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -11439,7 +11466,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 conversationID: string;
@@ -11593,7 +11620,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 conversationID: string;
@@ -11731,7 +11758,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 conversationID: string;
@@ -11869,7 +11896,7 @@ export interface operations {
             };
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -12026,7 +12053,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -12184,7 +12211,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -12342,7 +12369,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -12499,7 +12526,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -12656,7 +12683,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -12817,7 +12844,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -12978,7 +13005,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -13139,7 +13166,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -13300,7 +13327,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -13461,7 +13488,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -13596,7 +13623,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -13731,7 +13758,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -13867,7 +13894,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -14007,7 +14034,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -14164,7 +14191,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -14325,7 +14352,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path: {
                 sessionID: string;
@@ -14486,7 +14513,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 50;
+                "X-Kit-Protocol-Version": 51;
             };
             path?: never;
             cookie?: never;
