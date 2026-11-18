@@ -5,51 +5,43 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// The capsule's + button: a menu of Photo Library, Take Photo, and Choose
-/// File. Each picked file joins the draft and uploads at once.
-struct AttachMenu: View {
-    let composer: SessionComposer
-    @State private var choosingPhotos = false
-    @State private var photos: [PhotosPickerItem] = []
-    @State private var takingPhoto = false
-    @State private var choosingFiles = false
+/// Which attachment picker is showing.
+enum AttachmentSource: Identifiable {
+    case photos, camera, files
+    var id: Self { self }
+}
 
-    var body: some View {
-        Menu {
-            Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button("Take Photo", systemImage: "camera") { takingPhoto = true }
+/// The Photo Library, camera, and file pickers the composer's menu opens.
+/// Each picked file joins the draft and uploads at once.
+struct AttachmentPickers: ViewModifier {
+    let composer: SessionComposer
+    @Binding var source: AttachmentSource?
+    @State private var photos: [PhotosPickerItem] = []
+
+    func body(content: Content) -> some View {
+        content
+            .photosPicker(isPresented: showing(.photos), selection: $photos,
+                          maxSelectionCount: max(1, composer.attachmentRoom), matching: .images)
+            .onChange(of: photos) {
+                let picked = photos
+                photos = []
+                for item in picked { load(item) }
             }
-            Button("Choose File", systemImage: "folder") { choosingFiles = true }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(composer.attachmentRoom > 0 ? Theme.text : Theme.muted)
-                .frame(width: 40, height: 40)
-                .contentShape(Circle())
-        }
-        .menuOrder(.fixed)
-        .disabled(!composer.editable || composer.attachmentRoom == 0)
-        .accessibilityLabel("Attach")
-        .accessibilityIdentifier("attach-menu")
-        .photosPicker(isPresented: $choosingPhotos, selection: $photos,
-                      maxSelectionCount: max(1, composer.attachmentRoom), matching: .images)
-        .onChange(of: photos) {
-            let picked = photos
-            photos = []
-            for item in picked { load(item) }
-        }
-        .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            guard case .success(let urls) = result else { return }
-            for url in urls.prefix(composer.attachmentRoom) { composer.attach(url: url) }
-        }
-        .fullScreenCover(isPresented: $takingPhoto) {
-            CameraPicker { image in
-                guard let data = image.jpegData(compressionQuality: 0.95) else { return }
-                attachPhoto(data, name: "Photo")
+            .fileImporter(isPresented: showing(.files), allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                guard case .success(let urls) = result else { return }
+                for url in urls.prefix(composer.attachmentRoom) { composer.attach(url: url) }
             }
-            .ignoresSafeArea()
-        }
+            .fullScreenCover(isPresented: showing(.camera)) {
+                CameraPicker { image in
+                    guard let data = image.jpegData(compressionQuality: 0.95) else { return }
+                    attachPhoto(data, name: "Photo")
+                }
+                .ignoresSafeArea()
+            }
+    }
+
+    private func showing(_ picker: AttachmentSource) -> Binding<Bool> {
+        Binding { source == picker } set: { if !$0, source == picker { source = nil } }
     }
 
     private func load(_ item: PhotosPickerItem) {

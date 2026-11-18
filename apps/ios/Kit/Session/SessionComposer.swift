@@ -161,7 +161,8 @@ final class SessionComposer {
     var canDictate: Bool { editable && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     /// Whether the mic takes Send's slot, with nothing to send or stop.
-    /// Otherwise it sits beside Stop, or beside Send for attachments and comments.
+    /// Otherwise, while Stop shows, or Send for attachments and comments,
+    /// Dictate is in the composer's menu.
     var dictatesInSendSlot: Bool { canDictate && !hasContent && !running && shellRunning == nil }
 
     /// Whether the queue's Edit and Clear can act.

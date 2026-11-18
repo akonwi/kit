@@ -1,6 +1,7 @@
 import KitClient
 import KitDictation
 import SwiftUI
+import UIKit
 
 /// The bottom of a session: the status line, then either the request the
 /// session waits on, or the queued follow-ups and the glass capsule with its
@@ -33,6 +34,8 @@ struct ComposerBar: View {
     /// Dictated words are on their way. The strip stays until the server
     /// answers, so the words don't show in the field just before they go.
     @State private var sendingDictation = false
+    @State private var attaching: AttachmentSource?
+    @AppStorage(ComposerControlStyle.storageKey) private var controlStyle = ComposerControlStyle.hold
 
     /// The session's dictation, shared by its screens' composers so a
     /// recording keeps going on screens over the session.
@@ -127,14 +130,13 @@ struct ComposerBar: View {
 
     // MARK: Capsule
 
-    /// The attach button, the field, and the button at the end. While
-    /// dictating, a recording strip takes the attach button's and field's
-    /// place, and the mic stays where it was pressed.
+    /// The field and the button at the end, whose menu has the attachment
+    /// pickers and the commands. While dictating, a recording strip takes
+    /// the field's place, and the mic stays where it was pressed.
     private var capsule: some View {
         let listening = dictation.phase == .recording || dictation.phase == .transcribing || sendingDictation
         // One session records at a time.
         let mic = dictation.isActive || (composer.canDictate && dictations.canStart(feed.identity))
-        let micOnly = dictation.isActive || composer.dictatesInSendSlot
         return HStack(alignment: .bottom, spacing: 4) {
             if listening {
                 DictationStrip(dictation: dictation, hint: hint, sending: sendingDictation)
@@ -157,12 +159,6 @@ struct ComposerBar: View {
                         .disabled(!composer.editable)
                     PickedCommandChip(name: command.name) { composer.command = nil }
                         .disabled(!composer.editable)
-                } else {
-                    AttachMenu(composer: composer)
-                    if commands != nil {
-                        CommandButton(active: false, label: "Commands") { openSearch() }
-                            .disabled(!composer.editable)
-                    }
                 }
                 TextField(placeholder, text: fieldText, axis: .vertical)
                     .font(.system(size: 17))
@@ -171,6 +167,7 @@ struct ComposerBar: View {
                     .focused($focused)
                     .disabled(!composer.editable || dictation.isActive)
                     .padding(.vertical, 9)
+                    .padding(.leading, leadingButton ? 0 : 10)
                     .accessibilityIdentifier("composer")
                     .contentShape(Rectangle())
                     .onTapGesture { focused = true }
@@ -187,13 +184,11 @@ struct ComposerBar: View {
                 .accessibilityLabel("Close commands")
                 .accessibilityIdentifier("command-close")
             } else {
-                if mic {
-                    DictationButton(dictation: dictation, look: micOnly ? .filled : .plain, press: $press,
-                                    send: sendDictation)
-                }
-                if !micOnly {
-                    ComposerButton(action: composer.action, send: composer.send, stop: composer.stop)
-                }
+                ComposerControl(style: controlStyle,
+                                main: .resolve(dictating: dictation.isActive, micInSendSlot: mic && composer.dictatesInSendSlot,
+                                               action: composer.action),
+                                more: more(mic: mic), dictation: dictation, press: $press,
+                                send: composer.send, stop: composer.stop, sendDictation: sendDictation)
             }
         }
         .padding(.leading, 8)
@@ -201,6 +196,7 @@ struct ComposerBar: View {
         .padding(.vertical, 8)
         .frame(minHeight: 56)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .modifier(AttachmentPickers(composer: composer, source: $attaching))
         .onChange(of: dictation.isActive) { _, active in
             if active { focused = false }
         }
@@ -217,6 +213,26 @@ struct ComposerBar: View {
         .onChange(of: feed.session?.messages.isEmpty, initial: true) { _, empty in
             if empty == true, composer.draft.isEmpty, composer.editable { focused = true }
         }
+    }
+
+    /// Whether a button sits before the field: ✕ while the mic gets ready,
+    /// or the command button while a command is open.
+    private var leadingButton: Bool {
+        dictation.isPreparing || search != nil || composer.command != nil
+    }
+
+    /// The control's menu. Dictate is there while the mic isn't the main
+    /// action but could start.
+    private func more(mic: Bool) -> ComposerMore {
+        let dictate: (() -> Void)? = mic && !composer.dictatesInSendSlot && !dictation.isActive
+            ? { DictationTap(dictation: dictation, press: $press, send: sendDictation).tap() }
+            : nil
+        return ComposerMore(
+            dictate: dictate,
+            canAttach: composer.editable && composer.attachmentRoom > 0,
+            hasCamera: UIImagePickerController.isSourceTypeAvailable(.camera),
+            attach: { attaching = $0 },
+            commands: commands != nil && composer.editable ? { openSearch() } : nil)
     }
 
     // MARK: Commands

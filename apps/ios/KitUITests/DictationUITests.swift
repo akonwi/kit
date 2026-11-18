@@ -2,7 +2,8 @@ import XCTest
 
 /// Dictation in the composer and the comment box, with the app's scripted
 /// microphone, on the paired server of an isolated Kit home: a tap sends
-/// once ↑ is tapped, a hold sends when let go, sliding left cancels, refused
+/// once ↑ is tapped; in the split style a hold sends when let go and sliding
+/// left cancels, and in the hold style a hold opens the menu; refused
 /// access offers Settings, silence says so, a comment fills with the words,
 /// and a recording keeps going on the session's other screens and waits in
 /// its draft when the session is left. Run by script/test_dictation.sh, which
@@ -35,8 +36,9 @@ final class DictationUITests: XCTestCase {
 
     @MainActor
     private func open(_ title: String, transcript: String = heard, access: String? = nil,
-                      keepingDrafts: Bool = false) -> XCUIApplication {
+                      keepingDrafts: Bool = false, control: String = "hold") -> XCUIApplication {
         let app = XCUIApplication()
+        app.composerControl(control)
         // Drafts are kept between launches; each test starts without them.
         if !keepingDrafts { app.launchEnvironment["KIT_FORGET_DRAFTS"] = "1" }
         app.launchEnvironment["KIT_DICTATION_TRANSCRIPT"] = transcript
@@ -86,7 +88,7 @@ final class DictationUITests: XCTestCase {
 
     @MainActor
     func testSlidingLeftCancelsAHold() throws {
-        let app = open(try session())
+        let app = open(try session(), control: "split")
         let mic = app.buttons["dictate"]
         XCTAssertTrue(mic.waitForExistence(timeout: 15))
         let start = mic.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -101,7 +103,7 @@ final class DictationUITests: XCTestCase {
     @MainActor
     func testAHoldSendsWhenLetGo() throws {
         let heard = "Check the reconnect path \(Int(Date().timeIntervalSince1970) % 100_000)"
-        let app = open(try session(), transcript: heard)
+        let app = open(try session(), transcript: heard, control: "split")
         let mic = app.buttons["dictate"]
         XCTAssertTrue(mic.waitForExistence(timeout: 15))
         mic.press(forDuration: 3)
@@ -109,6 +111,37 @@ final class DictationUITests: XCTestCase {
         let sent = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", heard)).firstMatch
         XCTAssertTrue(sent.waitForExistence(timeout: 15), "Expected the dictated message in the transcript")
         attach(app, "Sent")
+    }
+
+    /// In the hold style, pressing and holding the mic opens the menu
+    /// instead of recording.
+    @MainActor
+    func testHoldingTheMicOpensTheMenu() throws {
+        let app = open(try session())
+        let mic = app.buttons["dictate"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["composer-more"].exists, "The hold style has one button")
+        mic.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Choose File"].exists)
+        XCTAssertTrue(app.buttons["Commands"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["dictation-strip"].exists, "A hold doesn't record")
+        attach(app, "Hold menu")
+    }
+
+    /// In the split style, the chevron opens the menu, and the mic still
+    /// takes a tap or a hold.
+    @MainActor
+    func testTheSplitChevronOpensTheMenu() throws {
+        let app = open(try session(), control: "split")
+        let more = app.buttons["composer-more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["dictate"].exists)
+        attach(app, "Split")
+        more.tap()
+        XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Commands"].exists)
+        attach(app, "Split menu")
     }
 
     @MainActor

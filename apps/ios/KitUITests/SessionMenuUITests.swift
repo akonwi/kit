@@ -164,9 +164,7 @@ final class SessionMenuUITests: XCTestCase {
     /// Opens the composer's command search, types the command's name, and taps it.
     @MainActor
     private func command(_ app: XCUIApplication, _ name: String) {
-        let button = app.buttons["command-button"]
-        XCTAssertTrue(button.waitForExistence(timeout: 15))
-        button.tap()
+        app.openCommands()
         XCTAssertTrue(app.buttons["command-close"].waitForExistence(timeout: 5))
         app.typeText(name)
         let row = app.buttons["command-builtin:" + name]
@@ -177,9 +175,7 @@ final class SessionMenuUITests: XCTestCase {
     /// What a built-in command's row shows as its value, such as the model.
     @MainActor
     private func commandValue(_ app: XCUIApplication, _ name: String) -> String {
-        let button = app.buttons["command-button"]
-        XCTAssertTrue(button.waitForExistence(timeout: 15))
-        button.tap()
+        app.openCommands()
         XCTAssertTrue(app.buttons["command-close"].waitForExistence(timeout: 5))
         app.typeText(name)
         let row = app.buttons["command-builtin:" + name]

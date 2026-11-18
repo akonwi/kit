@@ -1,5 +1,5 @@
 #!/bin/sh
-# Uses the composer's command button in one session in the app on a
+# Uses Commands in the composer's menu in one session in the app on a
 # simulator, against the server of an isolated Kit home that the app is
 # already paired with (see test_pairing.sh). The session's project needs a
 # prompt command named review (.agents/prompts/review.md), and a sibling

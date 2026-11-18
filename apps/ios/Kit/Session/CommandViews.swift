@@ -1,5 +1,6 @@
 import KitClient
 import SwiftUI
+import UIKit
 
 /// What the command search can open from the composer: the session's
 /// changes count, and the session menu's actions. Only the session screen
@@ -17,8 +18,8 @@ struct CommandSearchState: Equatable {
     var query = ""
 }
 
-/// The button beside + that opens the command search. Filled while the
-/// search is open or a command is picked.
+/// The filled command mark before the field while the search is open or a
+/// command is picked: it closes the search or reopens it.
 struct CommandButton: View {
     let active: Bool
     let label: String
@@ -52,6 +53,24 @@ struct CommandGlyph: Shape {
         path.addLine(to: CGPoint(x: 8.2 * scale, y: 13.5 * scale))
         return path.offsetBy(dx: rect.minX, dy: rect.minY)
     }
+}
+
+extension CommandGlyph {
+    /// The mark as a template image, for menus, which show only images.
+    @MainActor static let menuImage: UIImage = {
+        let size = CGSize(width: 20, height: 20)
+        let path = CommandGlyph().path(in: CGRect(origin: .zero, size: size)).cgPath
+        return UIGraphicsImageRenderer(size: size).image { context in
+            let graphics = context.cgContext
+            graphics.addPath(path)
+            graphics.setLineWidth(1.6)
+            graphics.setLineCap(.round)
+            graphics.setLineJoin(.round)
+            graphics.setStrokeColor(UIColor.black.cgColor)
+            graphics.strokePath()
+        }
+        .withRenderingMode(.alwaysTemplate)
+    }()
 }
 
 /// The picked command before the draft. Tapping it removes it.

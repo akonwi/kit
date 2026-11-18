@@ -21,7 +21,7 @@ struct DictationTests {
         #expect(composer.dictatesInSendSlot)
     }
 
-    @Test func aRunningTurnKeepsStopAndPutsThePlainMicBesideIt() {
+    @Test func aRunningTurnKeepsStopAndCanStillDictate() {
         let composer = SessionComposerTests.composer(snapshot: SessionComposerTests.snapshot(running: "t1"))
         #expect(composer.canDictate)
         #expect(!composer.dictatesInSendSlot)
@@ -35,6 +35,16 @@ struct DictationTests {
         composer.draft = ""
         #expect(!composer.editable)
         #expect(!composer.canDictate)
+    }
+
+    @Test func theMicIsTheMainActionOnlyWhenThereIsNothingToSendOrStop() {
+        #expect(ComposerMain.resolve(dictating: false, micInSendSlot: true, action: .send(enabled: false)) == .mic)
+        #expect(ComposerMain.resolve(dictating: false, micInSendSlot: false, action: .stop(enabled: true))
+            == .action(.stop(enabled: true)))
+        #expect(ComposerMain.resolve(dictating: false, micInSendSlot: false, action: .send(enabled: true))
+            == .action(.send(enabled: true)))
+        // A recording keeps the mic, so the press that started it can send it.
+        #expect(ComposerMain.resolve(dictating: true, micInSendSlot: false, action: .stop(enabled: true)) == .mic)
     }
 
     // MARK: The words

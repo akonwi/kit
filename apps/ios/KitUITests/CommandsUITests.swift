@@ -1,6 +1,6 @@
 import XCTest
 
-/// Uses the composer's command button in a session on the paired server of an
+/// Uses Commands in the composer's menu in a session on the paired server of an
 /// isolated Kit home whose project has a `review` prompt command. It searches
 /// commands, picks the prompt into a chip and removes it, opens the model
 /// choices, and reloads the session's context, which then leads the list as a
@@ -24,11 +24,10 @@ final class CommandsUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 15), "No session named \(title)")
         row.tap()
 
-        // The button turns the composer into a search over every command.
-        let button = app.buttons["command-button"]
-        XCTAssertTrue(button.waitForExistence(timeout: 15))
+        // Commands in the composer's menu turn it into a search over every command.
+        XCTAssertTrue(app.descendants(matching: .any)["composer"].waitForExistence(timeout: 15))
         attach(app, "Composer")
-        button.tap()
+        app.openCommands()
         XCTAssertTrue(app.buttons["command-builtin:changes"].waitForExistence(timeout: 5))
         expectComposerAboveKeyboard(app)
         attach(app, "Search")
@@ -53,7 +52,7 @@ final class CommandsUITests: XCTestCase {
         clear(app.descendants(matching: .any)["composer"].firstMatch)
 
         // Model opens its choices in place, and Commands goes back.
-        button.tap()
+        app.openCommands()
         XCTAssertTrue(app.buttons["command-close"].waitForExistence(timeout: 5))
         app.typeText("model")
         let model = app.buttons["command-builtin:model"]
@@ -73,7 +72,7 @@ final class CommandsUITests: XCTestCase {
         attach(app, "Reloaded")
 
         // It now leads the list.
-        button.tap()
+        app.openCommands()
         XCTAssertTrue(app.staticTexts["Recent"].waitForExistence(timeout: 5))
         attach(app, "Recent")
         app.buttons["command-close"].tap()
@@ -88,7 +87,7 @@ final class CommandsUITests: XCTestCase {
 
         // A tap outside the list closes it, and the keyboard with it. A
         // query keeps the list short, so there's transcript to tap.
-        button.tap()
+        app.openCommands()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         app.typeText("reload")
         XCTAssertTrue(app.buttons["command-builtin:reload"].waitForExistence(timeout: 5))
@@ -112,7 +111,7 @@ final class CommandsUITests: XCTestCase {
 
     @MainActor
     private func changeFolder(_ app: XCUIApplication, to path: String) {
-        app.buttons["command-button"].tap()
+        app.openCommands()
         XCTAssertTrue(app.buttons["command-close"].waitForExistence(timeout: 5))
         app.typeText("folder")
         let row = app.buttons["command-builtin:changeFolder"]
