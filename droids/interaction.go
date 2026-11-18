@@ -362,8 +362,11 @@ func (rt *sdkRuntime) ask(ctx context.Context, question Question, options AskOpt
 	delete(rt.liveWaiters, interaction.ID)
 	settlement := Settlement{Status: InteractionUnavailable, Reason: reasonUnavailable}
 	if _, pending := rt.interactions[interaction.ID]; pending && !rt.closed {
-		// A failed commit leaves it pending; Spawn settles it after a restart.
-		_ = rt.settleInteractionsLocked(context.WithoutCancel(ctx), map[InteractionID]Settlement{interaction.ID: settlement}, nil, nil)
+		if err := rt.settleInteractionsLocked(context.WithoutCancel(ctx), map[InteractionID]Settlement{interaction.ID: settlement}, nil, nil); err != nil {
+			// The question stays listed until it is answered or a restart
+			// settles it; nothing waits for it.
+			return settlement, errors.Join(ctx.Err(), fmt.Errorf("droids: record the unanswered question: %w", err))
+		}
 	}
 	return settlement, ctx.Err()
 }
@@ -557,6 +560,37 @@ func loadInteractions(records []EncodedRecord, pending []InteractionID) (map[Int
 		}
 	}
 	return bodies, nil
+}
+
+// validateRestoredInteractions checks that each pending declared interaction
+// belongs to an awaiting call of the current turn, and the reverse, and that a
+// waiting turn awaits an answer.
+func validateRestoredInteractions(state durableRuntime, interactions map[InteractionID]durableInteraction) error {
+	awaiting := false
+	for _, tool := range state.Tools {
+		if tool.Phase != toolPhaseAwaiting || tool.Settlement != nil {
+			continue
+		}
+		awaiting = true
+		interaction, ok := interactions[tool.Interaction]
+		if !ok || interaction.Live || interaction.ToolCallID != tool.ID || interaction.TurnID != state.TurnID {
+			return fmt.Errorf("droids: awaiting tool %q does not own its interaction", tool.ID)
+		}
+	}
+	for _, id := range state.Interactions {
+		interaction := interactions[id]
+		if interaction.Live {
+			continue
+		}
+		tool, ok := state.Tools[interaction.ToolCallID]
+		if !ok || tool.Phase != toolPhaseAwaiting || tool.Interaction != id || interaction.TurnID != state.TurnID {
+			return fmt.Errorf("droids: declared interaction %q has no awaiting tool call", id)
+		}
+	}
+	if state.Status == ExecutionWaiting && !awaiting {
+		return fmt.Errorf("droids: a waiting turn awaits no answer")
+	}
+	return nil
 }
 
 // settleRestoredLiveLocked settles live interactions a restart ended. The

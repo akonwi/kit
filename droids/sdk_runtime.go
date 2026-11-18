@@ -279,6 +279,9 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if err != nil {
 		return nil, err
 	}
+	if err := validateRestoredInteractions(state, interactions); err != nil {
+		return nil, err
+	}
 	boundaryReceipts, err := loadBoundaryReceipts(ctx, config.Store)
 	if err != nil {
 		return nil, err
