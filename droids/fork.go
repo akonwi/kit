@@ -55,6 +55,10 @@ func (d *Droid) Fork(ctx context.Context, id ConversationID, options ForkOptions
 	}
 	forkedRecords := make([]EncodedRecord, 0, len(records)+2)
 	for _, record := range records {
+		// The child starts with no queue, so it inherits no queue admissions.
+		if record.Kind == queueAdmissionKind {
+			continue
+		}
 		forked, transformErr := forkHistoryRecord(record, sourceID, id)
 		if transformErr != nil {
 			return ForkResult{}, transformErr
@@ -306,7 +310,7 @@ func forkHistoryRecord(record EncodedRecord, sourceID, destinationID Conversatio
 			return EncodedRecord{}, fmt.Errorf("droids: rewrite fork checkpoint %q: %w", record.ID, err)
 		}
 		forked.Payload = payload
-	case reasoningHistoryRecordKind, attemptRecordKind, toolRecordKind, boundaryReceiptKind, boundaryConsumptionKind, compactionIntentKind, compactionReceiptKind, usageContributionKind, annotationSubmissionReceiptKind, queueAdmissionKind:
+	case reasoningHistoryRecordKind, attemptRecordKind, toolRecordKind, boundaryReceiptKind, boundaryConsumptionKind, compactionIntentKind, compactionReceiptKind, usageContributionKind, annotationSubmissionReceiptKind:
 		if !json.Valid(record.Payload) {
 			return EncodedRecord{}, fmt.Errorf("droids: %s record %q is not valid JSON", record.Kind, record.ID)
 		}

@@ -83,6 +83,14 @@ type durableRuntime struct {
 	// records so that every commit does not rewrite them.
 	Queue        []QueuedPromptID `json:"queue,omitempty"`
 	QueueBlocked string           `json:"queue_blocked,omitempty"`
+	// Started lists the queued prompts that started turns and that the
+	// application has not acknowledged, oldest first.
+	Started []startedPromptRef `json:"started,omitempty"`
+}
+
+type startedPromptRef struct {
+	ID     QueuedPromptID `json:"id"`
+	TurnID TurnID         `json:"turn_id"`
 }
 
 type durableBoundary struct {
@@ -250,7 +258,7 @@ func runtimeMutation(state durableRuntime) (EncodedMutation, error) {
 func turnHistoryMutation(state durableRuntime, status ExecutionStatus) (EncodedMutation, error) {
 	payload, err := json.Marshal(map[string]any{
 		"turn_id": state.TurnID, "status": status, "final": state.Final,
-		"error": state.Error, "usage": state.Usage,
+		"error": state.Error, "usage": state.Usage, "queued_prompt_id": state.QueuedPromptID,
 	})
 	if err != nil {
 		return EncodedMutation{}, err

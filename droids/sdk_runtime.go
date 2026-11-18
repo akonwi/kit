@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -108,7 +109,7 @@ func (e *sdkExecution) Snapshot(ctx context.Context) (ExecutionSnapshot, error) 
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		return ExecutionSnapshot{
-			TurnID: e.turnID, Status: e.outcome.Status,
+			TurnID: e.turnID, QueuedPromptID: e.outcome.QueuedPromptID, Status: e.outcome.Status,
 			Reason: errorMessage(e.outcome.Error), Error: cloneDroidError(e.outcome.Error),
 		}, nil
 	}
@@ -266,7 +267,7 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if err := validateOpenedRuntime(state); err != nil {
 		return nil, err
 	}
-	queued, err := loadQueuedPrompts(opened.Conversation.RuntimeState, state.Queue)
+	queued, err := loadQueuedPrompts(opened.Conversation.RuntimeState, state.Queue, state.Started)
 	if err != nil {
 		return nil, err
 	}
@@ -628,6 +629,16 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	rt.state.Queue = before.Queue
 	rt.state.QueueBlocked = before.QueueBlocked
 	rt.state.QueuedPromptID = queuedID
+	rt.state.Started = before.Started
+	var forgotten []QueuedPromptID
+	if queuedID != "" {
+		rt.state.Started = append(slices.Clone(before.Started), startedPromptRef{ID: queuedID, TurnID: turnID})
+		// Unacknowledged started prompts are bounded; the oldest are dropped.
+		for len(rt.state.Started) > maxStartedPrompts {
+			forgotten = append(forgotten, rt.state.Started[0].ID)
+			rt.state.Started = rt.state.Started[1:]
+		}
+	}
 	if message == nil {
 		rt.state.BoundaryReaction = true
 	}
@@ -725,10 +736,12 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	events = append(events, boundaryEvents...)
 	events = append(events, started, attemptStarted)
 	mutations = append(mutations, extraMutations...)
+	mutations = append(mutations, deleteQueuedPromptMutations(forgotten)...)
 	if err := rt.commitLocked(ctx, mutations, events); err != nil {
 		rt.state = before
 		return nil, err
 	}
+	rt.forgetQueuedLocked(forgotten)
 	for _, id := range consumedBoundaryIDs {
 		rt.boundaryConsumptions[id] = turnID
 	}
@@ -1551,10 +1564,12 @@ func (d *Droid) Turn(ctx context.Context, id TurnID) (TurnSnapshot, error) {
 				return TurnSnapshot{}, fmt.Errorf("droids: unsupported turn record version %d", record.Version)
 			}
 			var payload struct {
-				TurnID TurnID             `json:"turn_id"`
-				Status ExecutionStatus    `json:"status"`
-				Error  *durableDroidError `json:"error"`
-				Usage  Usage              `json:"usage"`
+				TurnID         TurnID               `json:"turn_id"`
+				QueuedPromptID QueuedPromptID       `json:"queued_prompt_id"`
+				Status         ExecutionStatus      `json:"status"`
+				Error          *durableDroidError   `json:"error"`
+				Usage          Usage                `json:"usage"`
+				Final          *wireMessageEnvelope `json:"final"`
 			}
 			if err := json.Unmarshal(record.Payload, &payload); err != nil {
 				return TurnSnapshot{}, fmt.Errorf("droids: decode turn %q: %w", id, err)
@@ -1565,7 +1580,15 @@ func (d *Droid) Turn(ctx context.Context, id TurnID) (TurnSnapshot, error) {
 			if err := validateUsage(payload.Usage); err != nil {
 				return TurnSnapshot{}, fmt.Errorf("droids: persisted turn %q usage is invalid: %w", id, err)
 			}
-			return TurnSnapshot{ID: id, Status: payload.Status, Error: expandDurableError(payload.Error), Usage: payload.Usage}, nil
+			snapshot := TurnSnapshot{ID: id, QueuedPromptID: payload.QueuedPromptID, Status: payload.Status, Error: expandDurableError(payload.Error), Usage: payload.Usage}
+			if payload.Final != nil {
+				final, err := messageEnvelopeFromWire(*payload.Final)
+				if err != nil {
+					return TurnSnapshot{}, fmt.Errorf("droids: decode turn %q final message: %w", id, err)
+				}
+				snapshot.FinalMessage = &final
+			}
+			return snapshot, nil
 		}
 		after = page.Next
 		if !page.HasMore {
@@ -2052,7 +2075,7 @@ func (rt *sdkRuntime) finalizeUnresolvedToolsLocked(status ExecutionStatus) ([]E
 
 func executionSnapshot(state durableRuntime) ExecutionSnapshot {
 	result := ExecutionSnapshot{
-		TurnID: state.TurnID, Status: state.Status, Reason: state.Reason,
+		TurnID: state.TurnID, QueuedPromptID: state.QueuedPromptID, Status: state.Status, Reason: state.Reason,
 		BoundaryReaction: state.BoundaryReaction,
 		Error:            expandDurableError(state.Error),
 	}
@@ -2067,7 +2090,7 @@ func executionSnapshot(state durableRuntime) ExecutionSnapshot {
 
 func outcomeFromState(conversation ConversationID, state durableRuntime) Outcome {
 	outcome := Outcome{
-		ConversationID: conversation, TurnID: state.TurnID, Status: state.Status,
+		ConversationID: conversation, TurnID: state.TurnID, QueuedPromptID: state.QueuedPromptID, Status: state.Status,
 		Error: expandDurableError(state.Error), CheckpointID: state.CheckpointID, Usage: state.Usage,
 	}
 	if state.Final != nil {

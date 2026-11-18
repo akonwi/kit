@@ -14,10 +14,13 @@ import (
 )
 
 const (
-	maxQueuedPrompts        = 64
-	maxQueuedMetadataBytes  = 16 << 10
-	queueAdmissionKind      = "queue_admission"
-	queuedPromptKind        = "queued_prompt"
+	maxQueuedPrompts       = 64
+	maxQueuedMetadataBytes = 16 << 10
+	queueAdmissionKind     = "queue_admission"
+	queuedPromptKind       = "queued_prompt"
+	// maxStartedPrompts exceeds a full queue and its running turn, so only
+	// prompts an application never acknowledges are dropped.
+	maxStartedPrompts       = 2 * maxQueuedPrompts
 	queueAdmissionKeyLimit  = 256
 	queuedPromptIDPrefix    = "queued_"
 	queueBlockedReasonLimit = 1 << 10
@@ -150,6 +153,11 @@ func (d *Droid) Enqueue(ctx context.Context, input Input, options QueueOptions) 
 		}
 		mutations = append(mutations, receipt)
 	}
+	body, err := queuedPromptMutation(prompt)
+	if err != nil {
+		return QueueAdmission{}, err
+	}
+	mutations = append(mutations, body)
 	rt.queueHeld = false
 	if rt.queueIdleLocked() && len(rt.state.Queue) == 0 {
 		accepted, _ := lifecycleEvent("queue.accepted", "", "", map[string]any{"queued_id": prompt.ID})
@@ -157,13 +165,9 @@ func (d *Droid) Enqueue(ctx context.Context, input Input, options QueueOptions) 
 		if err != nil {
 			return QueueAdmission{}, err
 		}
+		rt.queued[prompt.ID] = prompt
 		return QueueAdmission{Prompt: queuedPromptFromDurable(prompt, message), Execution: handle}, nil
 	}
-	body, err := queuedPromptMutation(prompt)
-	if err != nil {
-		return QueueAdmission{}, err
-	}
-	mutations = append(mutations, body)
 	before, err := cloneDurableRuntime(rt.state)
 	if err != nil {
 		return QueueAdmission{}, err
@@ -385,13 +389,14 @@ func (rt *sdkRuntime) advanceQueueLocked(ctx context.Context) {
 		message.Timestamp = time.Now().UnixMilli()
 		before := rt.state.Queue
 		rt.state.Queue = slices.Clone(before[1:])
-		_, err = rt.startTurnLocked(ctx, &message, "", "", deleteQueuedPromptMutations(before[:1]), nil, head.ID)
+		// The prompt's body stays until its turn settles, so the application
+		// can still read the prompt that started the turn after a restart.
+		_, err = rt.startTurnLocked(ctx, &message, "", "", nil, nil, head.ID)
 		if err != nil {
 			rt.state.Queue = before
 		}
 	}
 	if err == nil {
-		rt.forgetQueuedLocked([]QueuedPromptID{head.ID})
 		return
 	}
 	reason := truncateUTF8(err.Error(), queueBlockedReasonLimit)
@@ -420,7 +425,7 @@ func (rt *sdkRuntime) replayQueueAdmissionLocked(ctx context.Context, key, hash 
 		return QueueAdmission{}, false, ErrConflict
 	}
 	admission := QueueAdmission{Prompt: QueuedPrompt{ID: receipt.QueuedID}, Replayed: true}
-	if queued, ok := rt.queued[receipt.QueuedID]; ok {
+	if queued, ok := rt.queued[receipt.QueuedID]; ok && slices.Contains(rt.state.Queue, receipt.QueuedID) {
 		prompts, err := queuedPromptsFromDurable([]durableQueuedPrompt{queued})
 		if err != nil {
 			return QueueAdmission{}, false, err
@@ -537,11 +542,11 @@ func queuedPromptsFromDurable(queue []durableQueuedPrompt) ([]QueuedPrompt, erro
 	return prompts, nil
 }
 
-// loadQueuedPrompts loads and validates the bodies of the prompts queue
-// orders from a conversation's runtime records.
-func loadQueuedPrompts(records []EncodedRecord, queue []QueuedPromptID) (map[QueuedPromptID]durableQueuedPrompt, error) {
-	if len(queue) > maxQueuedPrompts {
-		return nil, fmt.Errorf("droids: persisted queue exceeds %d prompts", maxQueuedPrompts)
+// loadQueuedPrompts loads and validates the bodies of the queued prompts and
+// of the unacknowledged started prompts from a conversation's runtime records.
+func loadQueuedPrompts(records []EncodedRecord, queue []QueuedPromptID, started []startedPromptRef) (map[QueuedPromptID]durableQueuedPrompt, error) {
+	if len(queue) > maxQueuedPrompts || len(started) > maxStartedPrompts {
+		return nil, fmt.Errorf("droids: persisted queue is too long")
 	}
 	bodies := make(map[QueuedPromptID]durableQueuedPrompt)
 	for _, record := range records {
@@ -554,8 +559,15 @@ func loadQueuedPrompts(records []EncodedRecord, queue []QueuedPromptID) (map[Que
 		}
 		bodies[prompt.ID] = prompt
 	}
-	queued := make(map[QueuedPromptID]durableQueuedPrompt, len(queue))
-	for _, id := range queue {
+	ids := slices.Clone(queue)
+	for _, ref := range started {
+		if ref.TurnID == "" {
+			return nil, fmt.Errorf("droids: persisted started prompt %q has no turn", ref.ID)
+		}
+		ids = append(ids, ref.ID)
+	}
+	queued := make(map[QueuedPromptID]durableQueuedPrompt, len(ids))
+	for _, id := range ids {
 		prompt, ok := bodies[id]
 		if !validID(string(id), queuedPromptIDPrefix) || !ok {
 			return nil, fmt.Errorf("droids: persisted queued prompt %q is missing", id)
@@ -585,4 +597,107 @@ func truncateUTF8(value string, limit int) string {
 		end--
 	}
 	return value[:end]
+}
+
+// Execution returns the handle of turn id: the current turn, or a settled
+// earlier one, whose handle is already complete. An application uses it to
+// follow a turn the droid started from its queue. It returns ErrTurnNotFound
+// for an unknown turn.
+func (d *Droid) Execution(ctx context.Context, id TurnID) (ExecutionHandle, error) {
+	if d == nil || d.sdk == nil {
+		return nil, fmt.Errorf("droids: Execution requires a droid opened with droids.Spawn")
+	}
+	if id == "" {
+		return nil, fmt.Errorf("droids: turn id is required")
+	}
+	rt := d.sdk
+	rt.mu.Lock()
+	if rt.state.TurnID == id {
+		handle := rt.ensureHandleLocked()
+		if isTerminalStatus(rt.state.Status) || rt.state.Status == ExecutionPaused || rt.state.Status == ExecutionInterrupted {
+			handle.complete(outcomeFromState(rt.conversation, rt.state))
+		}
+		rt.mu.Unlock()
+		return handle, nil
+	}
+	rt.mu.Unlock()
+	turn, err := d.Turn(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	handle := newSDKExecution(rt, id)
+	handle.complete(Outcome{
+		ConversationID: rt.conversation, TurnID: id, QueuedPromptID: turn.QueuedPromptID,
+		Status: turn.Status, FinalMessage: turn.FinalMessage, Error: turn.Error, Usage: turn.Usage,
+	})
+	return handle, nil
+}
+
+// StartedPrompt is a queued prompt that started a turn.
+type StartedPrompt struct {
+	Prompt QueuedPrompt
+	TurnID TurnID
+}
+
+// StartedPrompts returns, oldest first, the queued prompts that started turns
+// and that the application has not acknowledged. They survive restarts, so an
+// application can finish following turns its queue started, even turns that
+// settled, before it stopped. The droid keeps at most 128, which exceeds a full
+// queue and its running turn; beyond that it drops the oldest.
+func (d *Droid) StartedPrompts(ctx context.Context) ([]StartedPrompt, error) {
+	if d == nil || d.sdk == nil {
+		return nil, fmt.Errorf("droids: StartedPrompts requires a droid opened with droids.Spawn")
+	}
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	rt := d.sdk
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	started := make([]StartedPrompt, 0, len(rt.state.Started))
+	for _, ref := range rt.state.Started {
+		prompts, err := queuedPromptsFromDurable([]durableQueuedPrompt{rt.queued[ref.ID]})
+		if err != nil {
+			return nil, err
+		}
+		started = append(started, StartedPrompt{Prompt: prompts[0], TurnID: ref.TurnID})
+	}
+	return started, nil
+}
+
+// AcknowledgeStarted forgets the identified started prompts once the
+// application has followed their turns. Unknown identifiers are skipped.
+func (d *Droid) AcknowledgeStarted(ctx context.Context, ids ...QueuedPromptID) error {
+	if d == nil || d.sdk == nil {
+		return fmt.Errorf("droids: AcknowledgeStarted requires a droid opened with droids.Spawn")
+	}
+	rt := d.sdk
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.closed {
+		return ErrClosed
+	}
+	var acknowledged []QueuedPromptID
+	kept := make([]startedPromptRef, 0, len(rt.state.Started))
+	for _, ref := range rt.state.Started {
+		if slices.Contains(ids, ref.ID) {
+			acknowledged = append(acknowledged, ref.ID)
+		} else {
+			kept = append(kept, ref)
+		}
+	}
+	if len(acknowledged) == 0 {
+		return nil
+	}
+	before, err := cloneDurableRuntime(rt.state)
+	if err != nil {
+		return err
+	}
+	rt.state.Started = kept
+	if err := rt.commitLocked(ctx, deleteQueuedPromptMutations(acknowledged), nil); err != nil {
+		rt.state = before
+		return err
+	}
+	rt.forgetQueuedLocked(acknowledged)
+	return nil
 }

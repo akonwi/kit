@@ -302,7 +302,9 @@ type CompactionSnapshot struct {
 
 // ExecutionSnapshot is the current execution projection.
 type ExecutionSnapshot struct {
-	TurnID           TurnID
+	TurnID TurnID
+	// QueuedPromptID identifies the queued prompt that started the turn.
+	QueuedPromptID   QueuedPromptID
 	Status           ExecutionStatus
 	BoundaryReaction bool
 	Reason           string
@@ -315,6 +317,8 @@ type ExecutionSnapshot struct {
 type Outcome struct {
 	ConversationID ConversationID
 	TurnID         TurnID
+	// QueuedPromptID identifies the queued prompt that started the turn.
+	QueuedPromptID QueuedPromptID
 	Status         ExecutionStatus
 	FinalMessage   *MessageEnvelope
 	Error          *DroidError
@@ -426,10 +430,14 @@ type Snapshot struct {
 
 // TurnSnapshot is the durable terminal state of one settled turn.
 type TurnSnapshot struct {
-	ID     TurnID
-	Status ExecutionStatus
-	Error  *DroidError
-	Usage  Usage
+	ID TurnID
+	// QueuedPromptID identifies the queued prompt that started the turn.
+	QueuedPromptID QueuedPromptID
+	Status         ExecutionStatus
+	Error          *DroidError
+	Usage          Usage
+	// FinalMessage is the turn's final message, when it produced one.
+	FinalMessage *MessageEnvelope
 }
 
 // HistoryQuery pages canonical messages.
