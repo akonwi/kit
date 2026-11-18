@@ -18,8 +18,8 @@ const (
 	maxQueuedMetadataBytes = 16 << 10
 	queueAdmissionKind     = "queue_admission"
 	queuedPromptKind       = "queued_prompt"
-	// maxStartedPrompts exceeds a full queue and its running turn, so only
-	// prompts an application never acknowledges are dropped.
+	// maxStartedPrompts bounds unacknowledged started prompts; the queue
+	// waits while it is reached.
 	maxStartedPrompts       = 2 * maxQueuedPrompts
 	queueAdmissionKeyLimit  = 256
 	queuedPromptIDPrefix    = "queued_"
@@ -368,7 +368,27 @@ func (d *Droid) Promote(ctx context.Context, ids ...QueuedPromptID) ([]QueuedPro
 
 // queueIdleLocked reports whether a queued prompt could start a turn now.
 func (rt *sdkRuntime) queueIdleLocked() bool {
-	return !rt.closed && !isOccupied(rt.state.Status) && rt.contextFlight == nil && rt.resumeFlight == nil
+	return !rt.closed && !isOccupied(rt.state.Status) && rt.contextFlight == nil && rt.resumeFlight == nil && len(rt.state.Started) < maxStartedPrompts
+}
+
+// acknowledgeSettledLocked removes the started prompt of the settling turn
+// when the application does not track started prompts, and returns it. The
+// caller holds rt.mu and commits the removal with the settlement.
+func (rt *sdkRuntime) acknowledgeSettledLocked() []QueuedPromptID {
+	if rt.config.TrackStartedPrompts {
+		return nil
+	}
+	var acknowledged []QueuedPromptID
+	kept := rt.state.Started[:0:0]
+	for _, ref := range rt.state.Started {
+		if ref.TurnID == rt.state.TurnID {
+			acknowledged = append(acknowledged, ref.ID)
+		} else {
+			kept = append(kept, ref)
+		}
+	}
+	rt.state.Started = kept
+	return acknowledged
 }
 
 // advanceQueueLocked starts the next queued prompt when the droid is idle and
@@ -640,10 +660,11 @@ type StartedPrompt struct {
 }
 
 // StartedPrompts returns, oldest first, the queued prompts that started turns
-// and that the application has not acknowledged. They survive restarts, so an
+// and that the application has not acknowledged. With
+// Config.TrackStartedPrompts they survive restarts until acknowledged, so an
 // application can finish following turns its queue started, even turns that
-// settled, before it stopped. The droid keeps at most 128, which exceeds a full
-// queue and its running turn; beyond that it drops the oldest.
+// settled, before it stopped. Otherwise each is forgotten when its turn
+// settles.
 func (d *Droid) StartedPrompts(ctx context.Context) ([]StartedPrompt, error) {
 	if d == nil || d.sdk == nil {
 		return nil, fmt.Errorf("droids: StartedPrompts requires a droid opened with droids.Spawn")
@@ -699,5 +720,7 @@ func (d *Droid) AcknowledgeStarted(ctx context.Context, ids ...QueuedPromptID) e
 		return err
 	}
 	rt.forgetQueuedLocked(acknowledged)
+	// A queue that waited on unacknowledged prompts can start again.
+	rt.advanceQueueLocked(ctx)
 	return nil
 }

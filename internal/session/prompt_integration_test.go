@@ -1259,7 +1259,7 @@ func TestAQueuedTurnKitDidNotFollowConsumesItsAnnotationsWhenTheSessionLoads(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	droid, err := droids.Spawn(t.Context(), droids.ConversationID(record.ID), droids.Config{Store: droidStore, Model: model})
+	droid, err := droids.Spawn(t.Context(), droids.ConversationID(record.ID), droids.Config{Store: droidStore, Model: model, TrackStartedPrompts: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1290,5 +1290,90 @@ func TestAQueuedTurnKitDidNotFollowConsumesItsAnnotationsWhenTheSessionLoads(t *
 	}
 	if _, err := store.GetAnnotation(t.Context(), record.ID, note.ID); !errors.Is(err, kitannotation.ErrNotFound) {
 		t.Fatalf("the submitted annotation is still a draft: %v", err)
+	}
+}
+
+// finalizeFailingRepository fails annotation finalization while fail is set.
+type finalizeFailingRepository struct {
+	kitannotation.Repository
+	fail atomic.Bool
+}
+
+func (r *finalizeFailingRepository) FinalizeAnnotationSubmission(ctx context.Context, sessionID, submissionID string) error {
+	if r.fail.Load() {
+		return errors.New("finalize failed")
+	}
+	return r.Repository.FinalizeAnnotationSubmission(ctx, sessionID, submissionID)
+}
+
+func TestAPromotedPromptWhoseAnnotationsFailToConsumeIsRecovered(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	repository := &finalizeFailingRepository{Repository: store}
+	annotations, err := kitannotation.NewService(repository, &queuedAnnotationReader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")), session.WithAnnotationService(annotations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := kitannotation.WorkspaceFileAnchor{WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go", FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 2, EndLine: 3}
+	note, err := annotations.Create(t.Context(), record.ID, base, protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &anchor}, "Queued instruction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartPrompt(t.Context(), record.ID, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	<-providers.started
+	if result, err := manager.SubmitPromptInput(t.Context(), record.ID, session.PromptInput{Text: "follow the note", AnnotationIDs: []uint64{note.ID}}); err != nil || !result.Queued {
+		t.Fatalf("queue = %+v, %v", result, err)
+	}
+
+	repository.fail.Store(true)
+	promoted, err := manager.PromoteFollowUps(t.Context(), record.ID)
+	if err == nil || promoted.Promoted != 1 || promoted.Queue.Count != 0 {
+		t.Fatalf("promotion = %+v, %v; want one promoted prompt and the consume failure", promoted, err)
+	}
+	// The draft stays reserved, so it is neither listed nor submittable.
+	if _, err := annotations.Update(t.Context(), record.ID, base, note.ID, "Edited after promotion"); !errors.Is(err, kitannotation.ErrNotFound) {
+		t.Fatalf("editing the promoted draft = %v, want not found", err)
+	}
+
+	repository.fail.Store(false)
+	close(providers.block)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snapshot, err := manager.Snapshot(t.Context(), record.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.ActiveRunID == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run did not settle")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := manager.ReconcileAnnotationSubmissions(t.Context(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetAnnotation(t.Context(), record.ID, note.ID); !errors.Is(err, kitannotation.ErrNotFound) {
+		t.Fatalf("the promoted annotation is still stored: %v", err)
+	}
+	if pending, err := store.PendingAnnotationSubmissions(t.Context(), record.ID); err != nil || len(pending) != 0 {
+		t.Fatalf("pending submissions = %v, %v", pending, err)
 	}
 }

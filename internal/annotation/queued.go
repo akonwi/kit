@@ -105,6 +105,43 @@ func (s *Service) UnpinQueued(sessionID string, ids []uint64) {
 	}
 }
 
+// ReserveQueued durably hides the drafts of a queued message under
+// submissionID before the message is accepted, so a crash leaves them
+// recoverable by RecoverSubmissions. FinalizeQueued or RollbackQueued ends it.
+func (s *Service) ReserveQueued(ctx context.Context, sessionID, submissionID string, ids []uint64) error {
+	if !strings.HasPrefix(submissionID, "annotation_submission_") {
+		return fmt.Errorf("annotation submission identity is invalid")
+	}
+	lock := s.sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	return s.repositoryFor(sessionID).ReserveAnnotations(ctx, sessionID, submissionID, ids)
+}
+
+// FinalizeQueued consumes reserved drafts once their message was accepted,
+// and unpins them.
+func (s *Service) FinalizeQueued(ctx context.Context, sessionID, submissionID string, ids []uint64) error {
+	lock := s.sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := s.repositoryFor(sessionID).FinalizeAnnotationSubmission(ctx, sessionID, submissionID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		s.queued.Delete(queuedAnnotationKey{sessionID, id})
+	}
+	return nil
+}
+
+// RollbackQueued restores reserved drafts whose message was not accepted;
+// they stay pinned to their queued message.
+func (s *Service) RollbackQueued(ctx context.Context, sessionID, submissionID string) error {
+	lock := s.sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	return s.repositoryFor(sessionID).RollbackAnnotationSubmission(ctx, sessionID, submissionID)
+}
+
 // ConsumeQueued removes the drafts a queued message submitted once that
 // message was accepted, and unpins them. It is idempotent by submissionID,
 // and drafts that are already gone count as consumed.

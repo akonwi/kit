@@ -2692,6 +2692,8 @@ func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store dro
 		Store: store, Model: model,
 		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
 		Tools: bundle.Tools,
+		// Kit follows every turn its queue starts, even across a restart.
+		TrackStartedPrompts: true,
 	}
 	if m.compactionModel != nil {
 		compactionSelector := m.compactionModel()

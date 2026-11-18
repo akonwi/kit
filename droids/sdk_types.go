@@ -221,6 +221,12 @@ type Config struct {
 	// Both must be quick, nonblocking, and safe for concurrent runtime ownership.
 	TurnStarted func(TurnID)
 	TurnSettled func(TurnID)
+
+	// TrackStartedPrompts keeps each queued prompt that starts a turn until
+	// the application acknowledges it with AcknowledgeStarted, across
+	// restarts. While 128 are unacknowledged, the queue waits. Without it, a
+	// started prompt is forgotten when its turn settles.
+	TrackStartedPrompts bool
 }
 
 // ForkOptions configures the independent Store used by a forked conversation.

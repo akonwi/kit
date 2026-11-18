@@ -730,11 +730,12 @@ Every turn started from the queue reports the prompt's `QueuedPromptID` in its
 execution snapshot, outcome, and turn snapshot. `TurnStarted` reports the turn
 like any other; `Execution` returns the handle of the current or a settled
 turn, so the application can follow turns it did not start itself.
-`StartedPrompts` lists the queued prompts that started turns until the
-application acknowledges them with `AcknowledgeStarted`, across restarts, so
-an application can finish following turns its queue started before it
-stopped, even turns that settled. The droid keeps at most 128, more than a
-full queue and its running turn, and drops the oldest beyond that.
+`StartedPrompts` lists the queued prompts that started turns. By default a
+started prompt is forgotten when its turn settles. With
+`Config.TrackStartedPrompts`, each stays, across restarts, until the
+application acknowledges it with `AcknowledgeStarted`, so an application can
+finish following turns its queue started before it stopped, even turns that
+settled. While 128 are unacknowledged, the queue waits.
 
 ## Boundary-message API
 

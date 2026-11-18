@@ -313,6 +313,13 @@ func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (Follo
 	if !running {
 		return FollowUpPromotion{}, ErrBusy
 	}
+	// Promotion removes prompts from the queue, so their drafts are reserved
+	// durably first: if consuming them fails below, annotation recovery
+	// finalizes the reservations of prompts the transcript accepted.
+	reserved, err := m.reserveQueuedAnnotations(ctx, loaded, sessionID)
+	if err != nil {
+		return FollowUpPromotion{}, err
+	}
 	promoted, err := loaded.droid.Promote(ctx)
 	if errors.Is(err, droids.ErrBusy) || errors.Is(err, droids.ErrConflict) {
 		err = fmt.Errorf("%w: %v", ErrBusy, err)
@@ -329,11 +336,60 @@ func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (Follo
 	queue := loaded.refreshFollowUpsLocked(ctx, sessionID, true)
 	loaded.mu.Unlock()
 	for _, followUp := range followUps {
-		if acceptedMessageID, _ := m.consumeQueuedAnnotations(ctx, loaded, sessionID, followUp); acceptedMessageID != "" {
-			m.AnnotationsSubmitted(sessionID, acceptedMessageID, followUp.input.AnnotationIDs)
+		if followUp.annotationSubmission == "" || m.annotations == nil {
+			continue
+		}
+		delete(reserved, followUp.annotationSubmission)
+		if finalizeErr := m.annotations.FinalizeQueued(ctx, sessionID, followUp.annotationSubmission, followUp.input.AnnotationIDs); finalizeErr != nil {
+			// The reservation stays and recovery finalizes it; the drafts
+			// stay hidden meanwhile.
+			m.annotations.UnpinQueued(sessionID, followUp.input.AnnotationIDs)
+			err = errors.Join(err, fmt.Errorf("consume promoted annotations: %w", finalizeErr))
+			continue
+		}
+		if acceptedMessageID, _ := loaded.droid.AnnotationSubmissionMessageID(ctx, followUp.annotationSubmission); acceptedMessageID != "" {
+			m.AnnotationsSubmitted(sessionID, string(acceptedMessageID), followUp.input.AnnotationIDs)
+		}
+	}
+	for submission := range reserved {
+		// Still queued: its drafts return to the queued message. A failed
+		// rollback is resolved by recovery, which rolls back reservations the
+		// transcript never accepted.
+		if rollbackErr := m.annotations.RollbackQueued(ctx, sessionID, submission); rollbackErr != nil {
+			err = errors.Join(err, fmt.Errorf("restore queued annotations: %w", rollbackErr))
 		}
 	}
 	return FollowUpPromotion{Promoted: len(promoted), Queue: queue}, err
+}
+
+// reserveQueuedAnnotations durably reserves the drafts of every queued prompt
+// that submits annotations and returns the reserved submissions. On failure it
+// rolls back what it reserved.
+func (m *Manager) reserveQueuedAnnotations(ctx context.Context, loaded *runtime, sessionID string) (map[string]struct{}, error) {
+	reserved := map[string]struct{}{}
+	if m.annotations == nil {
+		return reserved, nil
+	}
+	loaded.mu.Lock()
+	entries := slices.Clone(loaded.queuedFollowUps)
+	loaded.mu.Unlock()
+	for _, entry := range entries {
+		followUp := entry.followUp
+		if followUp.annotationSubmission == "" || len(followUp.input.AnnotationIDs) == 0 {
+			continue
+		}
+		// ErrNotFound means the drafts are gone or still reserved by this
+		// submission from an earlier attempt; finalizing or rolling back
+		// handles both.
+		if err := m.annotations.ReserveQueued(ctx, sessionID, followUp.annotationSubmission, followUp.input.AnnotationIDs); err != nil && !errors.Is(err, kitannotation.ErrNotFound) {
+			for submission := range reserved {
+				_ = m.annotations.RollbackQueued(ctx, sessionID, submission)
+			}
+			return nil, fmt.Errorf("reserve queued annotations: %w", err)
+		}
+		reserved[followUp.annotationSubmission] = struct{}{}
+	}
+	return reserved, nil
 }
 
 // consumeQueuedAnnotations removes the drafts an accepted queued prompt

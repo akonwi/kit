@@ -205,7 +205,10 @@ func TestQueueWaitsAfterRestartUntilStarted(t *testing.T) {
 func exerciseQueueRestart(t *testing.T, openStore func() droids.Store) {
 	providers := newQueueProviders()
 	firstStore := openStore()
-	first := spawnQueueDroid(t, "queue_restart", firstStore, providers, nil)
+	tracking := func(store droids.Store) droids.Config {
+		return droids.Config{Store: store, Model: resolvedTestModel(providers, "test/queue"), TrackStartedPrompts: true}
+	}
+	first := spawnQueueDroidWith(t, "queue_restart", tracking(firstStore))
 	running, err := first.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +247,7 @@ func exerciseQueueRestart(t *testing.T, openStore func() droids.Store) {
 		}
 	}
 
-	second := spawnQueueDroid(t, "queue_restart", openStore(), providers, nil)
+	second := spawnQueueDroidWith(t, "queue_restart", tracking(openStore()))
 	queue, err := second.Queue(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -376,9 +379,12 @@ func TestQueueIsBounded(t *testing.T) {
 
 func spawnQueueDroid(t *testing.T, id droids.ConversationID, store droids.Store, providers *queueProviders, started func(droids.TurnID)) *droids.Droid {
 	t.Helper()
-	droid, err := droids.Spawn(t.Context(), id, droids.Config{
-		Store: store, Model: resolvedTestModel(providers, "test/queue"), TurnStarted: started,
-	})
+	return spawnQueueDroidWith(t, id, droids.Config{Store: store, Model: resolvedTestModel(providers, "test/queue"), TurnStarted: started})
+}
+
+func spawnQueueDroidWith(t *testing.T, id droids.ConversationID, config droids.Config) *droids.Droid {
+	t.Helper()
+	droid, err := droids.Spawn(t.Context(), id, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,12 +640,13 @@ func TestQueueAdmissionsStayWithTheirConversationWhenForked(t *testing.T) {
 	}
 }
 
-func TestQueueKeepsABoundedNumberOfUnacknowledgedStartedPrompts(t *testing.T) {
+func TestQueueWaitsWhileTooManyStartedPromptsAreUnacknowledged(t *testing.T) {
 	providers := newQueueProviders()
-	store := droids.NewMemoryStore()
-	droid := spawnQueueDroid(t, "queue_started_bound", store, providers, nil)
+	droid := spawnQueueDroidWith(t, "queue_started_bound", droids.Config{
+		Store: droids.NewMemoryStore(), Model: resolvedTestModel(providers, "test/queue"), TrackStartedPrompts: true,
+	})
 	var admitted []droids.QueuedPromptID
-	for index := range 129 {
+	for index := range 128 {
 		admission, err := droid.Enqueue(t.Context(), textInput(fmt.Sprintf("prompt %d", index)), droids.QueueOptions{})
 		if err != nil {
 			t.Fatal(err)
@@ -650,27 +657,47 @@ func TestQueueKeepsABoundedNumberOfUnacknowledgedStartedPrompts(t *testing.T) {
 		admitted = append(admitted, admission.Prompt.ID)
 	}
 	started, err := droid.StartedPrompts(t.Context())
+	if err != nil || len(started) != 128 || started[0].Prompt.ID != admitted[0] {
+		t.Fatalf("started prompts = %d, %v; want all 128", len(started), err)
+	}
+	// The next prompt waits until the application acknowledges one.
+	waiting, err := droid.Enqueue(t.Context(), textInput("waiting"), droids.QueueOptions{})
+	if err != nil || waiting.Execution != nil {
+		t.Fatalf("admission past the bound = %+v, %v; want it queued", waiting, err)
+	}
+	if err := droid.AcknowledgeStarted(t.Context(), admitted[0]); err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, droid)
+	if got := providers.userTexts(); got[len(got)-1] != "waiting" {
+		t.Fatalf("last turn prompt = %q, want waiting", got[len(got)-1])
+	}
+}
+
+func TestQueueForgetsStartedPromptsWhenTheApplicationDoesNotTrackThem(t *testing.T) {
+	providers := newQueueProviders()
+	store := droids.NewMemoryStore()
+	droid := spawnQueueDroid(t, "queue_started_untracked", store, providers, nil)
+	admission, err := droid.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var ids []droids.QueuedPromptID
-	for _, prompt := range started {
-		ids = append(ids, prompt.Prompt.ID)
+	providers.waitStarted(t, "block first")
+	if started, err := droid.StartedPrompts(t.Context()); err != nil || len(started) != 1 || started[0].TurnID != admission.Execution.TurnID() {
+		t.Fatalf("started prompts of the running turn = %+v, %v", started, err)
 	}
-	if !slices.Equal(ids, admitted[1:]) {
-		t.Fatalf("started prompts = %d beginning %v; want the latest 128", len(ids), ids[:1])
+	providers.release()
+	waitSettled(t, droid)
+	if started, err := droid.StartedPrompts(t.Context()); err != nil || len(started) != 0 {
+		t.Fatalf("started prompts after the turn settled = %+v, %v", started, err)
 	}
 	persisted, err := store.State(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	bodies := 0
 	for _, record := range persisted.RuntimeState {
 		if record.Kind == "queued_prompt" {
-			bodies++
+			t.Fatalf("a settled turn kept its prompt record %s", record.ID)
 		}
-	}
-	if bodies != 128 {
-		t.Fatalf("queued prompt records = %d, want 128", bodies)
 	}
 }

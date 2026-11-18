@@ -630,14 +630,8 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	rt.state.QueueBlocked = before.QueueBlocked
 	rt.state.QueuedPromptID = queuedID
 	rt.state.Started = before.Started
-	var forgotten []QueuedPromptID
 	if queuedID != "" {
 		rt.state.Started = append(slices.Clone(before.Started), startedPromptRef{ID: queuedID, TurnID: turnID})
-		// Unacknowledged started prompts are bounded; the oldest are dropped.
-		for len(rt.state.Started) > maxStartedPrompts {
-			forgotten = append(forgotten, rt.state.Started[0].ID)
-			rt.state.Started = rt.state.Started[1:]
-		}
 	}
 	if message == nil {
 		rt.state.BoundaryReaction = true
@@ -736,12 +730,10 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	events = append(events, boundaryEvents...)
 	events = append(events, started, attemptStarted)
 	mutations = append(mutations, extraMutations...)
-	mutations = append(mutations, deleteQueuedPromptMutations(forgotten)...)
 	if err := rt.commitLocked(ctx, mutations, events); err != nil {
 		rt.state = before
 		return nil, err
 	}
-	rt.forgetQueuedLocked(forgotten)
 	for _, id := range consumedBoundaryIDs {
 		rt.boundaryConsumptions[id] = turnID
 	}
@@ -1903,6 +1895,8 @@ func (rt *sdkRuntime) settleLocked(ctx context.Context, status ExecutionStatus, 
 		return err
 	}
 	mutations = append(mutations, turn)
+	acknowledged := rt.acknowledgeSettledLocked()
+	mutations = append(mutations, deleteQueuedPromptMutations(acknowledged)...)
 	if attemptWasOpen {
 		attemptEvent, _ := lifecycleEvent("attempt.settled", rt.state.TurnID, rt.state.AttemptID, map[string]any{"status": status})
 		events = append(events, attemptEvent)
@@ -1914,6 +1908,7 @@ func (rt *sdkRuntime) settleLocked(ctx context.Context, status ExecutionStatus, 
 		rt.state = before
 		return err
 	}
+	rt.forgetQueuedLocked(acknowledged)
 	rt.releaseRunLocked()
 	if rt.config.TurnSettled != nil {
 		rt.config.TurnSettled(rt.state.TurnID)
