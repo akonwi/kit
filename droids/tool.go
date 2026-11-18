@@ -104,7 +104,7 @@ type Tool[Args any] struct {
 
 	// ask makes a standard question tool: droids asks the question before the
 	// tool runs and Execute reads the settlement from its context.
-	ask func(Args) Question
+	ask func(Args) (Question, error)
 }
 
 // Confirmation is the yes-or-no question asked before a tool runs. Empty
@@ -377,7 +377,10 @@ func (b boundTool[Args]) declare(ctx context.Context, call ToolContext, raw []by
 		return nil, "", err
 	}
 	if b.t.ask != nil {
-		question := b.t.ask(args)
+		question, err := b.t.ask(args)
+		if err != nil {
+			return nil, "", err
+		}
 		return &question, declaredAnswer, nil
 	}
 	confirmation := &Confirmation{}

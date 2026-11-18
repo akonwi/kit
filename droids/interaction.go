@@ -290,6 +290,10 @@ type askScopeKey struct{}
 // Execute.
 type declaredSettlementKey struct{}
 
+// declaredQuestionKey carries the question a standard question tool asked to
+// its Execute.
+type declaredQuestionKey struct{}
+
 func declaredSettlement(ctx context.Context) (Settlement, bool) {
 	settlement, ok := ctx.Value(declaredSettlementKey{}).(Settlement)
 	return settlement, ok

@@ -628,6 +628,7 @@ const (
     QuiescentSettled     QuiescentKind = "settled"
     QuiescentPaused      QuiescentKind = "paused"
     QuiescentRecoverable QuiescentKind = "recoverable"
+    QuiescentWaiting     QuiescentKind = "waiting"
 )
 
 type QuiescentState struct {
@@ -1125,6 +1126,9 @@ type Tool[Args any] struct {
         args Args,
         update ToolUpdate,
     ) (ToolResult, error)
+
+    RequireConfirmation bool
+    Confirm             func(ctx context.Context, call ToolContext, args Args) (*Confirmation, error)
 }
 
 func NewTool[Args any](tool Tool[Args]) (AnyTool, error)
@@ -1262,6 +1266,88 @@ and key external state by `ToolCallID`. Reopening must supply the hook again in
 The ambiguous phase begins only after `tool execution started` is durable and
 before the raw tool result is durable. Droids does not automatically re-enter
 that phase because the tool may already have produced side effects.
+
+### Tool confirmation
+
+```go
+type Confirmation struct {
+    Title        string
+    Detail       string
+    ConfirmLabel string
+    CancelLabel  string
+}
+```
+
+`RequireConfirmation` asks the person before every call with the default
+confirmation: the title `Allow <tool name>?` and the call's arguments as the
+detail. `Confirm` instead decides per call. It returns nil to run without
+asking, a `Confirmation` whose empty fields get the defaults, or an error, which
+ends the call with an error result and asks nothing. It can resolve what a call
+would act on and show those facts.
+
+Confirmation comes after argument validation and the before-tool hook, so a
+hook that rejects a call means nobody is asked. Droids records the question as
+a declared interaction and the call waits in the `awaiting` phase. Other calls
+of a parallel batch run meanwhile; a sequential batch waits at the awaiting
+call. When nothing else can run, the turn is `waiting`.
+
+Approval runs the tool once, with the arguments that were asked about. Any
+other settlement completes the call without running it, with a result the
+model can read, such as `Not run: the user declined.` A waiting turn survives
+restarts: `Spawn` restores it as waiting, and the answer continues it. `Execute`
+may run long after the question was asked, so it should recheck what it acts on.
+
+## Interactions
+
+```go
+func (d *Droid) Interactions(ctx context.Context) ([]Interaction, error)
+func (d *Droid) Respond(ctx context.Context, id InteractionID, answer Answer) error
+func (d *Droid) Ask(ctx context.Context, question Question, options AskOptions) (Settlement, error)
+func Ask(ctx context.Context, question Question, metadata json.RawMessage) (Settlement, error)
+
+func ConfirmTool(name string) AnyTool
+func InputTool(name string) AnyTool
+func SelectTool(name string) AnyTool
+func GuidedTool(name string) AnyTool
+```
+
+An interaction asks the person a `Question`: confirm, input, select, guided
+questions, or authorize. Droids records each one, lists the pending ones,
+oldest first, in `Interactions` and `Snapshot.Pending.Interactions`, announces
+`interaction.requested` and `interaction.settled`, and settles each once. At
+most 8 are pending.
+
+- A **declared** interaction is raised by droids before a tool runs: a tool
+  confirmation or a standard question tool. It belongs to its turn and survives
+  restarts.
+- A **live** interaction is asked by code that is already running. A tool's
+  `Execute` or a before-tool hook calls the package-level `Ask` with its
+  context, which attaches the question to its call. The application calls
+  `Droid.Ask`, optionally with `AskOptions.Call`, for example on behalf of a
+  plugin. The waiting code does not outlive the process, so a shutdown wakes it
+  with `InteractionUnavailable` and `Spawn` records that.
+
+`Respond` checks the answer against the question's kind and settles it as
+answered, or declined when `Answer.Declined` is set. Every interaction settles
+with a status:
+
+| Status | Cause |
+| --- | --- |
+| `answered` | The person answered. |
+| `declined` | The person declined, or steered the turn instead of answering. |
+| `unavailable` | The code waiting for a live interaction stopped, or a restart ended it. |
+| `cancelled` | The turn that owned it ended. |
+
+Steering a turn declines its pending interactions, with the reason `the user
+sent a message instead of answering`, and continues a waiting turn. Queued
+prompts settle nothing; they start after the turn. Interactions asked outside a
+turn are settled only by `Respond` or by their waiting code stopping.
+
+The standard question tools ask a declared question with the name an
+application gives them and return the answer to the model as JSON, with a
+`reason` when the question was not answered. Their result details carry a
+`resolution`: `answered`, `negative_confirmation`, `user_cancelled`,
+`run_abort`, or `unavailable`.
 
 ## Provider SDK
 
@@ -1437,12 +1523,13 @@ The initial event families are:
 ```text
 conversation.created / forked
 turn.admitted / started / settled
-execution.started / paused / resumed / aborted / interrupted / settled
+execution.started / paused / resumed / waiting / continued / aborted / interrupted / settled
 attempt.started / retry_scheduled / settled
 model_cycle.started / settled
 message.started / text_delta / thinking_delta / completed
 steering.accepted / consumed
 boundary.accepted / consumed
+interaction.requested / settled
 tool.admitted / hook_pending / hook_completed / started / raw_result / updated / completed
 compaction.started / completed / failed
 context.updated

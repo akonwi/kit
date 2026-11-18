@@ -161,6 +161,9 @@ type durableTool struct {
 	Interaction InteractionID `json:"interaction_id,omitempty"`
 	Ask         declaredAsk   `json:"ask,omitempty"`
 	Settlement  *Settlement   `json:"settlement,omitempty"`
+	// Question is the question a standard question tool asked, which it
+	// reads when it runs.
+	Question *Question `json:"question,omitempty"`
 }
 
 type durableLifecycleEvent struct {

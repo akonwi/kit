@@ -1486,6 +1486,10 @@ func (rt *sdkRuntime) declareOrReady(ctx context.Context, call ToolCall, toolCon
 		return nil, err
 	}
 	tool.Phase, tool.Interaction, tool.Ask = toolPhaseAwaiting, InteractionID(id), ask
+	if ask == declaredAnswer {
+		asked := cloneQuestion(*question)
+		tool.Question = &asked
+	}
 	rt.state.Tools[call.ID] = tool
 	payload, err := json.Marshal(tool)
 	if err != nil {
@@ -1523,8 +1527,9 @@ func (rt *sdkRuntime) finishPreparedTool(ctx context.Context, turnID TurnID, cal
 			AttemptID: tool.AdmissionAttemptID, ToolCallID: tool.ID,
 		}
 		invokeCtx := withAskScope(ctx, rt, toolContext)
-		if tool.Ask == declaredAnswer && tool.Settlement != nil {
+		if tool.Ask == declaredAnswer && tool.Settlement != nil && tool.Question != nil {
 			invokeCtx = context.WithValue(invokeCtx, declaredSettlementKey{}, *tool.Settlement)
+			invokeCtx = context.WithValue(invokeCtx, declaredQuestionKey{}, *tool.Question)
 		}
 		result := rt.invokeTool(invokeCtx, toolContext, call)
 		_, wire, omitted, err := validatedToolResultMessage(call, result)

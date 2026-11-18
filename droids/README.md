@@ -143,6 +143,24 @@ them, and `Promote` steers them into the running turn. The queue is durable.
 A queue that `Spawn` restores, or that a provider policy stop leaves behind,
 is held until the application calls `StartQueue` or queues another prompt.
 
+## Ask the person
+
+A tool can require approval before it runs. The turn waits, even across
+restarts, until the person answers:
+
+```go
+deleteTool := droids.MustTool(droids.Tool[DeleteArgs]{
+	Name:                "delete_file",
+	RequireConfirmation: true, // asks "Allow delete_file?" with the arguments
+	Execute:             deleteFile,
+})
+```
+
+`Confirm` decides per call and can write the question. `Interactions` lists
+pending questions and `Respond` answers them. Code that is already running
+asks with `Ask`, and `ConfirmTool`, `InputTool`, `SelectTool`, and `GuidedTool`
+let the model ask.
+
 ## Package layout
 
 ```text
