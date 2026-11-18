@@ -95,21 +95,8 @@ struct MainTabs: View {
                 ServersView()
             }
             Tab("Settings", systemImage: "gearshape", value: .settings) {
-                Placeholder(title: "Settings", symbol: "gearshape")
+                SettingsView()
             }
-        }
-    }
-}
-
-/// A section that isn't built yet.
-private struct Placeholder: View {
-    let title: String
-    let symbol: String
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView(title, systemImage: symbol, description: Text("Not built yet."))
-                .navigationTitle(title)
         }
     }
 }
