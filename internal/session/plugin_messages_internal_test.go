@@ -47,7 +47,7 @@ func TestSettledAdmissionRejectsHeldTransitionWithinCallerDeadline(t *testing.T)
 func TestSettledAdmissionYieldsImmediatelyToActiveTurnsAndQueuedFollowUps(t *testing.T) {
 	for name, loaded := range map[string]*runtime{
 		"active turn":       {activeRun: "turn_active"},
-		"queued follow-ups": {followUps: []PromptInput{{Text: "queued"}}},
+		"queued follow-ups": {followUps: FollowUpQueue{Count: 1, Previews: []string{"queued"}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			start := time.Now()

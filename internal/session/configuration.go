@@ -246,7 +246,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 
 	transitionContext, cancelTransition := context.WithTimeout(context.WithoutCancel(ctx), runtimeTransitionTimeout)
 	defer cancelTransition()
-	replacementDroid, snapshot, effectiveModel, err := m.openDroid(transitionContext, targetRecord, loaded.store, replacement, loaded.interception, loaded.turnEvents)
+	replacementDroid, snapshot, effectiveModel, err := m.openDroid(transitionContext, targetRecord, loaded.store, replacement, loaded.interception, loaded.turnEvents, loaded.queueTurns)
 	if err != nil {
 		return ConfigureSessionResult{}, fmt.Errorf("open replacement droid: %w", err)
 	}

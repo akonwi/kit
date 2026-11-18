@@ -156,7 +156,7 @@ func (m *Manager) submitPluginMessage(ctx context.Context, loaded *runtime, sess
 		release()
 		return PluginMessageResult{}, err
 	}
-	if m.sessionDeleting(sessionID) || len(loaded.followUps) > 0 || loaded.activeRun != "" {
+	if m.sessionDeleting(sessionID) || loaded.followUps.Count > 0 || loaded.activeRun != "" {
 		release()
 		return PluginMessageResult{}, ErrBusy
 	}
@@ -248,7 +248,7 @@ func acquireSettledAdmission(ctx context.Context, loaded *runtime) bool {
 	delay := time.Millisecond
 	for {
 		loaded.mu.Lock()
-		activeRun, followUps := loaded.activeRun, len(loaded.followUps)
+		activeRun, followUps := loaded.activeRun, loaded.followUps.Count
 		loaded.mu.Unlock()
 		// A turn whose completion has reached plugins is settling, not running:
 		// a plugin that continues from that event waits for it to finish.

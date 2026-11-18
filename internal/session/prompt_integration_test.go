@@ -19,6 +19,7 @@ import (
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/droids/sqlitestore"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/attachment"
@@ -978,8 +979,10 @@ func TestManagerQueuesStructuredFollowUps(t *testing.T) {
 						time.Sleep(time.Millisecond)
 					}
 					close(reader.release)
-					if err := <-submitted; err != nil {
-						t.Fatal(err)
+					// The droid closed while the prompt was being prepared, so it
+					// is not queued.
+					if err := <-submitted; !errors.Is(err, session.ErrClosed) {
+						t.Fatalf("submission racing shutdown = %v, want closed", err)
 					}
 					select {
 					case <-closed:
@@ -1114,5 +1117,178 @@ func TestManagerQueuesStructuredFollowUps(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestQueuedAnnotationsStayWithTheirPromptAcrossARestart(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	annotations, err := kitannotation.NewService(store, &queuedAnnotationReader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+	droidDirectory := filepath.Join(base, "droids")
+	manager, err := session.NewManager(store, interruptibleProviders{providers}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory), session.WithAnnotationService(annotations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	note, err := annotations.Create(t.Context(), record.ID, base, protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &kitannotation.WorkspaceFileAnchor{WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go", FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 2, EndLine: 3}}, "Queued instruction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartPrompt(t.Context(), record.ID, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	<-providers.started
+	if result, err := manager.SubmitPromptInput(t.Context(), record.ID, session.PromptInput{Text: "follow the note", AnnotationIDs: []uint64{note.ID}}); err != nil || !result.Queued {
+		t.Fatalf("queue = %+v, %v", result, err)
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.Shutdown(shutdown); err != nil {
+		t.Fatal(err)
+	}
+
+	// The reloaded session resumes its interrupted turn with the prompt still
+	// queued behind it, and the prompt's annotation pinned to it.
+	block := make(chan struct{})
+	providers.mu.Lock()
+	providers.block, providers.started = block, make(chan struct{})
+	resumed := providers.started
+	providers.mu.Unlock()
+	reopened, err := session.NewManager(store, interruptibleProviders{providers}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory), session.WithAnnotationService(annotations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reopened.Close)
+	snapshot, err := reopened.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-resumed
+	if want := (session.FollowUpQueue{Count: 1, Previews: []string{"follow the note"}, AnnotationIDs: []uint64{note.ID}}); !reflect.DeepEqual(snapshot.FollowUps, want) {
+		t.Fatalf("restored queue = %+v; want %+v", snapshot.FollowUps, want)
+	}
+	if _, err := annotations.Update(t.Context(), record.ID, base, note.ID, "Edited while queued"); err == nil {
+		t.Fatal("a queued annotation was editable after the restart")
+	}
+
+	providers.mu.Lock()
+	providers.block = nil
+	providers.mu.Unlock()
+	close(block)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snapshot, err = reopened.Snapshot(t.Context(), record.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.ActiveRunID == "" && snapshot.FollowUps.Count == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("queue did not settle: %+v", snapshot.FollowUps)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var submitted []uint64
+	for _, message := range snapshot.Messages {
+		for _, content := range message.Content {
+			for _, annotation := range content.Annotations {
+				submitted = append(submitted, annotation.ID)
+			}
+		}
+	}
+	if !reflect.DeepEqual(submitted, []uint64{note.ID}) {
+		t.Fatalf("submitted annotations = %v; want [%d]", submitted, note.ID)
+	}
+	if _, err := store.GetAnnotation(t.Context(), record.ID, note.ID); !errors.Is(err, kitannotation.ErrNotFound) {
+		t.Fatalf("submitted annotation not consumed: %v", err)
+	}
+}
+
+func TestAQueuedTurnKitDidNotFollowConsumesItsAnnotationsWhenTheSessionLoads(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	annotations, err := kitannotation.NewService(store, &queuedAnnotationReader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := &authorityProviders{}
+	droidDirectory := filepath.Join(base, "droids")
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory), session.WithAnnotationService(annotations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPrompt(t.Context(), record.ID, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	anchor := kitannotation.WorkspaceFileAnchor{WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go", FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 2, EndLine: 3}
+	note, err := annotations.Create(t.Context(), record.ID, base, protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &anchor}, "Queued instruction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	// The droid starts and settles a queued turn that submits the annotation,
+	// and Kit stops before following it.
+	droidStore, err := sqlitestore.Open(t.Context(), sqlitestore.Options{Path: filepath.Join(droidDirectory, record.ID+".db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := providers.Resolve("test/echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	droid, err := droids.Spawn(t.Context(), droids.ConversationID(record.ID), droids.Config{Store: droidStore, Model: model})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission, err := droid.Enqueue(t.Context(), droids.Input{Content: []droids.InputContent{droids.AnnotationInput{
+		SubmissionID: "annotation_submission_0123456789abcdef0123456789abcdef", Text: "follow the note",
+		Annotations: []droids.SubmittedAnnotation{{ID: note.ID, Kind: "workspace_file", WorkspaceID: anchor.WorkspaceID, Path: anchor.Path, FileRevision: anchor.FileRevision, StartLine: anchor.StartLine, EndLine: anchor.EndLine, Body: note.Body, Preview: note.Preview.Text}},
+	}}}, droids.QueueOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admission.Execution.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := droid.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := droidStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory), session.WithAnnotationService(annotations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reopened.Close)
+	if _, err := reopened.Snapshot(t.Context(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetAnnotation(t.Context(), record.ID, note.ID); !errors.Is(err, kitannotation.ErrNotFound) {
+		t.Fatalf("the submitted annotation is still a draft: %v", err)
 	}
 }

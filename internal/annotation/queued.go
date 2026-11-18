@@ -2,7 +2,9 @@ package annotation
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 )
 
 type queuedAnnotationKey struct {
@@ -70,4 +72,61 @@ func (q *QueuedSubmission) releaseLocked() {
 	for _, id := range q.ids {
 		q.service.queued.CompareAndDelete(queuedAnnotationKey{q.sessionID, id}, q)
 	}
+}
+
+// PinQueued marks drafts as belonging to a queued message that already
+// carries their snapshot, as a durable queue restored after a restart does.
+// Pinned drafts cannot be edited, deleted, or submitted again until they are
+// unpinned or consumed.
+func (s *Service) PinQueued(sessionID string, ids []uint64) error {
+	lock := s.sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	for _, id := range ids {
+		if s.isQueued(sessionID, id) {
+			return fmt.Errorf("annotation %d already belongs to a queued message", id)
+		}
+	}
+	queued := &QueuedSubmission{service: s, sessionID: sessionID, ids: append([]uint64(nil), ids...)}
+	for _, id := range ids {
+		s.queued.Store(queuedAnnotationKey{sessionID, id}, queued)
+	}
+	return nil
+}
+
+// UnpinQueued returns drafts of a withdrawn queued message to normal editing
+// and submission.
+func (s *Service) UnpinQueued(sessionID string, ids []uint64) {
+	lock := s.sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	for _, id := range ids {
+		s.queued.Delete(queuedAnnotationKey{sessionID, id})
+	}
+}
+
+// ConsumeQueued removes the drafts a queued message submitted once that
+// message was accepted, and unpins them. It is idempotent by submissionID,
+// and drafts that are already gone count as consumed.
+func (s *Service) ConsumeQueued(ctx context.Context, sessionID, submissionID string, ids []uint64) error {
+	if !strings.HasPrefix(submissionID, "annotation_submission_") {
+		return fmt.Errorf("annotation submission identity is invalid")
+	}
+	lock := s.sessionLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	repository := s.repositoryFor(sessionID)
+	err := repository.ReserveAnnotations(ctx, sessionID, submissionID, ids)
+	if err == nil {
+		err = repository.FinalizeAnnotationSubmission(ctx, sessionID, submissionID)
+	} else if errors.Is(err, ErrNotFound) {
+		err = nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		s.queued.Delete(queuedAnnotationKey{sessionID, id})
+	}
+	return nil
 }

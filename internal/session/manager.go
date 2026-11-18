@@ -9,10 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -39,11 +37,8 @@ const (
 )
 
 var (
-	ErrBusy       = errors.New("session already has an active parent run")
-	ErrReloadBusy = errors.New("session cannot be reloaded while work is active")
-	// errAdmissionHeld is the ErrBusy a queued prompt meets while another
-	// holder can start a turn.
-	errAdmissionHeld               = fmt.Errorf("%w: admission is held", ErrBusy)
+	ErrBusy                        = errors.New("session already has an active parent run")
+	ErrReloadBusy                  = errors.New("session cannot be reloaded while work is active")
 	ErrConfigureBusy               = errors.New("session cannot be configured while work is active")
 	ErrCompactionFailed            = errors.New("context compaction failed")
 	ErrDeleteBusy                  = errors.New("session cannot be deleted while work is active")
@@ -237,6 +232,12 @@ type Manager struct {
 	peerWorkers       map[string]*mailboxReactionWorker
 	peerStarted       bool
 
+	// follows tracks the goroutines that follow turns droids start from their
+	// queues; followClosed stops new ones once shutdown has closed the droids.
+	followMu     sync.Mutex
+	followClosed bool
+	follows      sync.WaitGroup
+
 	// bashMu guards the bash maps below. A runtime's mu or event-log mu may be
 	// held while taking it (a snapshot takes the event log, then bashMu), but
 	// neither may be taken while holding it. Bash events are therefore
@@ -271,6 +272,8 @@ type temporaryDisposal struct {
 }
 
 type runtime struct {
+	// sessionID identifies the session the runtime serves.
+	sessionID    string
 	closeMu      sync.Mutex
 	closeStarted bool
 	closeDone    chan struct{}
@@ -326,38 +329,30 @@ type runtime struct {
 	runs                  map[string]*liveRun
 	recovery              *droids.ExecutionSnapshot
 	configurationWarnings []string
-	followUps             []PromptInput
-	// followUpFailure explains why the first queued prompt could not start;
-	// it holds the queue until a client restores it. nextFollowUpID numbers
-	// queued prompts so admission dequeues the prompt it started.
-	followUpFailure string
-	nextFollowUpID  uint64
+	// followUps projects the droid's queue for clients. It changes, under
+	// mu, whenever Kit changes the queue or follows a turn the queue started.
+	followUps FollowUpQueue
+	// queuedFollowUps are the composer forms of the droid's queued prompts, in
+	// order, kept until a prompt is withdrawn, promoted, or its turn is followed.
+	queuedFollowUps []queuedFollowUpEntry
+	// queueTurns hands Kit the turns the droid starts.
+	queueTurns *queueTurnFeed
 	// announcedCompactions are the latest compactions outside a turn that
 	// succeeded and were announced to attached clients.
 	announcedCompactions []string
 	interactions         *interactionBroker
 }
 
-// admissionLock is the mutex whose holder may start a session's turn. A queued
-// follow-up that finds it held without a turn asks to be woken, and the
-// holder's Unlock wakes the queue. Unlock must not be called while holding
-// Manager.mu.
+// admissionLock is the mutex whose holder may start a session's turn, or
+// follow a turn the droid's queue started. Unlock must not be called while
+// holding Manager.mu.
 type admissionLock struct {
-	mu     sync.Mutex
-	wanted atomic.Bool
-	// wake starts the queue again; it is set when the runtime is loaded.
-	wake func()
+	mu sync.Mutex
 }
 
 func (l *admissionLock) Lock()         { l.mu.Lock() }
 func (l *admissionLock) TryLock() bool { return l.mu.TryLock() }
-
-func (l *admissionLock) Unlock() {
-	l.mu.Unlock()
-	if l.wanted.Swap(false) && l.wake != nil {
-		l.wake()
-	}
-}
+func (l *admissionLock) Unlock()       { l.mu.Unlock() }
 
 func (r *runtime) signalEventChangedLocked() {
 	close(r.eventChanged)
@@ -366,13 +361,10 @@ func (r *runtime) signalEventChangedLocked() {
 
 // PromptInput is one ordered prompt with optional durable attachments.
 type PromptInput struct {
-	queuedAnnotations *kitannotation.QueuedSubmission
-	promptCommand     *promptCommandInvocation
-	fromQueue         bool
-	queueID           uint64
-	Text              string
-	AttachmentIDs     []string
-	AnnotationIDs     []uint64
+	promptCommand *promptCommandInvocation
+	Text          string
+	AttachmentIDs []string
+	AnnotationIDs []uint64
 }
 
 // promptCommandInvocation records the prompt command whose expansion is a
@@ -1268,7 +1260,7 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		defer loaded.mu.Unlock()
 		loaded.workspace.mutationMu.Lock()
 		defer loaded.workspace.mutationMu.Unlock()
-		active := loaded.activeRun != "" || len(loaded.followUps) > 0
+		active := loaded.activeRun != "" || loaded.followUps.Count > 0
 		if active {
 			return ErrDeleteBusy
 		}
@@ -1487,16 +1479,7 @@ func (m *Manager) finishTemporaryDisposal(
 	if loaded != nil {
 		loaded.transitionMu.Lock()
 		loaded.mu.Lock()
-		queued := loaded.followUps
-		loaded.followUps = nil
-		loaded.followUpFailure = ""
-		loaded.mu.Unlock()
-		for _, prompt := range queued {
-			if prompt.queuedAnnotations != nil {
-				prompt.queuedAnnotations.Release()
-			}
-		}
-		loaded.mu.Lock()
+		m.unpinFollowUpsLocked(loaded, sessionID)
 		loaded.workspace.mutationMu.Lock()
 		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background(), "deleted"))
 	}
@@ -1606,77 +1589,6 @@ func (m *Manager) SubmitPrompt(ctx context.Context, sessionID, prompt string) (P
 	return m.SubmitPromptInput(ctx, sessionID, PromptInput{Text: prompt})
 }
 
-// SubmitPromptInput atomically starts an idle session or queues a structured follow-up.
-func (m *Manager) SubmitPromptInput(ctx context.Context, sessionID string, prompt PromptInput) (PromptSubmission, error) {
-	if err := m.beginOperation(); err != nil {
-		return PromptSubmission{}, err
-	}
-	defer m.ops.Done()
-	if err := validatePromptInput(prompt); err != nil {
-		return PromptSubmission{}, err
-	}
-	loaded, err := m.runtime(ctx, sessionID)
-	if err != nil {
-		return PromptSubmission{}, err
-	}
-	loaded.transitionMu.Lock()
-	defer loaded.transitionMu.Unlock()
-	if err := m.validateQueueRuntime(sessionID, loaded); err != nil {
-		return PromptSubmission{}, err
-	}
-	loaded.mu.Lock()
-	if loaded.activeRun != "" {
-		if len(loaded.followUps) >= maxFollowUps {
-			loaded.mu.Unlock()
-			return PromptSubmission{}, fmt.Errorf("%w: follow-up queue capacity reached", ErrBusy)
-		}
-		for _, queued := range loaded.followUps {
-			for _, id := range queued.AnnotationIDs {
-				if slices.Contains(prompt.AnnotationIDs, id) {
-					loaded.mu.Unlock()
-					return PromptSubmission{}, fmt.Errorf("%w: annotation %d already belongs to a queued message", ErrInvalidInput, id)
-				}
-			}
-		}
-		loaded.mu.Unlock()
-		prepared, err := m.prepareAnnotations(ctx, loaded, sessionID, prompt)
-		if err != nil {
-			return PromptSubmission{}, err
-		}
-		var annotationRecords []kitannotation.Record
-		if prepared != nil {
-			annotationRecords = prepared.Records
-			defer prepared.Abort()
-		}
-		annotationSubmissionID := ""
-		if prepared != nil {
-			annotationSubmissionID, err = identifier.New("annotation_submission_")
-			if err != nil {
-				return PromptSubmission{}, err
-			}
-		}
-		if _, err := m.resolvePromptContent(ctx, sessionID, loaded.model, prompt, annotationRecords, annotationSubmissionID); err != nil {
-			return PromptSubmission{}, err
-		}
-		if prepared != nil {
-			prompt.queuedAnnotations = prepared.Queue()
-		}
-		loaded.mu.Lock()
-		loaded.nextFollowUpID++
-		prompt.queueID = loaded.nextFollowUpID
-		loaded.followUps = append(loaded.followUps, clonePromptInputs([]PromptInput{prompt})[0])
-		queue := loaded.publishFollowUpsLocked(sessionID)
-		loaded.mu.Unlock()
-		return PromptSubmission{Queued: true, Queue: queue}, nil
-	}
-	loaded.mu.Unlock()
-	reservation, err := m.StartPromptInput(ctx, sessionID, prompt)
-	if err != nil {
-		return PromptSubmission{}, err
-	}
-	return PromptSubmission{Reservation: reservation}, nil
-}
-
 // validateQueueRuntime rejects callers that waited while their runtime was revoked.
 func (m *Manager) validateQueueRuntime(sessionID string, loaded *runtime) error {
 	m.mu.Lock()
@@ -1688,134 +1600,6 @@ func (m *Manager) validateQueueRuntime(sessionID string, loaded *runtime) error 
 		return ErrDeleteBusy
 	}
 	return nil
-}
-
-// RestoreFollowUps atomically drains every deferred prompt in queue order.
-func (m *Manager) RestoreFollowUps(ctx context.Context, sessionID string) (FollowUpRestore, error) {
-	if err := m.beginOperation(); err != nil {
-		return FollowUpRestore{}, err
-	}
-	defer m.ops.Done()
-	loaded, err := m.runtime(ctx, sessionID)
-	if err != nil {
-		return FollowUpRestore{}, err
-	}
-	loaded.transitionMu.Lock()
-	defer loaded.transitionMu.Unlock()
-	if err := m.validateQueueRuntime(sessionID, loaded); err != nil {
-		return FollowUpRestore{}, err
-	}
-	loaded.mu.Lock()
-	messages := clonePromptInputs(loaded.followUps)
-	loaded.mu.Unlock()
-	for index := range messages {
-		if messages[index].queuedAnnotations != nil {
-			messages[index].queuedAnnotations.Release()
-			messages[index].queuedAnnotations = nil
-		}
-		// A restored prompt command returns as its invocation, so submitting
-		// it again expands the command's current template.
-		if invocation := messages[index].promptCommand; invocation != nil {
-			messages[index].Text = invocation.text()
-			messages[index].promptCommand = nil
-		}
-		messages[index].queueID = 0
-	}
-	loaded.mu.Lock()
-	loaded.followUps = nil
-	var queue FollowUpQueue
-	if len(messages) > 0 {
-		queue = loaded.publishFollowUpsLocked(sessionID)
-	} else {
-		queue = loaded.followUpQueueLocked()
-	}
-	loaded.mu.Unlock()
-	return FollowUpRestore{Messages: messages, Queue: queue}, nil
-}
-
-// PromoteFollowUps atomically removes deferred prompts as droid steering accepts them.
-func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (FollowUpPromotion, error) {
-	if err := m.beginOperation(); err != nil {
-		return FollowUpPromotion{}, err
-	}
-	defer m.ops.Done()
-	loaded, err := m.runtime(ctx, sessionID)
-	if err != nil {
-		return FollowUpPromotion{}, err
-	}
-	loaded.transitionMu.Lock()
-	defer loaded.transitionMu.Unlock()
-	if err := m.validateQueueRuntime(sessionID, loaded); err != nil {
-		return FollowUpPromotion{}, err
-	}
-	loaded.mu.Lock()
-	if loaded.activeRun == "" {
-		loaded.mu.Unlock()
-		return FollowUpPromotion{}, ErrBusy
-	}
-	loaded.mu.Unlock()
-	promoted := 0
-	for {
-		loaded.mu.Lock()
-		if len(loaded.followUps) == 0 {
-			queue := loaded.followUpQueueLocked()
-			loaded.mu.Unlock()
-			return FollowUpPromotion{Promoted: promoted, Queue: queue}, nil
-		}
-		prompt := loaded.followUps[0]
-		loaded.mu.Unlock()
-		prepared, err := m.prepareAnnotations(ctx, loaded, sessionID, prompt)
-		var annotationRecords []kitannotation.Record
-		if prepared != nil {
-			annotationRecords = prepared.Records
-		}
-		var content []droids.InputContent
-		annotationSubmissionID := ""
-		if err == nil && prepared != nil {
-			annotationSubmissionID, err = identifier.New("annotation_submission_")
-		}
-		if err == nil {
-			content, err = m.resolvePromptContent(ctx, sessionID, loaded.model, prompt, annotationRecords, annotationSubmissionID)
-		}
-		if err == nil && prepared != nil {
-			err = prepared.Reserve(ctx, annotationSubmissionID)
-		}
-		promptAccepted := false
-		if err == nil {
-			_, err = loaded.droid.Prompt(ctx, droids.Input{Content: content}, droids.PromptOptions{Steer: true})
-			promptAccepted = err == nil
-		}
-		if promptAccepted && prepared != nil {
-			acceptedMessageID, identityErr := loaded.droid.AnnotationSubmissionMessageID(context.Background(), annotationSubmissionID)
-			_ = prepared.Commit()
-			if identityErr != nil {
-				err = identityErr
-			} else {
-				m.AnnotationsSubmitted(sessionID, string(acceptedMessageID), prompt.AnnotationIDs)
-			}
-			prepared.Release()
-		} else if prepared != nil {
-			prepared.Abort()
-		}
-		if err != nil {
-			loaded.mu.Lock()
-			var queue FollowUpQueue
-			if promptAccepted {
-				loaded.dequeueFollowUpLocked()
-				queue = loaded.publishFollowUpsLocked(sessionID)
-				promoted++
-			} else {
-				queue = loaded.followUpQueueLocked()
-			}
-			loaded.mu.Unlock()
-			return FollowUpPromotion{Promoted: promoted, Queue: queue}, err
-		}
-		loaded.mu.Lock()
-		loaded.dequeueFollowUpLocked()
-		loaded.publishFollowUpsLocked(sessionID)
-		loaded.mu.Unlock()
-		promoted++
-	}
 }
 
 func validatePromptInput(input PromptInput) error {
@@ -1856,14 +1640,6 @@ func validatePromptInput(input PromptInput) error {
 	return nil
 }
 
-func clonePromptInputs(inputs []PromptInput) []PromptInput {
-	cloned := make([]PromptInput, len(inputs))
-	for index, input := range inputs {
-		cloned[index] = PromptInput{queuedAnnotations: input.queuedAnnotations, promptCommand: input.promptCommand, fromQueue: input.fromQueue, queueID: input.queueID, Text: input.Text, AttachmentIDs: append([]string(nil), input.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), input.AnnotationIDs...)}
-	}
-	return cloned
-}
-
 func (m *Manager) prepareAnnotations(ctx context.Context, loaded *runtime, sessionID string, input PromptInput) (*kitannotation.PreparedSubmission, error) {
 	if len(input.AnnotationIDs) == 0 {
 		return nil, nil
@@ -1873,9 +1649,6 @@ func (m *Manager) prepareAnnotations(ctx context.Context, loaded *runtime, sessi
 	}
 	if err := m.annotations.RecoverSubmissions(ctx, sessionID, loaded.droid.HasAnnotationSubmission); err != nil {
 		return nil, err
-	}
-	if input.queuedAnnotations != nil {
-		return input.queuedAnnotations.Prepare(ctx)
 	}
 	return m.annotations.PrepareSubmission(ctx, sessionID, loaded.workspace.CWD(), input.AnnotationIDs)
 }
@@ -2089,9 +1862,6 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 		return RunReservation{}, err
 	}
 	if !loaded.admissionMu.TryLock() {
-		if input.fromQueue {
-			return RunReservation{}, errAdmissionHeld
-		}
 		return RunReservation{}, ErrBusy
 	}
 	loaded.mu.Lock()
@@ -2103,8 +1873,8 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 		release()
 		return RunReservation{}, ErrDeleteBusy
 	}
-	if len(loaded.followUps) > 0 && !input.fromQueue {
-		failure := loaded.followUpFailure
+	if loaded.followUps.Count > 0 {
+		failure := loaded.followUps.AdmissionFailure
 		release()
 		if failure != "" {
 			return RunReservation{}, fmt.Errorf("%w: the first queued follow-up could not start (%s); restore the queue before starting a new prompt", ErrBusy, failure)
@@ -2216,20 +1986,9 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 	}
 	turnID := string(handle.TurnID())
 	mailboxErr := m.acknowledgeConsumedSubagentMailbox(ctx, loaded.droid, turnID, pendingMailbox)
-	livePromptText := input.Text
-	if input.promptCommand != nil {
-		livePromptText = input.promptCommand.text()
-	}
-	if strings.TrimSpace(livePromptText) == "" {
-		if len(input.AnnotationIDs) > 0 {
-			livePromptText = "Annotations"
-		} else {
-			livePromptText = "Attachment"
-		}
-	}
 	initialEvents := []NewEvent{
 		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning},
-		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(livePromptText)},
+		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(livePromptText(input))},
 	}
 	if len(input.AnnotationIDs) > 0 {
 		initialEvents = append(initialEvents, NewEvent{
@@ -2237,26 +1996,7 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 			AnnotationIDs: append([]uint64(nil), input.AnnotationIDs...), AcceptedMessageID: acceptedAnnotationMessageID,
 		})
 	}
-	// A queued prompt leaves the queue in the same step that starts its turn,
-	// so no snapshot or event shows it both queued and running.
-	var dequeued *PromptInput
-	var dequeuedFailure string
-	if input.fromQueue && len(loaded.followUps) > 0 && loaded.followUps[0].queueID == input.queueID {
-		prompt := loaded.followUps[0]
-		dequeued, dequeuedFailure = &prompt, loaded.followUpFailure
-		loaded.dequeueFollowUpLocked()
-		queue := loaded.followUpQueueLocked()
-		initialEvents = append(initialEvents, NewEvent{SessionID: sessionID, Kind: EventFollowUpsChanged, FollowUps: &queue})
-	}
 	reservation, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, false, nil, initialEvents)
-	if err != nil && dequeued != nil {
-		// The turn did not start, so its prompt goes back first in the queue.
-		// The caller holds loaded.transitionMu, so the queue has not changed.
-		loaded.mu.Lock()
-		loaded.followUps = append([]PromptInput{*dequeued}, loaded.followUps...)
-		loaded.followUpFailure = dequeuedFailure
-		loaded.mu.Unlock()
-	}
 	if err == nil && mailboxErr != nil {
 		m.wakeSubagentMailbox(sessionID)
 	}
@@ -2336,10 +2076,16 @@ func (m *Manager) GetRun(ctx context.Context, sessionID, runID string) (RunProje
 		return record, nil
 	}
 	turn, err := loaded.droid.Turn(ctx, droids.TurnID(runID))
-	loaded.mu.Unlock()
 	if errors.Is(err, droids.ErrTurnNotFound) {
+		// A turn the droid's queue started runs before Kit follows it.
+		_, executionErr := loaded.droid.Execution(ctx, droids.TurnID(runID))
+		loaded.mu.Unlock()
+		if executionErr == nil {
+			return RunProjection{ID: runID, SessionID: sessionID, TurnID: runID, Status: RunStatusRunning}, nil
+		}
 		return RunProjection{}, fmt.Errorf("run %q: %w", runID, ErrNotFound)
 	}
+	loaded.mu.Unlock()
 	if err != nil {
 		return RunProjection{}, err
 	}
@@ -2387,7 +2133,7 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	drainDone := make(chan error, 1)
 	go func() { drainDone <- m.drainRunEvents(subscription, loaded, sessionID, turnID, turnID) }()
 	outcome, waitErr := handle.Wait(context.Background())
-	terminalState, continuationErr := continueDroidToTerminal(loaded.droid, outcome.Status)
+	terminalState, continuationErr := continueDroidToTerminal(loaded.droid, handle.TurnID(), outcome.Status)
 	waitErr = errors.Join(waitErr, continuationErr)
 	if terminalState.Execution != nil {
 		outcome.Status = terminalState.Execution.Status
@@ -2435,8 +2181,8 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 			policyStop = assistant.IsPolicyStop()
 		}
 	}
+	m.afterTurnFollowUps(loaded, sessionID)
 	if !policyStop {
-		m.startQueuedFollowUps(loaded, sessionID)
 		m.scheduleAutoName(sessionID)
 	}
 	// A completed prompt is observable only after its transition lock is
@@ -2445,128 +2191,6 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	// spuriously report ErrConfigureBusy.
 	loaded.transitionMu.Unlock()
 	close(run.done)
-}
-
-// startQueuedFollowUps starts the first queued prompt after a turn ends. The
-// caller holds loaded.transitionMu, so the queue cannot be restored, promoted,
-// or added to meanwhile.
-//
-// A queued prompt that loses admission stays queued. A turn that holds
-// admission starts it when the turn ends; a holder that starts no turn, as a
-// subagent mailbox or peer query deciding whether to start one, wakes it when
-// it lets go. A prompt that cannot start for any other reason holds the queue
-// and is reported in it until a client restores the queue.
-func (m *Manager) startQueuedFollowUps(loaded *runtime, sessionID string) {
-	loaded.mu.Lock()
-	if len(loaded.followUps) == 0 {
-		loaded.mu.Unlock()
-		return
-	}
-	prompt := loaded.followUps[0]
-	prompt.fromQueue = true
-	loaded.mu.Unlock()
-	for asked := false; ; asked = true {
-		_, err := m.StartPromptInput(context.Background(), sessionID, prompt)
-		switch {
-		case err == nil, errors.Is(err, ErrDeleteBusy), errors.Is(err, ErrClosed):
-			return
-		case errors.Is(err, errAdmissionHeld):
-			if asked {
-				return
-			}
-			// Ask before trying once more, so a holder that let go in between
-			// is not missed.
-			loaded.admissionMu.wanted.Store(true)
-		default:
-			m.holdFollowUps(loaded, sessionID, prompt.queueID, err)
-			return
-		}
-	}
-}
-
-// wakeQueuedFollowUps starts the queue of an idle session whose admission was
-// let go, or whose resumed turn ended, without a turn that starts it.
-func (m *Manager) wakeQueuedFollowUps(loaded *runtime, sessionID string) {
-	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		return
-	}
-	m.runs.Add(1)
-	m.mu.Unlock()
-	go func() {
-		defer m.runs.Done()
-		loaded.transitionMu.Lock()
-		defer loaded.transitionMu.Unlock()
-		loaded.mu.Lock()
-		idle := loaded.activeRun == "" && len(loaded.followUps) > 0 && loaded.followUpFailure == ""
-		loaded.mu.Unlock()
-		if idle {
-			m.startQueuedFollowUps(loaded, sessionID)
-		}
-	}()
-}
-
-// holdFollowUps records why the queued prompt queueID could not start and
-// publishes the held queue.
-func (m *Manager) holdFollowUps(loaded *runtime, sessionID string, queueID uint64, cause error) {
-	loaded.mu.Lock()
-	defer loaded.mu.Unlock()
-	if len(loaded.followUps) == 0 || loaded.followUps[0].queueID != queueID {
-		return
-	}
-	loaded.followUpFailure = followUpAdmissionFailure(cause)
-	loaded.publishFollowUpsLocked(sessionID)
-}
-
-// followUpAdmissionFailure is a bounded renderer-safe explanation of cause.
-func followUpAdmissionFailure(cause error) string {
-	text := cause.Error()
-	// The reason reads better without the sentinel naming its category.
-	for _, sentinel := range []error{ErrInvalidInput, ErrNotFound} {
-		if errors.Is(cause, sentinel) {
-			text = strings.TrimPrefix(text, sentinel.Error()+": ")
-		}
-	}
-	message := rendererSafeText(text)
-	if message == "" {
-		return "the queued message could not start"
-	}
-	return truncateRendererText(message, maxFollowUpTextBytes)
-}
-
-// dequeueFollowUpLocked removes the first queued prompt. Its failure, if
-// any, leaves with it. The caller holds loaded.mu.
-func (loaded *runtime) dequeueFollowUpLocked() {
-	loaded.followUps = loaded.followUps[1:]
-	loaded.followUpFailure = ""
-	if len(loaded.followUps) == 0 {
-		loaded.followUps = nil
-	}
-}
-
-// followUpQueueLocked projects the queue. The caller holds loaded.mu.
-func (loaded *runtime) followUpQueueLocked() FollowUpQueue {
-	queue := projectFollowUpQueue(loaded.followUps)
-	if queue.Count > 0 {
-		queue.AdmissionFailure = loaded.followUpFailure
-	}
-	return queue
-}
-
-// publishFollowUpsLocked announces the current queue to attached clients and
-// returns it. The caller holds loaded.mu, so the announcement is ordered with
-// the change. A queue that cannot be announced invalidates the stream, so
-// clients resynchronize from a snapshot, which carries it.
-func (loaded *runtime) publishFollowUpsLocked(sessionID string) FollowUpQueue {
-	if len(loaded.followUps) == 0 {
-		loaded.followUpFailure = ""
-	}
-	queue := loaded.followUpQueueLocked()
-	if err := loaded.events.append([]NewEvent{{SessionID: sessionID, Kind: EventFollowUpsChanged, FollowUps: &queue}}); err != nil {
-		loaded.events.invalidate()
-	}
-	return queue
 }
 
 func promptResultFromOutcome(sessionID, turnID string, outcome droids.Outcome, waitErr error) PromptResult {
@@ -2595,8 +2219,10 @@ func promptResultFromOutcome(sessionID, turnID string, outcome droids.Outcome, w
 	return result
 }
 
-func continueDroidToTerminal(droid *droids.Droid, status droids.ExecutionStatus) (droids.QuiescentState, error) {
-	state := droids.QuiescentState{Execution: &droids.ExecutionSnapshot{Status: status}}
+// continueDroidToTerminal resumes turn turnID until it settles. It waits for
+// that turn only: the droid may start a queued turn once it settles.
+func continueDroidToTerminal(droid *droids.Droid, turnID droids.TurnID, status droids.ExecutionStatus) (droids.QuiescentState, error) {
+	state := droids.QuiescentState{TurnID: turnID, Execution: &droids.ExecutionSnapshot{TurnID: turnID, Status: status}}
 	var continuationErr error
 	for status == droids.ExecutionPaused || status == droids.ExecutionInterrupted {
 		if err := droid.Resume(context.Background()); err != nil {
@@ -2612,15 +2238,16 @@ func continueDroidToTerminal(droid *droids.Droid, status droids.ExecutionStatus)
 				continue
 			}
 		}
-		var err error
-		state, err = droid.WaitQuiescent(context.Background())
+		handle, err := droid.Execution(context.Background(), turnID)
 		if err != nil {
 			return state, errors.Join(continuationErr, err)
 		}
-		if state.Execution == nil {
-			return state, continuationErr
+		outcome, err := handle.Wait(context.Background())
+		if err != nil {
+			return state, errors.Join(continuationErr, err)
 		}
-		status = state.Execution.Status
+		state.Execution = &droids.ExecutionSnapshot{TurnID: turnID, QueuedPromptID: outcome.QueuedPromptID, Status: outcome.Status, Error: outcome.Error}
+		status = outcome.Status
 	}
 	return state, continuationErr
 }
@@ -2639,13 +2266,19 @@ func projectExecutionStatus(status droids.ExecutionStatus) RunStatus {
 }
 
 func (m *Manager) drainRunEvents(subscription droids.Subscription, loaded *runtime, sessionID, turnID, runID string) error {
+	// Once the droid starts another turn from its queue, the cursor stays
+	// before that turn's events, so the subscription that follows the turn
+	// replays them.
+	foreign := false
 	for envelope := range subscription.Events() {
 		loaded.mu.Lock()
 		var appendErr error
 		if envelope.TurnID == droids.TurnID(turnID) {
 			appendErr = loaded.events.append(projectDroidEvent(sessionID, turnID, runID, envelope.Event))
+		} else if envelope.TurnID != "" {
+			foreign = true
 		}
-		if envelope.Durable && envelope.Sequence > loaded.eventCursor {
+		if !foreign && envelope.Durable && envelope.Sequence > loaded.eventCursor {
 			loaded.eventCursor = envelope.Sequence
 			loaded.signalEventChangedLocked()
 		}
@@ -2720,25 +2353,23 @@ func (m *Manager) finishShutdown(runtimes []*runtime) {
 		shutdownErr = errors.Join(shutdownErr, loaded.close(context.Background(), "shutdown"))
 		loaded.mu.Unlock()
 	}
+	// Closed droids start no more turns, so no follower starts after this.
+	m.followMu.Lock()
+	m.followClosed = true
+	m.followMu.Unlock()
+	m.follows.Wait()
 	m.admissions.Wait()
 	m.loads.Wait()
 	m.runs.Wait()
 	m.bashRuns.Wait()
 	m.ops.Wait()
 	m.cleanups.Wait()
+	// Queued prompts stay in their droids; their annotations are pinned again
+	// when a session reloads.
 	for _, loaded := range runtimes {
-		loaded.transitionMu.Lock()
 		loaded.mu.Lock()
-		queued := loaded.followUps
-		loaded.followUps = nil
-		loaded.followUpFailure = ""
+		m.unpinFollowUpsLocked(loaded, loaded.sessionID)
 		loaded.mu.Unlock()
-		for _, prompt := range queued {
-			if prompt.queuedAnnotations != nil {
-				prompt.queuedAnnotations.Release()
-			}
-		}
-		loaded.transitionMu.Unlock()
 	}
 	if m.temporaryDroids {
 		shutdownErr = errors.Join(shutdownErr, os.RemoveAll(m.droidDirectory))
@@ -2814,6 +2445,10 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 	}
 	if startRecovery {
 		go m.resumeRuntimeWithLimits(loaded, sessionID)
+	} else if err == nil {
+		// A queue restored without a turn to resume starts now, as a resumed
+		// turn's queue starts once it settles.
+		m.startRestoredQueue(loaded, sessionID)
 	}
 	m.loads.Done()
 	return loaded, err
@@ -2910,7 +2545,8 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		interception = &pluginInterceptorBridge{bootstrap: identity}
 		turnEvents = newPluginTurnEventBridge(m.pluginContext)
 	}
-	droid, snapshot, model, err := m.openDroid(ctx, record, store, bundle, interception, turnEvents)
+	queueTurns := &queueTurnFeed{}
+	droid, snapshot, model, err := m.openDroid(ctx, record, store, bundle, interception, turnEvents, queueTurns)
 	if err == nil {
 		err = droid.ReconcileReasoning(ctx, record.ThinkingLevel, droids.PreserveReasoningEpoch)
 		if err != nil {
@@ -2947,6 +2583,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		turnEvents.droid.Store(droid)
 	}
 	loaded = &runtime{
+		sessionID: record.ID, queueTurns: queueTurns,
 		cleanupOwner: &m.cleanups,
 		interception: interception, turnEvents: turnEvents, droid: droid, model: model, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
@@ -2954,7 +2591,6 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		pluginImages: pluginImageStore{sessionID: record.ID, store: m.attachments},
 	}
 	loaded.pluginContributions.initialize(bundle.Subagents, droid)
-	loaded.admissionMu.wake = func() { m.wakeQueuedFollowUps(loaded, record.ID) }
 	interactions.authority = &loaded.mu
 	quiescent, err := droid.WaitQuiescent(ctx)
 	if err != nil {
@@ -2971,6 +2607,10 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		_ = loaded.events.append([]NewEvent{{SessionID: record.ID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning}})
 		loaded.events.invalidate()
 	}
+	loaded.mu.Lock()
+	m.restoreFollowUpsLocked(ctx, loaded, record.ID)
+	loaded.mu.Unlock()
+	queueTurns.bind(func() bool { return m.startFollowingQueueTurns(loaded, record.ID) })
 	if m.pluginFactory != nil {
 		loaded.plugins = m.pluginFactory(m.pluginContext, PluginSession{ID: record.ID, Name: record.Name, CWD: record.CWD, SubagentNames: pluginSubagentNames(bundle.Subagents), ClientToolsChanged: loaded.refreshPluginContributions}, func() { loaded.refreshPluginContributions(); loaded.events.invalidate() })
 		if loaded.plugins != nil {
@@ -3038,7 +2678,7 @@ func (m *Manager) applyModelContextWindow(selector string, model droids.Model) d
 	return model
 }
 
-func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle, interception *pluginInterceptorBridge, turnEvents *pluginTurnEventBridge) (*droids.Droid, droids.Snapshot, droids.Model, error) {
+func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle, interception *pluginInterceptorBridge, turnEvents *pluginTurnEventBridge, queueTurns *queueTurnFeed) (*droids.Droid, droids.Snapshot, droids.Model, error) {
 	selector := record.ModelProvider + "/" + record.ModelID
 	model, err := m.resolveExactModel(selector)
 	if err != nil {
@@ -3064,8 +2704,13 @@ func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store dro
 		}
 	}
 	if turnEvents != nil {
-		config.TurnStarted = turnEvents.started
 		config.TurnSettled = turnEvents.turnSettled
+	}
+	config.TurnStarted = func(id droids.TurnID) {
+		if turnEvents != nil {
+			turnEvents.started(id)
+		}
+		queueTurns.started(id)
 	}
 	if interception != nil {
 		config.BeforeToolCall = interception.before
@@ -3128,12 +2773,12 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 		close(run.done)
 		loaded.mu.Unlock()
 		loaded.admissionMu.Unlock()
-		m.wakeQueuedFollowUps(loaded, sessionID)
+		m.startRestoredQueue(loaded, sessionID)
 		return
 	}
 	drainDone := make(chan error, 1)
 	go func() { drainDone <- m.drainRunEvents(subscription, loaded, sessionID, turnID, turnID) }()
-	state, waitErr := continueDroidToTerminal(loaded.droid, droids.ExecutionInterrupted)
+	state, waitErr := continueDroidToTerminal(loaded.droid, droids.TurnID(turnID), droids.ExecutionInterrupted)
 	subscription.Close()
 	drainErr := <-drainDone
 	if drainErr != nil {
@@ -3154,8 +2799,8 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 	close(run.done)
 	loaded.mu.Unlock()
 	loaded.admissionMu.Unlock()
-	// Prompts queued behind the resumed turn start as they do after any turn.
-	m.wakeQueuedFollowUps(loaded, sessionID)
+	// Prompts queued behind the resumed turn start once it has settled.
+	m.startRestoredQueue(loaded, sessionID)
 }
 
 func (r *runtime) close(ctx context.Context, interactionReason string) error {

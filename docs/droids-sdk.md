@@ -686,12 +686,55 @@ aborted. Admission is serialized with settlement, so steering that loses a race
 with normal settlement returns `ErrConflict`; the embedding application may
 then admit an ordinary new turn without risking an orphaned instruction.
 
-### Caller-managed follow-ups
+### Queued prompts
 
-Droids does not enqueue prompts for future turns. A caller that wants follow-up
-behavior owns that queue and submits the next prompt with zero-value options
-after the droid becomes ready. The caller is responsible for any durability,
-ordering, restoration, or batching required by that queue.
+```go
+type QueueOptions struct {
+    AdmissionKey string
+    Metadata     json.RawMessage
+}
+
+func (d *Droid) Enqueue(ctx context.Context, input Input, options QueueOptions) (QueueAdmission, error)
+func (d *Droid) Queue(ctx context.Context) (QueueSnapshot, error)
+func (d *Droid) StartQueue(ctx context.Context) (ExecutionHandle, error)
+func (d *Droid) Withdraw(ctx context.Context, ids ...QueuedPromptID) ([]QueuedPrompt, error)
+func (d *Droid) Promote(ctx context.Context, ids ...QueuedPromptID) ([]QueuedPrompt, error)
+func (d *Droid) Execution(ctx context.Context, id TurnID) (ExecutionHandle, error)
+func (d *Droid) StartedPrompts(ctx context.Context) ([]StartedPrompt, error)
+func (d *Droid) AcknowledgeStarted(ctx context.Context, ids ...QueuedPromptID) error
+```
+
+`Enqueue` durably admits a prompt to start the droid's next turn. When the
+droid is idle and nothing is queued, the prompt starts a turn at once and the
+admission carries its execution. Otherwise it waits, and each queued prompt
+starts a turn once the turn before it settles, in admission order. A paused or
+recoverable turn holds the queue until it settles.
+
+The queue holds at most 64 prompts; `Enqueue` returns `ErrBusy` beyond that.
+An admission key makes queuing idempotent: reusing it returns the original
+admission, even after its turn has run, and reusing it with different input or
+metadata returns `ErrConflict`. Metadata is bounded application JSON returned
+with the prompt.
+
+`Withdraw` removes queued prompts and returns them; `Promote` moves them into
+the running turn as steering in one commit. With no identifiers, either acts
+on the whole queue.
+
+A queue that `Spawn` restores, or that a turn ending in a provider policy stop
+leaves behind, is held: it starts nothing until the application calls
+`StartQueue` or queues another prompt. A queued prompt that cannot start blocks
+the queue, and `QueueSnapshot.Blocked` says why, until it is withdrawn or
+promoted.
+
+Every turn started from the queue reports the prompt's `QueuedPromptID` in its
+execution snapshot, outcome, and turn snapshot. `TurnStarted` reports the turn
+like any other; `Execution` returns the handle of the current or a settled
+turn, so the application can follow turns it did not start itself.
+`StartedPrompts` lists the queued prompts that started turns until the
+application acknowledges them with `AcknowledgeStarted`, across restarts, so
+an application can finish following turns its queue started before it
+stopped, even turns that settled. The droid keeps at most 128, more than a
+full queue and its running turn, and drops the oldest beyond that.
 
 ## Boundary-message API
 
@@ -1452,10 +1495,12 @@ type SnapshotOptions struct {
 }
 
 type TurnSnapshot struct {
-    ID     TurnID
-    Status ExecutionStatus
-    Error  *DroidError
-    Usage  Usage
+    ID             TurnID
+    QueuedPromptID QueuedPromptID
+    Status         ExecutionStatus
+    Error          *DroidError
+    Usage          Usage
+    FinalMessage   *MessageEnvelope
 }
 
 type PendingBoundarySnapshot struct {
@@ -1465,6 +1510,7 @@ type PendingBoundarySnapshot struct {
 
 type PendingInputSnapshot struct {
     Steering   int
+    Queued     int
     Boundary   int
     Boundaries []PendingBoundarySnapshot
 }
@@ -2012,7 +2058,8 @@ Kit configures droids with:
 
 Kit projects droid snapshots and events into its protocol. It does not reserve
 parallel run records, perform retries, decide compaction, or settle executions
-itself. If Kit offers deferred follow-ups, Kit owns that queue outside droids.
+itself. Kit's follow-ups are the droid's queued prompts; Kit follows the turns
+the queue starts.
 
 The Kit session supervisor may load, retain, evict, and shut down droid
 instances. Client disconnect does not abort them. The droid remains the

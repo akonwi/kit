@@ -2,7 +2,6 @@ package session_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -130,11 +129,9 @@ func TestFollowUpQueueChangesReachEveryAttachedClient(t *testing.T) {
 		}
 		watcher.queue()
 	}
+	// Promotion moves every queued prompt into the running turn at once.
 	if _, err := manager.PromoteFollowUps(t.Context(), created.ID); err != nil {
 		t.Fatal(err)
-	}
-	if got, want := watcher.queue(), (session.FollowUpQueue{Count: 1, Previews: []string{"third"}}); !reflect.DeepEqual(got, want) {
-		t.Fatalf("queue after first promotion = %+v; want %+v", got, want)
 	}
 	if got, want := watcher.queue(), (session.FollowUpQueue{Previews: []string{}}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("queue after promotion = %+v; want %+v", got, want)
@@ -181,7 +178,7 @@ func TestFollowUpQueueChangesReachEveryAttachedClient(t *testing.T) {
 	}
 }
 
-func TestFailedFollowUpAdmissionHoldsTheQueueForEveryClient(t *testing.T) {
+func TestQueuedFollowUpKeepsTheAttachmentsItWasSentWith(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
 	if err != nil {
@@ -214,47 +211,34 @@ func TestFailedFollowUpAdmissionHoldsTheQueueForEveryClient(t *testing.T) {
 	if _, err := manager.SubmitPromptInput(t.Context(), created.ID, queued); err != nil {
 		t.Fatal(err)
 	}
-	watcher := watchSession(t, manager, created.ID)
-	// The attachment disappears while the prompt waits, so it cannot start.
+	// The prompt's content was resolved when it was sent, so removing the
+	// attachment while it waits does not keep it from starting.
 	if err := attachments.Remove(t.Context(), created.ID, file.ID); err != nil {
 		t.Fatal(err)
 	}
 	close(providers.block)
-
-	held := watcher.queue()
-	if held.Count != 1 || !reflect.DeepEqual(held.Previews, []string{"read the notes"}) || held.AdmissionFailure != `attachment "`+file.ID+`" is unavailable` {
-		t.Fatalf("held queue = %+v", held)
-	}
-	snapshot, err := manager.Snapshot(t.Context(), created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.ActiveRunID != "" || !reflect.DeepEqual(snapshot.FollowUps, held) {
-		t.Fatalf("snapshot of held queue: active=%q queue=%+v; want %+v", snapshot.ActiveRunID, snapshot.FollowUps, held)
-	}
-	// New prompts wait behind the held queue, and say why.
-	for name, start := range map[string]func() error{
-		"start":  func() error { _, err := manager.StartPrompt(t.Context(), created.ID, "new"); return err },
-		"submit": func() error { _, err := manager.SubmitPrompt(t.Context(), created.ID, "new"); return err },
-	} {
-		err := start()
-		if !errors.Is(err, session.ErrBusy) || !strings.Contains(err.Error(), "the first queued follow-up could not start ("+held.AdmissionFailure+")") {
-			t.Fatalf("%s behind a held queue: %v", name, err)
+	waitForEmptyQueue(t, manager, created.ID)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		providers.mu.Lock()
+		requests := append([]droids.Request(nil), providers.requests...)
+		providers.mu.Unlock()
+		if len(requests) == 2 {
+			last := requests[1].Messages[len(requests[1].Messages)-1].(droids.UserMessage)
+			var texts []string
+			for _, content := range last.Content {
+				texts = append(texts, content.(droids.TextInput).Text)
+			}
+			want := []string{"read the notes", "\n\n--- attachment: \"notes.txt\" ---\nnotes\n--- end attachment ---"}
+			if !reflect.DeepEqual(texts, want) {
+				t.Fatalf("queued prompt sent %#v; want %#v", texts, want)
+			}
+			return
 		}
-	}
-
-	restored, err := manager.RestoreFollowUps(t.Context(), created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(restored.Messages, []session.PromptInput{queued}) || restored.Queue.Count != 0 || restored.Queue.AdmissionFailure != "" {
-		t.Fatalf("restored held queue = %+v", restored)
-	}
-	if got, want := watcher.queue(), (session.FollowUpQueue{Previews: []string{}}); !reflect.DeepEqual(got, want) {
-		t.Fatalf("queue after restore = %+v; want %+v", got, want)
-	}
-	if _, err := manager.StartPrompt(t.Context(), created.ID, "new"); err != nil {
-		t.Fatalf("StartPrompt() after restore = %v", err)
+		if time.Now().After(deadline) {
+			t.Fatalf("model requests = %d, want 2", len(requests))
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -400,42 +384,76 @@ func waitForEmptyQueue(t *testing.T, manager *session.Manager, sessionID string)
 	}
 }
 
-func TestQueuedFollowUpStartsWhenAdmissionHeldWithoutATurnIsReleased(t *testing.T) {
+func TestFollowUpsQueuedBeforeARestartStartWhenTheSessionLoads(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+	droidDirectory := filepath.Join(root, "droids")
+	manager, err := session.NewManager(store, interruptibleProviders{providers}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(manager.Close)
 	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.QueueFollowUpForTest(t.Context(), created.ID, session.PromptInput{Text: "queued"}); err != nil {
+	if _, err := manager.StartPrompt(t.Context(), created.ID, "interrupted by a restart"); err != nil {
 		t.Fatal(err)
 	}
-	release, err := manager.HoldAdmissionForTest(t.Context(), created.ID)
+	<-providers.started
+	for _, text := range []string{"queued before the restart", "and another"} {
+		if submission, err := manager.SubmitPrompt(t.Context(), created.ID, text); err != nil || !submission.Queued {
+			t.Fatalf("SubmitPrompt(%q) = %+v, %v", text, submission, err)
+		}
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.Shutdown(shutdown); err != nil {
+		t.Fatal(err)
+	}
+
+	// The reopened session resumes the interrupted turn, then starts the
+	// prompts queued behind it, in order.
+	providers.mu.Lock()
+	providers.block = nil
+	providers.mu.Unlock()
+	reopened, err := session.NewManager(store, interruptibleProviders{providers}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.StartQueuedFollowUpsForTest(t.Context(), created.ID); err != nil {
-		t.Fatal(err)
+	t.Cleanup(reopened.Close)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snapshot, err := reopened.Snapshot(t.Context(), created.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.ActiveRunID == "" && snapshot.FollowUps.Count == 0 {
+			var users []string
+			for _, message := range snapshot.Messages {
+				if message.Role != "user" {
+					continue
+				}
+				for _, content := range message.Content {
+					if content.Kind == session.TranscriptContentText {
+						users = append(users, content.Text)
+					}
+				}
+			}
+			if want := []string{"interrupted by a restart", "queued before the restart", "and another"}; !reflect.DeepEqual(users, want) {
+				t.Fatalf("user turns = %#v; want %#v", users, want)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("restored queue did not run: active=%q queue=%+v", snapshot.ActiveRunID, snapshot.FollowUps)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	// However long admission stays held, the prompt waits queued.
-	snapshot, err := manager.Snapshot(t.Context(), created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.ActiveRunID != "" || snapshot.FollowUps.Count != 1 || snapshot.FollowUps.AdmissionFailure != "" {
-		t.Fatalf("queue while admission is held = %+v, active run %q", snapshot.FollowUps, snapshot.ActiveRunID)
-	}
-	release()
-	waitForEmptyQueue(t, manager, created.ID)
 }
 
 func TestQueuedFollowUpStartsAfterAResumedTurn(t *testing.T) {
