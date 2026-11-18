@@ -424,27 +424,90 @@ private struct ToolDetail: View {
 
 // MARK: Other rows
 
-/// A shell command the user ran in the session.
-private struct BashRow: View {
+/// A shell command run in the session, from any client, styled after the
+/// Mac's: an accent outline while the agent sees its output, a status only
+/// when it didn't simply succeed, and the output in a box at most 240pt
+/// tall, its long lines wrapped. A long press copies the command or the
+/// output.
+struct BashRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let execution: BashExecution
 
+    /// What the row says beside the command. The spinner says a command is
+    /// running, and a success needs no word.
+    static func status(of execution: BashExecution) -> String? {
+        if execution.running { return nil }
+        guard execution.status != "completed" || execution.timedOut || (execution.exitCode ?? 0) != 0 else { return nil }
+        return execution.statusLabel
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                if execution.running { LaneSpinner() } else {
-                    Image(systemName: "apple.terminal").font(.system(size: 13)).foregroundStyle(Theme.muted)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Group {
+                    if execution.running { LaneSpinner() } else {
+                        Image(systemName: "apple.terminal")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.muted)
+                    }
                 }
+                .accessibilityLabel(execution.running ? "Running" : "Shell command")
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 Text(execution.command)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(Theme.text)
-                    .lineLimit(2)
-                Spacer(minLength: 0)
-                Text(execution.statusLabel)
-                    .font(.system(size: 12))
-                    .foregroundStyle(execution.running || execution.exitCode == 0 ? Theme.muted : Theme.danger)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let status = Self.status(of: execution) {
+                    Text(status)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.muted)
+                }
             }
+            .padding(12)
+            // The command and how it went read as one; the output reads on its own.
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(execution.excluded ? "The agent doesn’t see the output" : "The agent sees the output")
+            .accessibilityIdentifier("bash-row")
             if !execution.output.isEmpty {
-                CodeBlock(language: "", source: execution.output)
+                Divider().overlay(Theme.border)
+                // Long lines wrap: a phone is too narrow to scroll sideways too.
+                ScrollView(.vertical) {
+                    Text(execution.output)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                }
+                .frame(maxHeight: 240)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            if let error = execution.error {
+                Text(error)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.danger)
+                    .padding(12)
+            }
+            if execution.truncated {
+                Text("Output truncated")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.muted)
+                    .padding(12)
+            }
+        }
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.cardRadius)
+                .strokeBorder(execution.excluded ? Theme.border : Theme.accent.opacity(colorScheme == .dark ? 0.45 : 0.3),
+                              lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .contextMenu {
+            Button("Copy Command", systemImage: "doc.on.doc") { UIPasteboard.general.string = execution.command }
+            if !execution.output.isEmpty {
+                Button("Copy Output", systemImage: "text.alignleft") { UIPasteboard.general.string = execution.output }
             }
         }
     }
