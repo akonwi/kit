@@ -55,10 +55,6 @@ func (d *Droid) Fork(ctx context.Context, id ConversationID, options ForkOptions
 	}
 	forkedRecords := make([]EncodedRecord, 0, len(records)+2)
 	for _, record := range records {
-		// The child starts with no queue, so it inherits no queue admissions.
-		if record.Kind == queueAdmissionKind {
-			continue
-		}
 		forked, transformErr := forkHistoryRecord(record, sourceID, id)
 		if transformErr != nil {
 			return ForkResult{}, transformErr

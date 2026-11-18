@@ -135,7 +135,7 @@ waits and starts after the current turn settles, in admission order.
 ```go
 admission, err := agent.Enqueue(ctx, droids.Input{
 	Content: []droids.InputContent{droids.TextInput{Text: "Then summarize it."}},
-}, droids.QueueOptions{AdmissionKey: "send-42", Metadata: draftJSON})
+}, droids.QueueOptions{Metadata: draftJSON})
 ```
 
 `Queue` lists the waiting prompts with their metadata, `Withdraw` removes

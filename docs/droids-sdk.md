@@ -690,8 +690,7 @@ then admit an ordinary new turn without risking an orphaned instruction.
 
 ```go
 type QueueOptions struct {
-    AdmissionKey string
-    Metadata     json.RawMessage
+    Metadata json.RawMessage
 }
 
 func (d *Droid) Enqueue(ctx context.Context, input Input, options QueueOptions) (QueueAdmission, error)
@@ -711,10 +710,8 @@ starts a turn once the turn before it settles, in admission order. A paused or
 recoverable turn holds the queue until it settles.
 
 The queue holds at most 64 prompts; `Enqueue` returns `ErrBusy` beyond that.
-An admission key makes queuing idempotent: reusing it returns the original
-admission, even after its turn has run, and reusing it with different input or
-metadata returns `ErrConflict`. Metadata is bounded application JSON returned
-with the prompt.
+Each successful `Enqueue` queues a new prompt. Metadata is bounded
+application JSON returned with the prompt.
 
 `Withdraw` removes queued prompts and returns them; `Promote` moves them into
 the running turn as steering in one commit. With no identifiers, either acts

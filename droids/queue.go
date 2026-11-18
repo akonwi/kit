@@ -2,10 +2,7 @@ package droids
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -16,12 +13,10 @@ import (
 const (
 	maxQueuedPrompts       = 64
 	maxQueuedMetadataBytes = 16 << 10
-	queueAdmissionKind     = "queue_admission"
 	queuedPromptKind       = "queued_prompt"
 	// maxStartedPrompts bounds unacknowledged started prompts; the queue
 	// waits while it is reached.
 	maxStartedPrompts       = 2 * maxQueuedPrompts
-	queueAdmissionKeyLimit  = 256
 	queuedPromptIDPrefix    = "queued_"
 	queueBlockedReasonLimit = 1 << 10
 )
@@ -31,10 +26,6 @@ type QueuedPromptID string
 
 // QueueOptions configures Enqueue.
 type QueueOptions struct {
-	// AdmissionKey makes queuing idempotent for an application crossing its own
-	// durable boundary. Reuse with different input or metadata returns
-	// ErrConflict, including after the prompt has left the queue.
-	AdmissionKey string
 	// Metadata is bounded application JSON stored with the prompt and returned
 	// with it, so an application can restore the prompt as the person wrote it.
 	// Droids does not interpret it.
@@ -51,15 +42,11 @@ type QueuedPrompt struct {
 
 // QueueAdmission reports the result of Enqueue.
 type QueueAdmission struct {
-	// Prompt is the admitted prompt. A replayed admission whose prompt has left
-	// the queue reports only its ID.
+	// Prompt is the admitted prompt.
 	Prompt QueuedPrompt
-	// Execution is the turn the prompt started, when it started at once or, for
-	// a replayed admission, when its turn is the droid's current turn. It is nil
-	// while the prompt waits in the queue.
+	// Execution is the turn the prompt started when it started at once. It is
+	// nil while the prompt waits in the queue.
 	Execution ExecutionHandle
-	// Replayed reports that AdmissionKey matched an earlier admission.
-	Replayed bool
 }
 
 // QueueSnapshot reports the prompts waiting to start turns, in order.
@@ -79,12 +66,6 @@ type durableQueuedPrompt struct {
 	Message  wireMessage     `json:"message"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 	QueuedAt time.Time       `json:"queued_at"`
-}
-
-type queueAdmissionReceipt struct {
-	Key      string         `json:"key"`
-	Hash     string         `json:"hash"`
-	QueuedID QueuedPromptID `json:"queued_id"`
 }
 
 // Enqueue durably admits input to start the droid's next turn. Queued prompts
@@ -112,27 +93,11 @@ func (d *Droid) Enqueue(ctx context.Context, input Input, options QueueOptions) 
 	if len(options.Metadata) > maxQueuedMetadataBytes {
 		return QueueAdmission{}, fmt.Errorf("droids: queued prompt metadata exceeds %d bytes", maxQueuedMetadataBytes)
 	}
-	admissionHash := ""
-	if options.AdmissionKey != "" {
-		if !validBoundedContextValue(options.AdmissionKey, queueAdmissionKeyLimit) {
-			return QueueAdmission{}, fmt.Errorf("droids: queue admission key is invalid")
-		}
-		admissionHash, err = queueAdmissionHash(wire, options.Metadata)
-		if err != nil {
-			return QueueAdmission{}, err
-		}
-	}
 	rt := d.sdk
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.closed {
 		return QueueAdmission{}, ErrClosed
-	}
-	if options.AdmissionKey != "" {
-		admission, found, err := rt.replayQueueAdmissionLocked(ctx, options.AdmissionKey, admissionHash)
-		if err != nil || found {
-			return admission, err
-		}
 	}
 	if len(rt.state.Queue) >= maxQueuedPrompts {
 		return QueueAdmission{}, fmt.Errorf("%w: queue capacity reached", ErrBusy)
@@ -145,19 +110,11 @@ func (d *Droid) Enqueue(ctx context.Context, input Input, options QueueOptions) 
 		ID: QueuedPromptID(id), Message: wire,
 		Metadata: append(json.RawMessage(nil), options.Metadata...), QueuedAt: time.Now().UTC(),
 	}
-	var mutations []EncodedMutation
-	if options.AdmissionKey != "" {
-		receipt, err := queueAdmissionMutation(queueAdmissionReceipt{Key: options.AdmissionKey, Hash: admissionHash, QueuedID: prompt.ID})
-		if err != nil {
-			return QueueAdmission{}, err
-		}
-		mutations = append(mutations, receipt)
-	}
 	body, err := queuedPromptMutation(prompt)
 	if err != nil {
 		return QueueAdmission{}, err
 	}
-	mutations = append(mutations, body)
+	mutations := []EncodedMutation{body}
 	rt.queueHeld = false
 	if rt.queueIdleLocked() && len(rt.state.Queue) == 0 {
 		accepted, _ := lifecycleEvent("queue.accepted", "", "", map[string]any{"queued_id": prompt.ID})
@@ -455,65 +412,6 @@ func (rt *sdkRuntime) advanceQueueLocked(ctx context.Context) {
 	// The blocked reason stays in memory if it cannot be recorded; the queue
 	// waits either way.
 	_ = rt.commitLocked(ctx, nil, []EncodedDurableEvent{event})
-}
-
-// replayQueueAdmissionLocked resolves an earlier admission with key. The caller
-// holds rt.mu.
-func (rt *sdkRuntime) replayQueueAdmissionLocked(ctx context.Context, key, hash string) (QueueAdmission, bool, error) {
-	record, err := rt.store.Record(ctx, queueAdmissionKind, key)
-	if errors.Is(err, ErrRecordNotFound) {
-		return QueueAdmission{}, false, nil
-	}
-	if err != nil {
-		return QueueAdmission{}, false, fmt.Errorf("droids: load queue admission: %w", err)
-	}
-	var receipt queueAdmissionReceipt
-	if record.Scope != RecordHistory || record.Version != recordVersion || json.Unmarshal(record.Payload, &receipt) != nil || receipt.Key != key || !validID(string(receipt.QueuedID), queuedPromptIDPrefix) {
-		return QueueAdmission{}, false, fmt.Errorf("droids: queue admission receipt is invalid")
-	}
-	if receipt.Hash != hash {
-		return QueueAdmission{}, false, ErrConflict
-	}
-	admission := QueueAdmission{Prompt: QueuedPrompt{ID: receipt.QueuedID}, Replayed: true}
-	if queued, ok := rt.queued[receipt.QueuedID]; ok && slices.Contains(rt.state.Queue, receipt.QueuedID) {
-		prompts, err := queuedPromptsFromDurable([]durableQueuedPrompt{queued})
-		if err != nil {
-			return QueueAdmission{}, false, err
-		}
-		admission.Prompt = prompts[0]
-		return admission, true, nil
-	}
-	if rt.state.QueuedPromptID == receipt.QueuedID {
-		handle := rt.ensureHandleLocked()
-		if isTerminalStatus(rt.state.Status) {
-			handle.complete(outcomeFromState(rt.conversation, rt.state))
-		}
-		admission.Execution = handle
-	}
-	return admission, true, nil
-}
-
-func queueAdmissionHash(message wireMessage, metadata json.RawMessage) (string, error) {
-	encoded, err := json.Marshal(struct {
-		Message  wireMessage     `json:"message"`
-		Metadata json.RawMessage `json:"metadata,omitempty"`
-	}{message, metadata})
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:]), nil
-}
-
-func queueAdmissionMutation(receipt queueAdmissionReceipt) (EncodedMutation, error) {
-	payload, err := json.Marshal(receipt)
-	if err != nil {
-		return EncodedMutation{}, err
-	}
-	return EncodedMutation{
-		Operation: MutationAssertAbsent, RecordKind: queueAdmissionKind, RecordID: receipt.Key,
-		Scope: RecordHistory, Version: recordVersion, Payload: payload,
-	}, nil
 }
 
 func partitionQueue(queue []QueuedPromptID, ids []QueuedPromptID) (removed, kept []QueuedPromptID) {

@@ -28,7 +28,7 @@ func TestQueueStartsAtOnceWhenIdleThenInOrderAfterEachTurn(t *testing.T) {
 	})
 
 	first, err := droid.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{})
-	if err != nil || first.Execution == nil || first.Replayed {
+	if err != nil || first.Execution == nil {
 		t.Fatalf("first admission = %+v, %v; want a started turn", first, err)
 	}
 	providers.waitStarted(t, "block first")
@@ -88,43 +88,6 @@ func TestQueueStartsAtOnceWhenIdleThenInOrderAfterEachTurn(t *testing.T) {
 	queue, err = droid.Queue(t.Context())
 	if err != nil || len(queue.Prompts) != 0 {
 		t.Fatalf("drained queue = %+v, %v", queue, err)
-	}
-}
-
-func TestQueueAdmissionKeyIsIdempotentAfterThePromptRuns(t *testing.T) {
-	providers := newQueueProviders()
-	droid := spawnQueueDroid(t, "queue_admission", droids.NewMemoryStore(), providers, nil)
-	if _, err := droid.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	providers.waitStarted(t, "block first")
-	options := droids.QueueOptions{AdmissionKey: "client_send_1", Metadata: json.RawMessage(`{"n":1}`)}
-	admitted, err := droid.Enqueue(t.Context(), textInput("follow up"), options)
-	if err != nil || admitted.Replayed {
-		t.Fatalf("admission = %+v, %v", admitted, err)
-	}
-	replayed, err := droid.Enqueue(t.Context(), textInput("follow up"), options)
-	if err != nil || !replayed.Replayed || replayed.Prompt.ID != admitted.Prompt.ID || replayed.Execution != nil {
-		t.Fatalf("queued replay = %+v, %v; want prompt %s still queued", replayed, err, admitted.Prompt.ID)
-	}
-	if _, err := droid.Enqueue(t.Context(), textInput("something else"), options); !errors.Is(err, droids.ErrConflict) {
-		t.Fatalf("reused key with other input error = %v, want conflict", err)
-	}
-	if _, err := droid.Enqueue(t.Context(), textInput("follow up"), droids.QueueOptions{AdmissionKey: "client_send_1"}); !errors.Is(err, droids.ErrConflict) {
-		t.Fatalf("reused key with other metadata error = %v, want conflict", err)
-	}
-
-	providers.release()
-	waitSettled(t, droid)
-	replayed, err = droid.Enqueue(t.Context(), textInput("follow up"), options)
-	if err != nil || !replayed.Replayed || replayed.Prompt.ID != admitted.Prompt.ID || replayed.Execution == nil {
-		t.Fatalf("replay after start = %+v, %v; want the current turn", replayed, err)
-	}
-	if outcome, err := replayed.Execution.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
-		t.Fatalf("replayed execution outcome = %+v, %v", outcome, err)
-	}
-	if got := providers.userTexts(); !slices.Equal(got, []string{"block first", "follow up"}) {
-		t.Fatalf("turn prompts = %v, want the follow-up to run once", got)
 	}
 }
 
@@ -214,7 +177,7 @@ func exerciseQueueRestart(t *testing.T, openStore func() droids.Store) {
 		t.Fatal(err)
 	}
 	providers.waitStarted(t, "block first")
-	options := droids.QueueOptions{AdmissionKey: "client_send_restart", Metadata: json.RawMessage(`{"kept":true}`)}
+	options := droids.QueueOptions{Metadata: json.RawMessage(`{"kept":true}`)}
 	queued, err := first.Enqueue(t.Context(), textInput("queued before restart"), options)
 	if err != nil {
 		t.Fatal(err)
@@ -254,10 +217,6 @@ func exerciseQueueRestart(t *testing.T, openStore func() droids.Store) {
 	}
 	if !queue.Held || len(queue.Prompts) != 1 || queue.Prompts[0].ID != queued.Prompt.ID || string(queue.Prompts[0].Metadata) != `{"kept":true}` || promptText(queue.Prompts[0]) != "queued before restart" {
 		t.Fatalf("restored queue = %+v, want the held prompt with its metadata", queue)
-	}
-	replayed, err := second.Enqueue(t.Context(), textInput("queued before restart"), options)
-	if err != nil || !replayed.Replayed || replayed.Prompt.ID != queued.Prompt.ID {
-		t.Fatalf("replay after restart = %+v, %v", replayed, err)
 	}
 	// The interrupted turn still reports the queued prompt that started it.
 	interrupted := running.Execution.TurnID()
@@ -611,33 +570,6 @@ func (s *failQueuedAdmissionStore) Commit(ctx context.Context, request droids.Co
 		}
 	}
 	return s.Store.Commit(ctx, request)
-}
-
-func TestQueueAdmissionsStayWithTheirConversationWhenForked(t *testing.T) {
-	providers := newQueueProviders()
-	source := spawnQueueDroid(t, "queue_fork_source", droids.NewMemoryStore(), providers, nil)
-	options := droids.QueueOptions{AdmissionKey: "client_send_fork"}
-	admitted, err := source.Enqueue(t.Context(), textInput("before the fork"), options)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := admitted.Execution.Wait(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	forked, err := source.Fork(t.Context(), "queue_fork_child", droids.ForkOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	child := forked.Droid
-	t.Cleanup(func() { _ = child.Close() })
-	// The child never admitted the source's prompt, so the key admits anew.
-	again, err := child.Enqueue(t.Context(), textInput("in the child"), options)
-	if err != nil || again.Replayed || again.Prompt.ID == admitted.Prompt.ID || again.Execution == nil {
-		t.Fatalf("child admission = %+v, %v; want a new admission", again, err)
-	}
-	if _, err := again.Execution.Wait(t.Context()); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestQueueWaitsWhileTooManyStartedPromptsAreUnacknowledged(t *testing.T) {

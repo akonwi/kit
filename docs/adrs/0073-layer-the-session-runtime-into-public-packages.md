@@ -128,7 +128,7 @@ store.
   one settles, in admission order. When the droid is idle it starts at once.
 - A turn that is paused or interrupted holds the queue until it settles. A
   turn that ends in a policy stop leaves the queue waiting.
-- The queue is bounded, and admission keys make queuing idempotent.
+- The queue is bounded.
 - A queued prompt carries bounded application metadata, which droids returns
   with it, so a host can restore the prompt as the person wrote it.
 - Queued prompts can be listed, withdrawn, and promoted to steering the
