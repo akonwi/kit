@@ -174,11 +174,19 @@ Kit's clients do not; the person answers the interaction first.
 
 **Tool confirmation.**
 
-- A tool definition may require confirmation before it runs. Droids raises a
-  declared confirm interaction showing the call's exact arguments, and runs
-  the tool only with those arguments after approval.
-- Denial returns a result the model can read. A retried or replayed call runs
-  at most once.
+- A tool definition may require confirmation before it runs. A flag asks
+  before every call with a default question: "Allow <tool>?", with the call's
+  arguments as its detail. Optionally, the tool decides per call whether to
+  ask, and writes the yes-or-no question, which can show facts it resolved,
+  such as what a call would change; fields it leaves empty get the defaults.
+  Droids raises the question as a declared confirm interaction after any
+  pre-execution hooks allow the call, and runs the tool only with the
+  arguments that were approved. The tool rechecks what it acts on when it
+  runs.
+- Denial, or a question settled without an answer, returns a result the model
+  can read. A retried or replayed call runs at most once.
+- A turn waiting for a declared interaction is waiting, not running. It stays
+  waiting across restarts, and the answer continues it.
 
 `sessions` keeps no queue or interaction state of its own. Its follow-up
 operations (queue, restore to the composer, promote to steering) and its
