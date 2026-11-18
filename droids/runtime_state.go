@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -86,6 +87,9 @@ type durableRuntime struct {
 	// Started lists the queued prompts that started turns and that the
 	// application has not acknowledged, oldest first.
 	Started []startedPromptRef `json:"started,omitempty"`
+	// Interactions orders the pending interactions, whose bodies are separate
+	// runtime records.
+	Interactions []InteractionID `json:"interactions,omitempty"`
 }
 
 type startedPromptRef struct {
@@ -131,9 +135,11 @@ type toolPhase string
 const (
 	toolPhaseBeforeHook toolPhase = "before_hook"
 	toolPhaseReady      toolPhase = "ready"
-	toolPhaseExecuting  toolPhase = "executing"
-	toolPhaseAfterHook  toolPhase = "after_hook"
-	toolPhaseCompleted  toolPhase = "completed"
+	// toolPhaseAwaiting waits for a declared interaction before the tool runs.
+	toolPhaseAwaiting  toolPhase = "awaiting"
+	toolPhaseExecuting toolPhase = "executing"
+	toolPhaseAfterHook toolPhase = "after_hook"
+	toolPhaseCompleted toolPhase = "completed"
 )
 
 type durableTool struct {
@@ -150,6 +156,11 @@ type durableTool struct {
 	ValidationError    string        `json:"validation_error,omitempty"`
 	RawResult          *wireMessage  `json:"raw_result,omitempty"`
 	Final              *wireMessage  `json:"final_result,omitempty"`
+	// Interaction is the declared interaction an awaiting call waits for, Ask
+	// what its answer decides, and Settlement its outcome once settled.
+	Interaction InteractionID `json:"interaction_id,omitempty"`
+	Ask         declaredAsk   `json:"ask,omitempty"`
+	Settlement  *Settlement   `json:"settlement,omitempty"`
 }
 
 type durableLifecycleEvent struct {
@@ -362,7 +373,7 @@ func validateOpenedRuntime(state durableRuntime) error {
 	}
 	switch state.Status {
 	case ExecutionReady, ExecutionRunning, ExecutionRetrying, ExecutionPausing,
-		ExecutionPaused, ExecutionAborting, ExecutionCompleted, ExecutionFailed,
+		ExecutionPaused, ExecutionWaiting, ExecutionAborting, ExecutionCompleted, ExecutionFailed,
 		ExecutionAborted, ExecutionInterrupted:
 	default:
 		return fmt.Errorf("droids: invalid persisted execution status %q", state.Status)
@@ -395,6 +406,12 @@ func validateOpenedRuntime(state durableRuntime) error {
 		case toolPhaseBeforeHook, toolPhaseReady:
 			if tool.RawResult != nil || tool.Final != nil {
 				return fmt.Errorf("droids: pre-execution tool %q contains a result", tool.ID)
+			}
+		case toolPhaseAwaiting:
+			pending := slices.Contains(state.Interactions, tool.Interaction)
+			if tool.RawResult != nil || tool.Final != nil || !validID(string(tool.Interaction), interactionIDPrefix) ||
+				tool.Ask != declaredConfirm && tool.Ask != declaredAnswer || pending == (tool.Settlement != nil) {
+				return fmt.Errorf("droids: awaiting tool %q is invalid", tool.ID)
 			}
 		case toolPhaseExecuting:
 			if tool.Final != nil {

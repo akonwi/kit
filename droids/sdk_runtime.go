@@ -60,7 +60,11 @@ type sdkRuntime struct {
 	// starts the queue: Spawn restored them, or a turn ended in a policy stop.
 	queueHeld bool
 	// queued holds the bodies of the prompts state.Queue orders.
-	queued         map[QueuedPromptID]durableQueuedPrompt
+	queued map[QueuedPromptID]durableQueuedPrompt
+	// interactions holds the bodies of the pending interactions
+	// state.Interactions orders; liveWaiters, the code waiting for live ones.
+	interactions   map[InteractionID]durableInteraction
+	liveWaiters    map[InteractionID]chan Settlement
 	abortPending   bool
 	persistenceErr error
 
@@ -271,6 +275,10 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if err != nil {
 		return nil, err
 	}
+	interactions, err := loadInteractions(opened.Conversation.RuntimeState, state.Interactions)
+	if err != nil {
+		return nil, err
+	}
 	boundaryReceipts, err := loadBoundaryReceipts(ctx, config.Store)
 	if err != nil {
 		return nil, err
@@ -285,6 +293,7 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 		state: state, forkedFrom: forkedFrom, boundaryReceipts: boundaryReceipts, boundaryConsumptions: boundaryConsumptions,
 		annotationSubmissions: make(map[string]MessageID), changed: make(chan struct{}), shutdownDone: make(chan struct{}),
 		subs: make(map[*sdkSubscription]struct{}), queued: queued,
+		interactions: interactions, liveWaiters: make(map[InteractionID]chan Settlement),
 	}
 	d.sdk = rt
 	rt.baseRequestConfig = requestConfig
@@ -309,8 +318,13 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 			return nil, err
 		}
 	}
-	if rt.state.Status == ExecutionPaused || rt.state.Status == ExecutionInterrupted {
+	if rt.state.Status == ExecutionPaused || rt.state.Status == ExecutionInterrupted || rt.state.Status == ExecutionWaiting {
 		rt.handle = newSDKExecution(rt, rt.state.TurnID)
+	}
+	// Code waiting for a live interaction did not outlive the restart.
+	if err := rt.settleRestoredLiveLocked(ctx); err != nil {
+		rt.mu.Unlock()
+		return nil, err
 	}
 	if err := rt.forgetUntrackedStartedLocked(ctx); err != nil {
 		rt.mu.Unlock()
@@ -459,7 +473,10 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 		if receiptMutation != nil {
 			mutations = append(mutations, *receiptMutation)
 		}
-		if err := rt.commitLocked(ctx, mutations, []EncodedDurableEvent{event}); err != nil {
+		// Steering answers for the person: the turn's pending questions are
+		// declined, and a turn waiting for them continues.
+		declined := rt.turnInteractionsLocked(InteractionDeclined, reasonSteered)
+		if err := rt.settleInteractionsLocked(ctx, declined, mutations, []EncodedDurableEvent{event}); err != nil {
 			rt.state = before
 			return nil, err
 		}
@@ -789,7 +806,7 @@ func promptAdmissionHash(message Message) (string, error) {
 
 func isOccupied(status ExecutionStatus) bool {
 	switch status {
-	case ExecutionRunning, ExecutionRetrying, ExecutionPausing, ExecutionPaused, ExecutionAborting, ExecutionInterrupted:
+	case ExecutionRunning, ExecutionRetrying, ExecutionPausing, ExecutionPaused, ExecutionWaiting, ExecutionAborting, ExecutionInterrupted:
 		return true
 	default:
 		return false
@@ -981,7 +998,8 @@ func (d *Droid) Pause(ctx context.Context, reason string) error {
 	if rt.closed {
 		return ErrClosed
 	}
-	if rt.state.Status == ExecutionPaused || rt.state.Status == ExecutionPausing {
+	// A waiting turn is already stopped at a safe point.
+	if rt.state.Status == ExecutionPaused || rt.state.Status == ExecutionPausing || rt.state.Status == ExecutionWaiting {
 		return nil
 	}
 	if rt.state.Status != ExecutionRunning && rt.state.Status != ExecutionRetrying {
@@ -1258,7 +1276,7 @@ func (d *Droid) Abort(ctx context.Context) error {
 	switch rt.state.Status {
 	case ExecutionReady, ExecutionCompleted, ExecutionFailed, ExecutionAborted:
 		return nil
-	case ExecutionPaused, ExecutionInterrupted:
+	case ExecutionPaused, ExecutionInterrupted, ExecutionWaiting:
 		return rt.settleLocked(ctx, ExecutionAborted, nil)
 	case ExecutionAborting:
 		return nil
@@ -1293,6 +1311,7 @@ func (d *Droid) Shutdown(ctx context.Context) error {
 	if !rt.shutdownStarted {
 		rt.shutdownStarted = true
 		rt.closed = true
+		rt.wakeLiveWaitersLocked()
 		cancel := rt.runCancel
 		resumeCancel := rt.resumeCancel
 		var contextCancel context.CancelFunc
@@ -1397,6 +1416,10 @@ func quiescentState(rt *sdkRuntime) QuiescentState {
 		result.Kind = QuiescentRecoverable
 		value := executionSnapshot(rt.state)
 		result.Execution = &value
+	case ExecutionWaiting:
+		result.Kind = QuiescentWaiting
+		value := executionSnapshot(rt.state)
+		result.Execution = &value
 	default:
 		result.Kind = QuiescentSettled
 		if rt.state.TurnID != "" {
@@ -1483,8 +1506,9 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 	}
 	pending := PendingInputSnapshot{
 		Steering: len(rt.state.PendingSteering), Boundary: len(rt.state.PendingBoundaries),
-		Queued:     len(rt.state.Queue),
-		Boundaries: make([]PendingBoundarySnapshot, 0, len(rt.state.PendingBoundaries)),
+		Queued:       len(rt.state.Queue),
+		Boundaries:   make([]PendingBoundarySnapshot, 0, len(rt.state.PendingBoundaries)),
+		Interactions: rt.pendingInteractionsLocked(),
 	}
 	for _, boundary := range rt.state.PendingBoundaries {
 		content, err := inputFromWire(boundary.Message.Content)
@@ -1877,6 +1901,15 @@ func (rt *sdkRuntime) settleLocked(ctx context.Context, status ExecutionStatus, 
 	}
 	mutations = append(mutations, toolMutations...)
 	events = append(events, toolEvents...)
+	// Questions the turn owned end with it.
+	cancelled := rt.turnInteractionsLocked(InteractionCancelled, reasonCancelled)
+	interactionMutations, interactionEvents, settleErr := rt.settleInteractionMutationsLocked(cancelled)
+	if settleErr != nil {
+		rt.state = before
+		return settleErr
+	}
+	mutations = append(mutations, interactionMutations...)
+	events = append(events, interactionEvents...)
 	rt.state.Error = durableError(failure)
 	rt.state.Reason = errorMessage(failure)
 	if attemptWasOpen {
@@ -1913,6 +1946,7 @@ func (rt *sdkRuntime) settleLocked(ctx context.Context, status ExecutionStatus, 
 		return err
 	}
 	rt.forgetQueuedLocked(acknowledged)
+	rt.finishSettlingLocked(cancelled)
 	rt.releaseRunLocked()
 	if rt.config.TurnSettled != nil {
 		rt.config.TurnSettled(rt.state.TurnID)

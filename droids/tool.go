@@ -8,6 +8,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/invopop/jsonschema"
 	validator "github.com/santhosh-tekuri/jsonschema/v6"
@@ -85,7 +86,46 @@ type Tool[Args any] struct {
 	Execute func(ctx context.Context, call ToolContext, args Args, update ToolUpdate) (ToolResult, error)
 	// Mode overrides execution mode for this tool ("sequential" | "parallel").
 	Mode ExecutionMode
+	// RequireConfirmation asks the person before every call, with the default
+	// confirmation: "Allow <Name>?" and the call's arguments.
+	RequireConfirmation bool
+	// Confirm optionally decides per call whether to ask before the tool runs,
+	// and what. It runs after the arguments are validated and any before-tool
+	// hook allows the call. Return nil to run without asking, a Confirmation
+	// to ask (empty fields get the defaults), or an error to end the call with
+	// a result the model can read, without asking. When set, it decides
+	// instead of RequireConfirmation.
+	//
+	// The tool runs, with the same arguments, only if the person approves. A
+	// denial, or a question settled without an answer, returns a result the
+	// model can read. The call waits across restarts, so Execute should recheck
+	// what it acts on.
+	Confirm func(ctx context.Context, call ToolContext, args Args) (*Confirmation, error)
+
+	// ask makes a standard question tool: droids asks the question before the
+	// tool runs and Execute reads the settlement from its context.
+	ask func(Args) Question
 }
+
+// Confirmation is the yes-or-no question asked before a tool runs. Empty
+// fields get defaults: Title "Allow <tool name>?", Detail the call's
+// arguments, and labels chosen by the client.
+type Confirmation struct {
+	Title        string
+	Detail       string
+	ConfirmLabel string
+	CancelLabel  string
+}
+
+// declaredAsk is what the answer to a declared interaction decides.
+type declaredAsk string
+
+const (
+	// declaredConfirm runs the tool only when the person approves.
+	declaredConfirm declaredAsk = "confirm"
+	// declaredAnswer runs the tool with whatever settlement the question got.
+	declaredAnswer declaredAsk = "answer"
+)
 
 // ExecutionMode controls whether a tool batch runs sequentially or in parallel.
 type ExecutionMode string
@@ -104,6 +144,8 @@ type AnyTool interface {
 	mode() ExecutionMode
 	registrationID() string
 	validate(raw []byte) error
+	// declare returns the question to ask before the call runs, if any.
+	declare(ctx context.Context, call ToolContext, raw []byte) (*Question, declaredAsk, error)
 	// execute decodes raw JSON args and runs the tool.
 	execute(ctx context.Context, call ToolContext, raw []byte, update ToolUpdate) (ToolResult, error)
 }
@@ -316,32 +358,92 @@ func validateToolArguments(raw []byte, schema *validator.Schema) error {
 }
 
 func (b boundTool[Args]) execute(ctx context.Context, call ToolContext, raw []byte, update ToolUpdate) (ToolResult, error) {
-	if err := b.validate(raw); err != nil {
-		return ToolResult{}, err
-	}
-	if len(bytes.TrimSpace(raw)) == 0 {
-		raw = []byte("{}")
-	}
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return ToolResult{}, fmt.Errorf("tool arguments must be a JSON object")
-	}
-	var args Args
-	decoder := json.NewDecoder(bytes.NewReader(trimmed))
-	if b.forbidAdditional {
-		decoder.DisallowUnknownFields()
-	}
-	if err := decoder.Decode(&args); err != nil {
-		return ToolResult{}, err
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		if err == nil {
-			return ToolResult{}, fmt.Errorf("tool arguments contain multiple JSON values")
-		}
+	args, err := b.decode(raw)
+	if err != nil {
 		return ToolResult{}, err
 	}
 	if update == nil {
 		update = func(ToolResultDelta) {}
 	}
 	return b.t.Execute(ctx, call, args, update)
+}
+
+func (b boundTool[Args]) declare(ctx context.Context, call ToolContext, raw []byte) (*Question, declaredAsk, error) {
+	if b.t.ask == nil && b.t.Confirm == nil && !b.t.RequireConfirmation {
+		return nil, "", nil
+	}
+	args, err := b.decode(raw)
+	if err != nil {
+		return nil, "", err
+	}
+	if b.t.ask != nil {
+		question := b.t.ask(args)
+		return &question, declaredAnswer, nil
+	}
+	confirmation := &Confirmation{}
+	if b.t.Confirm != nil {
+		confirmation, err = b.t.Confirm(ctx, call, args)
+		if err != nil || confirmation == nil {
+			return nil, "", err
+		}
+	}
+	question := Question{
+		Kind: QuestionConfirm, Title: confirmation.Title, Detail: confirmation.Detail,
+		ConfirmLabel: confirmation.ConfirmLabel, CancelLabel: confirmation.CancelLabel,
+	}
+	if strings.TrimSpace(question.Title) == "" {
+		question.Title = "Allow " + b.t.Name + "?"
+	}
+	if question.Detail == "" {
+		question.Detail = argumentsDetail(raw)
+	}
+	return &question, declaredConfirm, nil
+}
+
+// argumentsDetail formats a call's arguments for a confirmation, shortened to
+// fit its detail.
+func argumentsDetail(raw []byte) string {
+	var indented bytes.Buffer
+	if json.Indent(&indented, bytes.TrimSpace(raw), "", "  ") != nil {
+		indented.Reset()
+		indented.Write(raw)
+	}
+	detail := indented.String()
+	if len(detail) <= maxInteractionDetailBytes {
+		return detail
+	}
+	const ellipsis = "\n…"
+	cut := maxInteractionDetailBytes - len(ellipsis)
+	for cut > 0 && !utf8.RuneStart(detail[cut]) {
+		cut--
+	}
+	return detail[:cut] + ellipsis
+}
+
+func (b boundTool[Args]) decode(raw []byte) (Args, error) {
+	var args Args
+	if err := b.validate(raw); err != nil {
+		return args, err
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		raw = []byte("{}")
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return args, fmt.Errorf("tool arguments must be a JSON object")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	if b.forbidAdditional {
+		decoder.DisallowUnknownFields()
+	}
+	if err := decoder.Decode(&args); err != nil {
+		return args, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return args, fmt.Errorf("tool arguments contain multiple JSON values")
+		}
+		return args, err
+	}
+	return args, nil
 }

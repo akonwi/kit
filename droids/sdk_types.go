@@ -259,11 +259,15 @@ type ExecutionHandle interface {
 type ExecutionStatus string
 
 const (
-	ExecutionReady       ExecutionStatus = "ready"
-	ExecutionRunning     ExecutionStatus = "running"
-	ExecutionRetrying    ExecutionStatus = "retrying"
-	ExecutionPausing     ExecutionStatus = "pausing"
-	ExecutionPaused      ExecutionStatus = "paused"
+	ExecutionReady    ExecutionStatus = "ready"
+	ExecutionRunning  ExecutionStatus = "running"
+	ExecutionRetrying ExecutionStatus = "retrying"
+	ExecutionPausing  ExecutionStatus = "pausing"
+	ExecutionPaused   ExecutionStatus = "paused"
+	// ExecutionWaiting is a turn whose tool calls wait for the person to
+	// answer declared interactions. It survives restarts, and the last answer
+	// continues it.
+	ExecutionWaiting     ExecutionStatus = "waiting"
 	ExecutionAborting    ExecutionStatus = "aborting"
 	ExecutionCompleted   ExecutionStatus = "completed"
 	ExecutionFailed      ExecutionStatus = "failed"
@@ -339,6 +343,8 @@ const (
 	QuiescentSettled     QuiescentKind = "settled"
 	QuiescentPaused      QuiescentKind = "paused"
 	QuiescentRecoverable QuiescentKind = "recoverable"
+	// QuiescentWaiting is a turn waiting for the person to answer.
+	QuiescentWaiting QuiescentKind = "waiting"
 )
 
 // QuiescentState describes an atomic non-running droid state.
@@ -370,6 +376,8 @@ type PendingInputSnapshot struct {
 	Queued     int
 	Boundary   int
 	Boundaries []PendingBoundarySnapshot
+	// Interactions are the pending interactions, oldest first.
+	Interactions []Interaction
 }
 
 // ContextSnapshot reports the active provider context checkpoint.

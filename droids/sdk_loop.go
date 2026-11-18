@@ -56,6 +56,17 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 		}
 		if len(pendingCalls) > 0 {
 			results, terminate, err := rt.executeToolBatch(ctx, turnID, pendingCalls)
+			if errors.Is(err, errToolAwaiting) && ctx.Err() == nil {
+				waiting, waitErr := rt.waitForAnswers(ctx, turnID)
+				if waitErr != nil {
+					rt.finishRunFailure(turnID, DroidErrorPersistence, waitErr)
+					return
+				}
+				if waiting {
+					return
+				}
+				continue
+			}
 			if err != nil {
 				if ctx.Err() != nil {
 					rt.finishCanceledRun(turnID, ctx.Err())
@@ -1151,8 +1162,14 @@ func (rt *sdkRuntime) executeToolBatch(ctx context.Context, turnID TurnID, calls
 	} else {
 		execute := make([]bool, len(calls))
 		prepared := make([]int, 0, len(calls))
+		// Calls awaiting answers do not hold back the rest of a parallel batch.
+		awaiting := false
 		for index, call := range calls {
 			shouldExecute, completed, err := rt.prepareTool(ctx, turnID, call)
+			if errors.Is(err, errToolAwaiting) {
+				awaiting = true
+				continue
+			}
 			if err != nil {
 				firstErr = err
 				break
@@ -1212,6 +1229,9 @@ func (rt *sdkRuntime) executeToolBatch(ctx context.Context, turnID TurnID, calls
 				}(index, started)
 			}
 			wg.Wait()
+		}
+		if firstErr == nil && awaiting {
+			firstErr = errToolAwaiting
 		}
 	}
 	if firstErr == nil && ctx.Err() != nil {
@@ -1316,15 +1336,15 @@ func (rt *sdkRuntime) prepareTool(ctx context.Context, turnID TurnID, call ToolC
 				return false, &result, err
 			}
 			if !tool.RequiresBeforeHook {
-				if err := rt.updateToolPhase(ctx, call.ID, toolPhaseReady, nil, nil, "tool.hook_completed"); err != nil {
-					return false, nil, err
+				if completed, err := rt.declareOrReady(ctx, call, toolContext); err != nil || completed != nil {
+					return false, completed, err
 				}
 				continue
 			}
 			if rt.config.BeforeToolCall == nil {
 				return false, nil, errors.Join(ErrUnsafeContinuation, fmt.Errorf("droids: required before-tool hook is unavailable"))
 			}
-			decision, err := rt.config.BeforeToolCall(ctx, toolContext, call)
+			decision, err := rt.config.BeforeToolCall(withAskScope(ctx, rt, toolContext), toolContext, call)
 			if err != nil {
 				if ctx.Err() != nil {
 					return false, nil, ctx.Err()
@@ -1344,9 +1364,26 @@ func (rt *sdkRuntime) prepareTool(ctx context.Context, turnID TurnID, call ToolC
 				result, completeErr := rt.completeToolWithoutExecution(ctx, call, *decision.Result)
 				return false, &result, completeErr
 			default:
-				if err := rt.updateToolPhase(ctx, call.ID, toolPhaseReady, nil, nil, "tool.hook_completed"); err != nil {
-					return false, nil, err
+				if completed, err := rt.declareOrReady(ctx, call, toolContext); err != nil || completed != nil {
+					return false, completed, err
 				}
+			}
+		case toolPhaseAwaiting:
+			if tool.Settlement == nil {
+				return false, nil, errToolAwaiting
+			}
+			settlement := *tool.Settlement
+			approved := settlement.Status == InteractionAnswered && settlement.Answer.Confirmed != nil && *settlement.Answer.Confirmed
+			if tool.Ask == declaredConfirm && !approved {
+				reason := settlement.Reason
+				if settlement.Status == InteractionAnswered {
+					reason = reasonDeclined
+				}
+				result, err := rt.completeToolWithoutExecution(ctx, call, ToolText("Not run: "+reason+"."))
+				return false, &result, err
+			}
+			if err := rt.updateToolPhase(ctx, call.ID, toolPhaseReady, nil, nil, "tool.confirmed"); err != nil {
+				return false, nil, err
 			}
 		case toolPhaseReady:
 			return true, nil, nil
@@ -1376,6 +1413,100 @@ func (rt *sdkRuntime) prepareTool(ctx context.Context, turnID TurnID, call ToolC
 	}
 }
 
+// waitForAnswers makes the turn wait for the answers its tool calls await,
+// releasing the run until the last one is settled. It reports false when they
+// were settled meanwhile, so the run continues.
+func (rt *sdkRuntime) waitForAnswers(ctx context.Context, turnID TurnID) (bool, error) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.state.TurnID != turnID || isTerminalStatus(rt.state.Status) {
+		return true, nil
+	}
+	if rt.state.Status == ExecutionAborting || !rt.awaitingAnswersLocked() {
+		return false, nil
+	}
+	before := rt.state
+	rt.state.Status = ExecutionWaiting
+	event, _ := lifecycleEvent("execution.waiting", turnID, rt.state.AttemptID, map[string]any{"interactions": len(rt.state.Interactions)})
+	if err := rt.commitLocked(ctx, nil, []EncodedDurableEvent{event}); err != nil {
+		rt.state = before
+		return false, err
+	}
+	rt.releaseRunLocked()
+	return true, nil
+}
+
+// errToolAwaiting reports a tool call that waits for a declared interaction.
+var errToolAwaiting = errors.New("droids: tool call awaits an answer")
+
+// declareOrReady moves a call that passed its before-tool hook on: it asks the
+// tool's declared question and leaves the call awaiting the answer, or makes
+// it ready to run. A tool that refuses to ask completes the call, whose result
+// it returns.
+func (rt *sdkRuntime) declareOrReady(ctx context.Context, call ToolCall, toolContext ToolContext) (*ToolResultMessage, error) {
+	rt.mu.Lock()
+	definition, exists := rt.toolDefinitionLocked(call.Name)
+	rt.mu.Unlock()
+	if !exists {
+		result, err := rt.completeToolWithoutExecution(ctx, call, toolErrorText(fmt.Sprintf("Tool %q not found", call.Name)))
+		return &result, err
+	}
+	question, ask, err := definition.declare(ctx, toolContext, call.Arguments)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		result, completeErr := rt.completeToolWithoutExecution(ctx, call, toolErrorText(err.Error()))
+		return &result, completeErr
+	}
+	if question == nil {
+		return nil, rt.updateToolPhase(ctx, call.ID, toolPhaseReady, nil, nil, "tool.hook_completed")
+	}
+	if err := validateQuestion(*question); err != nil {
+		result, completeErr := rt.completeToolWithoutExecution(ctx, call, toolErrorText(err.Error()))
+		return &result, completeErr
+	}
+	id, err := newID(interactionIDPrefix)
+	if err != nil {
+		return nil, err
+	}
+	rt.mu.Lock()
+	if len(rt.state.Interactions) >= maxPendingInteractions {
+		rt.mu.Unlock()
+		result, completeErr := rt.completeToolWithoutExecution(ctx, call, toolErrorText("Not run: too many questions are waiting for the user."))
+		return &result, completeErr
+	}
+	defer rt.mu.Unlock()
+	tool, admitted := rt.state.Tools[call.ID]
+	if !admitted {
+		return nil, fmt.Errorf("droids: tool call %q is not admitted", call.ID)
+	}
+	before, err := cloneDurableRuntime(rt.state)
+	if err != nil {
+		return nil, err
+	}
+	tool.Phase, tool.Interaction, tool.Ask = toolPhaseAwaiting, InteractionID(id), ask
+	rt.state.Tools[call.ID] = tool
+	payload, err := json.Marshal(tool)
+	if err != nil {
+		rt.state = before
+		return nil, err
+	}
+	toolMutation := EncodedMutation{
+		Operation: MutationPut, RecordKind: toolRecordKind, RecordID: string(tool.ID),
+		Scope: RecordRuntime, Version: recordVersion, Payload: payload,
+	}
+	interaction := durableInteraction{
+		ID: InteractionID(id), TurnID: toolContext.TurnID, ToolCallID: call.ID,
+		Question: cloneQuestion(*question), CreatedAt: time.Now().UTC(),
+	}
+	if err := rt.requestInteractionLocked(ctx, interaction, []EncodedMutation{toolMutation}); err != nil {
+		rt.state = before
+		return nil, err
+	}
+	return nil, nil
+}
+
 func (rt *sdkRuntime) finishPreparedTool(ctx context.Context, turnID TurnID, call ToolCall, execute, started bool) (ToolResultMessage, error) {
 	if execute {
 		if !started {
@@ -1391,7 +1522,11 @@ func (rt *sdkRuntime) finishPreparedTool(ctx context.Context, turnID TurnID, cal
 			ConversationID:     rt.conversation, TurnID: turnID,
 			AttemptID: tool.AdmissionAttemptID, ToolCallID: tool.ID,
 		}
-		result := rt.invokeTool(ctx, toolContext, call)
+		invokeCtx := withAskScope(ctx, rt, toolContext)
+		if tool.Ask == declaredAnswer && tool.Settlement != nil {
+			invokeCtx = context.WithValue(invokeCtx, declaredSettlementKey{}, *tool.Settlement)
+		}
+		result := rt.invokeTool(invokeCtx, toolContext, call)
 		_, wire, omitted, err := validatedToolResultMessage(call, result)
 		if err != nil {
 			return ToolResultMessage{}, err
