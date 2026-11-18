@@ -310,6 +310,8 @@ final class FakeComposerClient: SessionSendClient, @unchecked Sendable {
     func respond(_ session: String, input: WireInteractionResponse) async throws {}
 
     fileprivate var _abortedShells: [String] = []
+    fileprivate var _shells: [WireBashExecutionInput] = []
+    var abortBashError: (any Error)?
     private var _deletedAnnotations: [UInt64] = []
     var deletedAnnotations: [UInt64] { lock.withLock { _deletedAnnotations } }
     func annotations(_ session: String) async throws -> [FileAnnotation] { [] }
@@ -326,7 +328,18 @@ final class FakeComposerClient: SessionSendClient, @unchecked Sendable {
 
 extension FakeComposerClient: BashClient {
     var abortedShells: [String] { lock.withLock { _abortedShells } }
-    func startBash(_ session: String, input: WireBashExecutionInput) async throws -> BashExecution { throw ClientError.http(409) }
+    var shells: [WireBashExecutionInput] { lock.withLock { _shells } }
+    func startBash(_ session: String, input: WireBashExecutionInput) async throws -> BashExecution {
+        lock.withLock { _shells.append(input) }
+        return try BashExecution(.init(id: input.executionId, sessionId: session, sequence: 1, command: input.command,
+                                       status: .value0, output: nil, exitCode: nil,
+                                       excludeFromContext: input.excludeFromContext, truncated: nil, timedOut: nil,
+                                       errorMessage: nil, startedAt: "2026-11-18T00:00:00Z", completedAt: nil),
+                                 session: session)
+    }
     func bash(_ session: String, id: String) async throws -> BashExecution { throw ClientError.http(404) }
-    func abortBash(_ session: String, id: String) async throws { lock.withLock { _abortedShells.append(id) } }
+    func abortBash(_ session: String, id: String) async throws {
+        if let abortBashError { throw abortBashError }
+        lock.withLock { _abortedShells.append(id) }
+    }
 }

@@ -125,7 +125,8 @@ final class SessionDictation {
     }
 
     /// Adds what was shared from other apps to each session's draft: to the
-    /// composer if the session is open, or else to its kept draft. A share
+    /// composer if the session is open, or else to its kept draft. A shell
+    /// command becomes a message first, so what's shared doesn't run. A share
     /// is noted as received with the drafts before its file goes, so one
     /// whose file couldn't go isn't added again.
     func receiveShares(from inbox: ShareInbox) {
@@ -134,10 +135,10 @@ final class SessionDictation {
         for item in waiting where !drafts.receivedShares.contains(item.id.uuidString) {
             let id = SessionIdentity(server: item.server, session: item.session)
             if let composer = composers[id]?.composer, composer.draftChanged != nil {
-                composer.restore(kept: KeptDraft(text: SharedItem.join(composer.draft, item.text), attachmentIDs: item.attachmentIDs))
+                composer.receive(sharedText: item.text, attachmentIDs: item.attachmentIDs)
             } else {
                 let kept = drafts.draft(for: id)
-                drafts.save(KeptDraft(text: SharedItem.join(kept.text, item.text),
+                drafts.save(KeptDraft(text: SharedItem.join(SessionComposer.messageText(kept.text), item.text),
                                       attachmentIDs: ComposerAttachments.uniqueIDs(kept.attachmentIDs + item.attachmentIDs)), for: id)
             }
             drafts.received(share: item.id)
@@ -214,7 +215,7 @@ final class SessionDictation {
     }
 
     private func add(_ words: String, to composer: SessionComposer) {
-        composer.draft = composer.draft.isEmpty ? words : DictationText.join(composer.draft, words)
+        composer.place(composer.draft.isEmpty ? words : DictationText.join(composer.draft, words))
     }
 
     private func wait(_ words: String, for id: SessionIdentity) {

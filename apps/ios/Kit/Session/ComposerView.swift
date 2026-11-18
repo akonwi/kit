@@ -63,6 +63,10 @@ struct ComposerBar: View {
                     if let command = composer.command {
                         CommandHint(command: command)
                     }
+                    if let output = composer.shell {
+                        ShellHint(directory: feed.session?.cwd, output: output) { composer.shell = $0 }
+                            .disabled(!composer.editable)
+                    }
                     if let queue = composer.queue {
                         QueuedTray(queue: queue, error: composer.operations.queueError,
                                    enabled: composer.queueEnabled, running: composer.running,
@@ -159,9 +163,12 @@ struct ComposerBar: View {
                         .disabled(!composer.editable)
                     PickedCommandChip(name: command.name) { composer.command = nil }
                         .disabled(!composer.editable)
+                } else if composer.shell != nil {
+                    ShellChip { composer.shell = nil }
+                        .disabled(!composer.editable)
                 }
-                TextField(placeholder, text: fieldText, axis: .vertical)
-                    .font(.system(size: 17))
+                TextField(placeholder, text: search == nil ? $composer.draft : searchText, axis: .vertical)
+                    .font(composer.shell == nil ? .system(size: 17) : .system(size: 16, design: .monospaced))
                     .foregroundStyle(composer.editable ? Theme.text : Theme.muted)
                     .lineLimit(1...6)
                     .focused($focused)
@@ -204,6 +211,16 @@ struct ComposerBar: View {
             if recording, press.mode == .none { press.adopt(recording: true) }
         }
         .onChange(of: composer.keyboardDismissals) { focused = false }
+        // The field binds the draft itself: a focused field ignores a value a
+        // custom binding changes under it, as when ! becomes the shell chip.
+        .onChange(of: composer.draft) { _, text in
+            guard composer.typed(text) else { return }
+            // Typing hides the last action's notice.
+            actions.dismissNotice()
+            dictation.dismissProblem()
+            composer.bash.dismissError()
+            if text.hasPrefix("!") { composer.takeShellPrefix() }
+        }
         // Sent or refused: a refused message's words are in the field to fix.
         // Commands wait while a send is unanswered.
         .onChange(of: composer.editable) { _, editable in
@@ -216,9 +233,9 @@ struct ComposerBar: View {
     }
 
     /// Whether a button sits before the field: ✕ while the mic gets ready,
-    /// or the command button while a command is open.
+    /// the command button while a command is open, or the shell chip.
     private var leadingButton: Bool {
-        dictation.isPreparing || search != nil || composer.command != nil
+        dictation.isPreparing || search != nil || composer.command != nil || composer.shell != nil
     }
 
     /// The control's menu. Dictate is there while the mic isn't the main
@@ -227,12 +244,16 @@ struct ComposerBar: View {
         let dictate: (() -> Void)? = mic && !composer.dictatesInSendSlot && !dictation.isActive
             ? { DictationTap(dictation: dictation, press: $press, send: sendDictation).tap() }
             : nil
+        // A shell command takes no attachments or picked command.
+        let shell = composer.shell != nil
         return ComposerMore(
             dictate: dictate,
-            canAttach: composer.editable && composer.attachmentRoom > 0,
+            canAttach: composer.editable && composer.attachmentRoom > 0 && !shell,
             hasCamera: UIImagePickerController.isSourceTypeAvailable(.camera),
             attach: { attaching = $0 },
-            commands: commands != nil && composer.editable ? { openSearch() } : nil)
+            commands: commands != nil && composer.editable && !shell ? { openSearch() } : nil,
+            shell: composer.editable && !shell && composer.canStartShell
+                ? { composer.startShell(); focused = true } : nil)
     }
 
     // MARK: Commands
@@ -240,23 +261,15 @@ struct ComposerBar: View {
     private var placeholder: String {
         if search != nil { return search?.page == .commands ? "Search commands" : "Search" }
         if let command = composer.command { return CommandHint.placeholder(command) }
+        if composer.shell != nil { return "Command" }
         return "Ask Kit…"
     }
 
-    /// The field types the search while it's open, and the draft otherwise.
-    private var fieldText: Binding<String> {
+    /// The field types the search while it's open.
+    private var searchText: Binding<String> {
         Binding {
-            search?.query ?? composer.draft
+            search?.query ?? ""
         } set: { text in
-            guard search != nil else {
-                // The field writes back unchanged text as it ends editing.
-                guard text != composer.draft else { return }
-                composer.draft = text
-                // Typing hides the last action's notice.
-                actions.dismissNotice()
-                dictation.dismissProblem()
-                return
-            }
             // Return picks the first row; the field is multiline.
             if text.contains("\n") {
                 search?.query = text.replacingOccurrences(of: "\n", with: "")

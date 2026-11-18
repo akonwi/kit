@@ -218,6 +218,8 @@ struct SessionScreen: View {
             }
             // Model names for the command search and the composer.
             .task { await actions.loadModels() }
+            // A shell command whose start went unanswered is settled.
+            .task { await composer.resolveShell() }
             // Count the changes for the menu once, and again when a turn ends.
             .task {
                 if diff.catalog == nil && diff.document == nil { await diff.refresh(client: client, session: feed.identity.session) }
@@ -390,7 +392,8 @@ struct SessionScreen: View {
     }
 
     private func transcript(_ session: SessionExcerpt) -> some View {
-        TranscriptList(messages: session.messages, active: session.activeRunID != nil, sends: composer.sends) {
+        // This phone's shell commands show from the server's answer, before the stream has them.
+        TranscriptList(messages: composer.bash.merge(into: session.messages), active: session.activeRunID != nil, sends: composer.sends) {
             if feed.hasEarlier || feed.historyError != nil { earlier.transcriptRow() }
         }
         .accessibilityIdentifier("transcript")

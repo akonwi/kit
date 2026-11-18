@@ -37,6 +37,23 @@ final class SessionComposer {
             keep()
         }
     }
+    /// The draft as the composer last put it itself, so a change the field
+    /// makes can be told from it.
+    @ObservationIgnored private var placed: String?
+
+    /// Puts text in the draft other than by typing.
+    func place(_ text: String) {
+        placed = text
+        draft = text
+    }
+
+    /// Whether the field typed the draft's change to `text`, rather than the
+    /// composer putting it there.
+    func typed(_ text: String) -> Bool {
+        defer { placed = nil }
+        return placed != text
+    }
+
     /// Keeps the draft's words and uploaded attachments when they change, so
     /// they're there when the session opens again.
     @ObservationIgnored var draftChanged: ((KeptDraft) -> Void)? {
@@ -87,6 +104,27 @@ final class SessionComposer {
     var command: PickedCommand? {
         didSet { if command != oldValue { noticeDismissed = true } }
     }
+
+    /// Whether the agent sees a shell command's output: a command typed
+    /// after ! goes into its context, one after !! doesn't.
+    enum ShellOutput: Equatable {
+        case seen
+        case hidden
+
+        var prefix: String { self == .seen ? "!" : "!!" }
+    }
+
+    /// Set while the draft is a shell command, shown as a chip before it.
+    var shell: ShellOutput? {
+        didSet {
+            guard shell != oldValue else { return }
+            noticeDismissed = true
+            keep()
+        }
+    }
+    /// The shell commands this composer starts, and what it knows of the
+    /// session's others, until the stream shows them.
+    let bash = BashOperation()
     /// The command search, while it's open over the composer.
     var commandSearch: CommandSearchState?
     /// Counts closes from outside the composer, which drop the keyboard too.
@@ -110,6 +148,7 @@ final class SessionComposer {
     /// Takes in each snapshot the session's stream delivers.
     func reconcile(_ snapshot: SessionExcerpt) {
         latest = snapshot
+        for row in snapshot.messages { if let execution = row.bash { bash.record(execution) } }
         if stoppingShell != snapshot.activeBashID { stoppingShell = nil }
         operations.reconcile(snapshot)
         annotations.observe(snapshot.annotations ?? [])
@@ -118,13 +157,22 @@ final class SessionComposer {
     // MARK: State
 
     var running: Bool { latest?.activeRunID != nil }
-    /// The shell command running in the session, whichever client started it.
-    var shellRunning: String? { latest?.activeBashID }
+    /// The shell command running in the session, whichever client started
+    /// it. This composer's own counts from the server's answer until the
+    /// stream shows it.
+    var shellRunning: String? {
+        if let own = bash.active, !(latest?.messages.contains(where: { $0.bash?.id == own.id }) ?? false) {
+            return own.id
+        }
+        return latest?.activeBashID
+    }
     /// The shell command a stop was asked for, until the stream reports it
     /// settled.
     private var stoppingShell: String?
+    /// The last shell error came from a stop rather than a start.
+    private var shellStopFailed = false
     private var hasContent: Bool {
-        command != nil || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !restoredAttachmentIDs.isEmpty
+        command != nil || shell != nil || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !restoredAttachmentIDs.isEmpty
             || !uploads.items.isEmpty || !annotations.records.isEmpty || !diagrams.isEmpty
     }
     /// The model's name when the session's model accepts no images.
@@ -143,22 +191,27 @@ final class SessionComposer {
     var queue: FollowUpState? { operations.queue.flatMap { $0.count > 0 ? $0 : nil } }
 
     var action: Action {
-        if operations.sending || operations.uncertain { return .waiting }
+        if operations.sending || operations.uncertain || bash.pending { return .waiting }
         if let shell = shellRunning, !hasContent {
             return stoppingShell == shell ? .waiting : .stop(enabled: live)
         }
         if running && !hasContent {
             return operations.abortingRun == nil ? .stop(enabled: live) : .waiting
         }
+        if shell != nil {
+            // One shell command runs at a time.
+            return .send(enabled: live && shellRunning == nil
+                         && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
         return .send(enabled: live && hasContent && !held && !operations.queuePending
                      && uploads.ready && !hasRejectedImages)
     }
 
     /// Whether the draft can change. It can't while its send is unanswered.
-    var editable: Bool { !operations.sending && !operations.uncertain }
+    var editable: Bool { !operations.sending && !operations.uncertain && !bash.pending }
 
-    /// Whether the mic shows: the draft has no words and can change.
-    var canDictate: Bool { editable && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// Whether the mic shows: the draft is a message with no words, and can change.
+    var canDictate: Bool { editable && shell == nil && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     /// Whether the mic takes Send's slot, with nothing to send or stop.
     /// Otherwise, while Stop shows, or Send for attachments and comments,
@@ -184,6 +237,7 @@ final class SessionComposer {
             }
         }
         if let error = operations.abortError { return "Couldn’t stop. \(error)" }
+        if !bash.pending, let error = bash.error { return (shellStopFailed ? "Couldn’t stop. " : "Didn’t run. ") + error }
         // With a queue, its tray shows the error instead.
         if queue == nil, let error = operations.queueError { return error }
         return nil
@@ -196,6 +250,10 @@ final class SessionComposer {
     func send() {
         guard case .send(enabled: true) = action else { return }
         noticeDismissed = false
+        if let shell {
+            runShell(shell)
+            return
+        }
         if let command {
             run(command)
             return
@@ -273,7 +331,7 @@ final class SessionComposer {
                 return
             }
             self.command = nil
-            draft = ""
+            place("")
             runPlugin?(plugin, args)
         case .prompt(let prompt):
             // The same command, not another source's of the same name.
@@ -298,11 +356,91 @@ final class SessionComposer {
         }
     }
 
+    /// Makes a message that starts with ! a shell command, and one with !!
+    /// one whose output the agent doesn't see. A lone ! typed into an empty
+    /// shell command hides its output too.
+    func takeShellPrefix() {
+        if shell == nil, canStartShell, draft.hasPrefix("!") {
+            let output: ShellOutput = draft.hasPrefix("!!") ? .hidden : .seen
+            shell = output
+            place(String(draft.dropFirst(output.prefix.count)))
+        } else if shell == .seen, draft == "!" {
+            shell = .hidden
+            place("")
+        }
+    }
+
+    /// Whether the server can run shell commands for this session.
+    var runsShell: Bool { client is any BashClient }
+
+    /// Whether the draft can become a shell command: it has no picked
+    /// command, attachments, or comments, which a shell command can't take.
+    var canStartShell: Bool {
+        runsShell && command == nil && restoredAttachmentIDs.isEmpty && uploads.items.isEmpty
+            && annotations.records.isEmpty && diagrams.isEmpty
+    }
+
+    /// Starts the draft as a shell command, from the composer's menu.
+    func startShell() {
+        guard shell == nil, canStartShell else { return }
+        shell = .seen
+    }
+
+    /// The text of a kept draft as a message: a shell command's ! goes, so
+    /// what's added to it doesn't run.
+    static func messageText(_ kept: String) -> String {
+        kept.hasPrefix("!!") ? String(kept.dropFirst(2)) : kept.hasPrefix("!") ? String(kept.dropFirst()) : kept
+    }
+
+    /// Adds what was shared from another app. A shell command becomes a
+    /// message first, so the shared text doesn't run.
+    func receive(sharedText text: String, attachmentIDs: [String]) {
+        shell = nil
+        place(SharedItem.join(draft, text))
+        restoredAttachmentIDs = ComposerAttachments.uniqueIDs(restoredAttachmentIDs + attachmentIDs)
+    }
+
+    /// Runs the draft in the session's folder. Shell commands take no
+    /// attachments or comments.
+    private func runShell(_ output: ShellOutput) {
+        guard let bash = client as? any BashClient else { return }
+        guard restoredAttachmentIDs.isEmpty, uploads.items.isEmpty, annotations.records.isEmpty, diagrams.isEmpty else {
+            operations.reject("Shell commands don’t take attachments or comments.")
+            return
+        }
+        let text = output.prefix + draft
+        shellStopFailed = false
+        let operation = self.bash, session = session, anchor = latest?.messages.last?.id
+        sends += 1
+        Task { [weak self] in
+            await operation.submit(text, session: session, client: bash, after: anchor) { sent in
+                guard let self, self.shell.map({ $0.prefix + self.draft }) == sent else { return }
+                self.shell = nil
+                self.place("")
+            }
+        }
+    }
+
+    /// Settles a shell command whose start went unanswered, until it has.
+    func resolveShell() async {
+        guard let bash = client as? any BashClient else { return }
+        while !Task.isCancelled {
+            if self.bash.unresolved {
+                await self.bash.resolve(session: session, client: bash) { [weak self] sent in
+                    guard let self, self.shell.map({ $0.prefix + self.draft }) == sent else { return }
+                    self.shell = nil
+                    self.place("")
+                }
+            }
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        }
+    }
+
     /// Sends dictated words with the attachments and comments waiting. The
     /// mic shows only while the draft has no words, so they replace it. If
     /// the message can't go, the words stay in the draft.
     func sendDictation(_ text: String) {
-        draft = text
+        place(text)
         send()
     }
 
@@ -331,13 +469,14 @@ final class SessionComposer {
 
     /// What's kept of the draft: its words and the attachments uploaded for it.
     var kept: KeptDraft {
-        KeptDraft(text: draft, attachmentIDs: ComposerAttachments.uniqueIDs(restoredAttachmentIDs + uploads.readyIDs))
+        KeptDraft(text: (shell?.prefix ?? "") + draft, attachmentIDs: ComposerAttachments.uniqueIDs(restoredAttachmentIDs + uploads.readyIDs))
     }
 
-    /// Puts a kept draft back: its words, and its attachments as ones
-    /// attached before.
+    /// Puts a kept draft back: its words, as a shell command if it was one,
+    /// and its attachments as ones attached before.
     func restore(kept: KeptDraft) {
-        draft = kept.text
+        place(kept.text)
+        takeShellPrefix()
         restoredAttachmentIDs = ComposerAttachments.uniqueIDs(restoredAttachmentIDs + kept.attachmentIDs)
     }
 
@@ -374,12 +513,15 @@ final class SessionComposer {
     func stop() {
         guard case .stop(enabled: true) = action else { return }
         if let shell = shellRunning {
-            guard let bash = client as? any BashClient else { return }
+            guard let client = client as? any BashClient else { return }
             stoppingShell = shell
-            let session = session
+            shellStopFailed = false
+            let operation = bash, session = session
             Task { [weak self] in
-                do { try await bash.abortBash(session, id: shell) }
-                catch { await MainActor.run { if self?.stoppingShell == shell { self?.stoppingShell = nil } } }
+                await operation.abort(session: session, id: shell, client: client)
+                guard let self, operation.error != nil else { return }
+                self.shellStopFailed = true
+                if self.stoppingShell == shell { self.stoppingShell = nil }
             }
             return
         }
@@ -395,7 +537,7 @@ final class SessionComposer {
         operations.changeQueue(change, client: client, session: session) { [weak self] messages in
             guard let self else { return }
             let text = messages.map(\.text).joined(separator: "\n\n")
-            self.draft = [text, self.draft].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            self.place([text, self.draft].filter { !$0.isEmpty }.joined(separator: "\n\n"))
             var ids = self.restoredAttachmentIDs
             for id in messages.flatMap({ $0.attachmentIds ?? [] }) where !ids.contains(id) { ids.append(id) }
             self.restoredAttachmentIDs = ids
@@ -405,7 +547,7 @@ final class SessionComposer {
     /// Puts a fork's first message that couldn't start back in the draft,
     /// with the failure shown like any failed send.
     func restore(failedFork failure: ForkFirstTurnFailures.Failure) {
-        if draft.isEmpty { draft = failure.message }
+        if draft.isEmpty { place(failure.message) }
         operations.fail(failure.error)
         noticeDismissed = false
     }
@@ -419,7 +561,7 @@ final class SessionComposer {
     /// Clears what was sent from the draft, unless it changed meanwhile.
     private func applyAcknowledgedDraft() {
         guard let sent = operations.acknowledgedDraft else { return }
-        if draft == sent.text { draft = "" }
+        if draft == sent.text { place("") }
         restoredAttachmentIDs.removeAll { sent.attachmentIDs.contains($0) }
         uploads.acknowledge(sent.attachmentIDs)
         diagrams.acknowledge(diagramsSent)

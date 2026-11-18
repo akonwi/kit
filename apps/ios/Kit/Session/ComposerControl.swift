@@ -53,6 +53,8 @@ struct ComposerMore {
     var attach: (AttachmentSource) -> Void
     /// Opens the command search, when the session has commands.
     var commands: (() -> Void)?
+    /// Makes the draft a shell command, when it can be one.
+    var shell: (() -> Void)? = nil
 }
 
 /// The button at the end of the message box, in the chosen style.
@@ -183,7 +185,7 @@ struct ComposerControl: View {
 }
 
 /// The menu's items: dictation when it isn't the main action, the
-/// attachment pickers, and the command search.
+/// attachment pickers, the command search, and shell commands.
 struct ComposerMoreItems: View {
     let more: ComposerMore
 
@@ -201,10 +203,15 @@ struct ComposerMoreItems: View {
             Button("Choose File", systemImage: "folder") { more.attach(.files) }
         }
         .disabled(!more.canAttach)
-        if let commands = more.commands {
+        if more.commands != nil || more.shell != nil {
             Section {
-                Button(action: commands) {
-                    Label { Text("Commands") } icon: { Image(uiImage: CommandGlyph.menuImage) }
+                if let commands = more.commands {
+                    Button(action: commands) {
+                        Label { Text("Commands") } icon: { Image(uiImage: CommandGlyph.menuImage) }
+                    }
+                }
+                if let shell = more.shell {
+                    Button("Shell Command", systemImage: "apple.terminal", action: shell)
                 }
             }
         }
