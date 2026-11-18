@@ -280,7 +280,17 @@ func (s runtimeSessionService) Rename(
 }
 
 func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) error {
-	if err := s.manager.Delete(ctx, sessionID); err != nil {
+	return s.deleteWith(ctx, sessionID, s.manager.Delete)
+}
+
+// DeleteLeaf deletes a session, as Delete does, only while it has no child
+// sessions.
+func (s runtimeSessionService) DeleteLeaf(ctx context.Context, sessionID string) error {
+	return s.deleteWith(ctx, sessionID, s.manager.DeleteLeaf)
+}
+
+func (s runtimeSessionService) deleteWith(ctx context.Context, sessionID string, remove func(context.Context, string) error) error {
+	if err := remove(ctx, sessionID); err != nil {
 		return err
 	}
 	if s.workspaces != nil {

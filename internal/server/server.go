@@ -333,7 +333,15 @@ func Run(ctx context.Context, options RunOptions) error {
 		current, _, loadErr := settingsStore.Load()
 		return current, loadErr
 	}}
-	sessionTools.Service = modelSessionService{manager: sessionManager, defaults: defaults}
+	fileIndexes := newSessionFileIndexCache()
+	// Deleting through the session service also drops the session's
+	// workspace, diff, file-index, and annotation state. A model deletes
+	// only childless sessions, so a child created during its deletion keeps
+	// its parent.
+	sessionDeleter := runtimeSessionService{manager: sessionManager, fileIndexes: fileIndexes, workspaces: workspaceService, diffs: diffService, annotations: annotationService}
+	modelSessions := modelSessionService{manager: sessionManager, defaults: defaults, deleteSession: sessionDeleter.DeleteLeaf}
+	sessionTools.Service = modelSessions
+	sessionTools.Deletion = modelSessions
 	if err := subagents.SetEventSink(sessionManager); err != nil {
 		return fmt.Errorf("connect subagent event sink: %w", err)
 	}
@@ -439,7 +447,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		store:          store,
 		logger:         logger,
 		sessions: runtimeSessionService{
-			manager: sessionManager, defaults: defaults, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
+			manager: sessionManager, defaults: defaults, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: fileIndexes,
 			workspaces: workspaceService, diffs: diffService, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
 		},
 		attachments: runtimeAttachmentService{manager: sessionManager, store: attachmentStore},

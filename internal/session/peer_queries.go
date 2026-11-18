@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -352,20 +353,9 @@ func (m *Manager) DiscoverPeers(ctx context.Context, sender string, limit int) (
 		if r.ID == sender || !r.Persistent || r.ArchivedAt != nil {
 			continue
 		}
-		availability := "idle"
-		m.mu.Lock()
-		loaded := m.runtimes[r.ID]
-		deleting := m.deleting[r.ID]
-		m.mu.Unlock()
+		availability, deleting := m.peerAvailability(r.ID)
 		if deleting {
 			continue
-		}
-		if loaded != nil {
-			loaded.mu.Lock()
-			if loaded.activeRun != "" {
-				availability = "busy"
-			}
-			loaded.mu.Unlock()
 		}
 		out = append(out, peer.Session{ID: r.ID, Name: rendererSafePeerName(r.Name), CWD: r.CWD, ParentSessionID: r.ParentSessionID, Availability: availability})
 		if len(out) == limit {
@@ -373,6 +363,77 @@ func (m *Manager) DiscoverPeers(ctx context.Context, sender string, limit int) (
 		}
 	}
 	return out, nil
+}
+
+// DiscoverChildSessions lists the persistent sessions whose stored parent is
+// sender, most recently active first, each with its number of descendants.
+func (m *Manager) DiscoverChildSessions(ctx context.Context, sender string, limit int) ([]peer.Session, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 50
+	}
+	records, err := m.store.ListSessions(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	children := map[string][]SessionRecord{}
+	for _, r := range records {
+		if r.Persistent && r.ArchivedAt == nil && r.ParentSessionID != "" {
+			children[r.ParentSessionID] = append(children[r.ParentSessionID], r)
+		}
+	}
+	var descendants func(string, map[string]bool) int
+	descendants = func(id string, seen map[string]bool) int {
+		count := 0
+		for _, child := range children[id] {
+			if seen[child.ID] {
+				continue
+			}
+			seen[child.ID] = true
+			count += 1 + descendants(child.ID, seen)
+		}
+		return count
+	}
+	direct := append([]SessionRecord(nil), children[sender]...)
+	sort.Slice(direct, func(i, j int) bool {
+		if !direct[i].UpdatedAt.Equal(direct[j].UpdatedAt) {
+			return direct[i].UpdatedAt.After(direct[j].UpdatedAt)
+		}
+		return direct[i].ID < direct[j].ID
+	})
+	out := make([]peer.Session, 0, min(limit, len(direct)))
+	for _, r := range direct {
+		if r.ID == sender {
+			continue
+		}
+		availability, deleting := m.peerAvailability(r.ID)
+		if deleting {
+			continue
+		}
+		count := descendants(r.ID, map[string]bool{sender: true, r.ID: true})
+		out = append(out, peer.Session{ID: r.ID, Name: rendererSafePeerName(r.Name), CWD: r.CWD, ParentSessionID: r.ParentSessionID, Availability: availability, Descendants: &count})
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// peerAvailability reports whether a session is running a turn and whether
+// it is being deleted.
+func (m *Manager) peerAvailability(sessionID string) (availability string, deleting bool) {
+	m.mu.Lock()
+	loaded := m.runtimes[sessionID]
+	deleting = m.deleting[sessionID]
+	m.mu.Unlock()
+	availability = "idle"
+	if loaded != nil {
+		loaded.mu.Lock()
+		if loaded.activeRun != "" {
+			availability = "busy"
+		}
+		loaded.mu.Unlock()
+	}
+	return availability, deleting
 }
 
 func (m *Manager) SendPeerQuery(ctx context.Context, sender string, call droids.ToolContext, recipient, message, thread, preceding string) (peer.Request, error) {

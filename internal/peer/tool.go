@@ -14,10 +14,16 @@ import (
 // Service is the server-owned capability exposed to one session's model tool.
 type Service interface {
 	DiscoverPeers(context.Context, string, int) ([]Session, error)
+	// DiscoverChildSessions lists the sender's direct child sessions, most
+	// recently active first, each with its number of descendants.
+	DiscoverChildSessions(context.Context, string, int) ([]Session, error)
 	SendPeerQuery(context.Context, string, droids.ToolContext, string, string, string, string) (Request, error)
 	InspectPeerQuery(context.Context, string, string) (Request, error)
 	WaitPeerQuery(context.Context, string, string, time.Duration) (Request, bool, error)
 }
+
+// maxDiscoveredChildren bounds one discover of child sessions.
+const maxDiscoveredChildren = 50
 
 // ToolFactory constructs the peer-query tool for one session.
 type ToolFactory interface {
@@ -33,7 +39,7 @@ func (s *ToolService) Tool(senderSessionID string) (droids.AnyTool, error) {
 	}
 	return droids.NewTool(droids.Tool[toolArguments]{
 		Name:        "peer_session",
-		Description: "Consult other durable top-level sessions without copying transcripts. Actions: discover, send, inspect, wait. Send is asynchronous and returns a durable request ID; wait is bounded and does not cancel the request on timeout.",
+		Description: "Consult other durable top-level sessions without copying transcripts. Actions: discover, send, inspect, wait. Discover with children=true lists only this session's child sessions, each with its number of descendants. Send is asynchronous and returns a durable request ID; wait is bounded and does not cancel the request on timeout.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -44,6 +50,7 @@ func (s *ToolService) Tool(senderSessionID string) (droids.AnyTool, error) {
 				"threadId":           map[string]any{"type": "string", "description": "Optional caller-owned thread identity."},
 				"precedingRequestId": map[string]any{"type": "string", "description": "Optional preceding request in the thread."},
 				"timeoutSeconds":     map[string]any{"type": "integer", "minimum": 1, "maximum": 30},
+				"children":           map[string]any{"type": "boolean", "description": "For discover: list only this session's child sessions."},
 			},
 			"required": []string{"action"}, "additionalProperties": false,
 		},
@@ -62,6 +69,7 @@ type toolArguments struct {
 	ThreadID           string `json:"threadId,omitempty"`
 	PrecedingRequestID string `json:"precedingRequestId,omitempty"`
 	TimeoutSeconds     int    `json:"timeoutSeconds,omitempty"`
+	Children           bool   `json:"children,omitempty"`
 }
 
 type toolResponse struct {
@@ -94,7 +102,11 @@ func (s *ToolService) execute(ctx context.Context, sender string, call droids.To
 	var err error
 	switch args.Action {
 	case "discover":
-		response.Sessions, err = s.Service.DiscoverPeers(ctx, sender, 20)
+		if args.Children {
+			response.Sessions, err = s.Service.DiscoverChildSessions(ctx, sender, maxDiscoveredChildren)
+		} else {
+			response.Sessions, err = s.Service.DiscoverPeers(ctx, sender, 20)
+		}
 	case "send":
 		var value Request
 		value, err = s.Service.SendPeerQuery(ctx, sender, call, strings.TrimSpace(args.SessionID), args.Message, args.ThreadID, args.PrecedingRequestID)

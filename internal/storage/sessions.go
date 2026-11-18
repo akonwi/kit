@@ -404,12 +404,24 @@ func (s *Store) ListSessionDeletionArtifacts(ctx context.Context, id string) ([]
 // When semantic forks share its scratchpad, ownership transfers to a surviving
 // direct child so the remaining sessions keep the same shared contents.
 func (s *Store) DeleteSession(ctx context.Context, id string) error {
-	return s.DeleteSessionWithArtifacts(ctx, id)
+	return s.deleteSession(ctx, id, false)
+}
+
+// DeleteLeafSession permanently deletes a session, as DeleteSession does, only
+// while no session names it as its parent. The check and the deletion are one
+// transaction, so a child created concurrently either refuses the deletion or
+// is not created.
+func (s *Store) DeleteLeafSession(ctx context.Context, id string) error {
+	return s.deleteSession(ctx, id, true)
 }
 
 // DeleteSessionWithArtifacts permanently deletes a session and records its exact
 // external child-store inventory in the durable cleanup job.
 func (s *Store) DeleteSessionWithArtifacts(ctx context.Context, id string) error {
+	return s.deleteSession(ctx, id, false)
+}
+
+func (s *Store) deleteSession(ctx context.Context, id string, leaf bool) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("store is closed")
 	}
@@ -434,6 +446,17 @@ func (s *Store) DeleteSessionWithArtifacts(ctx context.Context, id string) error
 			return fmt.Errorf("session %q: %w", id, ErrNotFound)
 		}
 		return fmt.Errorf("find session %q for deletion: %w", id, err)
+	}
+
+	if leaf {
+		var child int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE parent_session_id = ? LIMIT 1`, id).Scan(&child)
+		if err == nil {
+			return fmt.Errorf("session %q: %w", id, kitsession.ErrSessionHasChildren)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("check children of session %q: %w", id, err)
+		}
 	}
 
 	var dependentCount int

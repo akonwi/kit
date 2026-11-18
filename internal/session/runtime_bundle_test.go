@@ -332,12 +332,13 @@ func TestSessionCreationToolIsRegisteredOnlyForPersistentRootSessions(t *testing
 
 type recordingSessionToolFactory struct{ owner string }
 
-func (f *recordingSessionToolFactory) Tool(owner string) (droids.AnyTool, error) {
+func (f *recordingSessionToolFactory) Tools(owner string) ([]droids.AnyTool, error) {
 	f.owner = owner
-	return droids.NewTool(droids.Tool[struct{}]{
+	tool, err := droids.NewTool(droids.Tool[struct{}]{
 		Name: "create_session", Description: "create a session", Parameters: map[string]any{"type": "object"},
 		Execute: func(context.Context, droids.ToolContext, struct{}, droids.ToolUpdate) (droids.ToolResult, error) {
 			return droids.ToolText("ok"), nil
 		},
 	})
+	return []droids.AnyTool{tool}, err
 }

@@ -1,4 +1,5 @@
-// Package sessiontool exposes bounded top-level session creation to models.
+// Package sessiontool exposes bounded top-level session creation, and deletion
+// of a session's children, to models.
 package sessiontool
 
 import (
@@ -6,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/akonwi/kit/droids"
 )
@@ -35,18 +37,41 @@ type Service interface {
 	CreateModelSession(context.Context, CreateInput) (Session, error)
 }
 
-// ToolFactory constructs a session-creation tool bound to its owner.
+// ToolFactory constructs the session tools bound to their owner.
 type ToolFactory interface {
-	Tool(string) (droids.AnyTool, error)
+	Tools(string) ([]droids.AnyTool, error)
 }
 
-// ToolService adapts the server capability to the model-facing tool.
-type ToolService struct{ Service Service }
+// ToolService adapts the server capabilities to the model-facing tools.
+// Deletion is optional; without it the owner gets only create_session.
+type ToolService struct {
+	Service  Service
+	Deletion DeletionService
+	// Now reads the clock for approval text; nil uses time.Now.
+	Now func() time.Time
+}
 
-func (s *ToolService) Tool(ownerSessionID string) (droids.AnyTool, error) {
+// Tools returns create_session and, with a deletion service, delete_session.
+func (s *ToolService) Tools(ownerSessionID string) ([]droids.AnyTool, error) {
 	if s == nil || s.Service == nil {
 		return nil, errors.New("create session tool service is not initialized")
 	}
+	create, err := s.createTool(ownerSessionID)
+	if err != nil {
+		return nil, err
+	}
+	tools := []droids.AnyTool{create}
+	if s.Deletion != nil {
+		remove, err := s.deleteTool(ownerSessionID)
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, remove)
+	}
+	return tools, nil
+}
+
+func (s *ToolService) createTool(ownerSessionID string) (droids.AnyTool, error) {
 	return droids.NewTool(droids.Tool[arguments]{
 		Name:        ToolName,
 		Description: "Create a named persistent top-level Kit session using application model defaults. The cwd and name are required. An optional initial prompt starts asynchronously. The new session does not replace the current session.",

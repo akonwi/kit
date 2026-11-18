@@ -50,6 +50,7 @@ var (
 	ErrDroidStoreMissing           = errors.New("initialized session droid store is missing")
 	ErrNotTemporary                = errors.New("session is not temporary")
 	ErrTemporary                   = errors.New("temporary session requires disposal")
+	ErrSessionHasChildren          = errors.New("session has child sessions")
 	ErrTranscriptCursorUnavailable = errors.New("transcript cursor is unavailable")
 )
 
@@ -1171,6 +1172,23 @@ func (m *Manager) publishSessionRenamed(loaded *runtime, record SessionRecord) {
 
 // Delete permanently removes a persisted session and its session-owned stores.
 func (m *Manager) Delete(ctx context.Context, sessionID string) error {
+	return m.delete(ctx, sessionID, false)
+}
+
+// DeleteLeaf permanently deletes a session, as Delete does, only while no
+// session names it as its parent. It reports ErrSessionHasChildren otherwise,
+// including for a child created while the deletion runs.
+func (m *Manager) DeleteLeaf(ctx context.Context, sessionID string) error {
+	return m.delete(ctx, sessionID, true)
+}
+
+// leafSessionDeleter is a Repository that can delete a session only while it
+// has no children, atomically.
+type leafSessionDeleter interface {
+	DeleteLeafSession(context.Context, string) error
+}
+
+func (m *Manager) delete(ctx context.Context, sessionID string, leaf bool) error {
 	if err := m.beginOperation(); err != nil {
 		return err
 	}
@@ -1223,28 +1241,12 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		defer m.subagentOwnerDeletion.EndOwnerDeletion(sessionID)
 	}
 
-	var childConversations []subagent.Conversation
-	if m.mailbox != nil {
-		conversations, err := m.mailbox.ListConversations(ctx, sessionID)
-		if err != nil {
-			return fmt.Errorf("list subagent conversations for deletion: %w", err)
-		}
-		dismissed, err := m.mailbox.ListDismissedConversations(ctx, sessionID)
-		if err != nil {
-			return fmt.Errorf("list dismissed subagent conversations for deletion: %w", err)
-		}
-		childConversations = append(conversations, dismissed...)
-		for _, conversation := range childConversations {
-			tasks, err := m.mailbox.ListTasks(ctx, conversation.ID)
-			if err != nil {
-				return fmt.Errorf("list subagent tasks for deletion: %w", err)
-			}
-			for _, task := range tasks {
-				if !subagent.TerminalTask(task.State) {
-					return ErrDeleteBusy
-				}
-			}
-		}
+	childConversations, unfinished, err := m.ownedSubagentConversations(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if unfinished {
+		return ErrDeleteBusy
 	}
 
 	if loaded != nil {
@@ -1288,7 +1290,12 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 
 	m.bashMu.Lock()
 	m.scratchpadMu.Lock()
-	deleteErr := m.store.DeleteSession(ctx, sessionID)
+	var deleteErr error
+	if leaf {
+		deleteErr = deleteLeafSession(ctx, m.store, sessionID)
+	} else {
+		deleteErr = m.store.DeleteSession(ctx, sessionID)
+	}
 	m.scratchpadMu.Unlock()
 	if deleteErr != nil {
 		m.bashMu.Unlock()

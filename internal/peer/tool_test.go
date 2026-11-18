@@ -13,6 +13,10 @@ type fakeService struct{ call droids.ToolContext }
 func (f *fakeService) DiscoverPeers(context.Context, string, int) ([]Session, error) {
 	return []Session{{ID: "session_b", Name: "B", Availability: "idle"}}, nil
 }
+func (f *fakeService) DiscoverChildSessions(_ context.Context, sender string, limit int) ([]Session, error) {
+	descendants := 2
+	return []Session{{ID: "session_child", Name: "Child", ParentSessionID: sender, Availability: "idle", Descendants: &descendants}}, nil
+}
 func (f *fakeService) SendPeerQuery(_ context.Context, _ string, call droids.ToolContext, recipient, message, thread, preceding string) (Request, error) {
 	f.call = call
 	return Request{ID: "peer_one", RecipientSessionID: recipient, Message: message, State: StateQueued}, nil
@@ -42,5 +46,15 @@ func TestToolRejectsExcessiveWait(t *testing.T) {
 	result := tool.execute(t.Context(), "session_a", droids.ToolContext{}, toolArguments{Action: "wait", RequestID: "peer_one", TimeoutSeconds: 31})
 	if !result.IsError {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestDiscoverWithChildrenListsTheSendersChildSessions(t *testing.T) {
+	tool := &ToolService{Service: &fakeService{}}
+	result := tool.execute(t.Context(), "session_a", droids.ToolContext{}, toolArguments{Action: "discover", Children: true})
+	text := result.Content[0].(droids.TextContent).Text
+	want := `{"action":"discover","sessions":[{"id":"session_child","name":"Child","cwd":"","parentSessionId":"session_a","availability":"idle","descendants":2}]}`
+	if result.IsError || text != want {
+		t.Fatalf("result = %s, want %s", text, want)
 	}
 }

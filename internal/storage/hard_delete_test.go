@@ -230,3 +230,42 @@ func TestDeleteSuccessorPreservesScratchpadForSiblingForks(t *testing.T) {
 		t.Fatalf("remaining scratchpad = %q, want %q", content, "family notes")
 	}
 }
+
+func TestDeleteLeafSessionRefusesASessionWithChildren(t *testing.T) {
+	t.Parallel()
+
+	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	parent, err := store.CreateSession(t.Context(), session.NewSession{
+		ID: "session_parent", ScratchpadOwnerID: "session_parent", CWD: t.TempDir(), Persistent: true,
+		ModelProvider: "test", ModelID: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := store.CreateSession(t.Context(), session.NewSession{
+		ID: "session_child", ParentSessionID: parent.ID, ScratchpadOwnerID: "session_child",
+		CWD: parent.CWD, Persistent: true, ModelProvider: "test", ModelID: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteLeafSession(t.Context(), parent.ID); !errors.Is(err, session.ErrSessionHasChildren) {
+		t.Fatalf("DeleteLeafSession(parent) = %v", err)
+	}
+	if _, err := store.GetSession(t.Context(), parent.ID); err != nil {
+		t.Fatalf("parent after refused delete: %v", err)
+	}
+	if err := store.DeleteLeafSession(t.Context(), child.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteLeafSession(t.Context(), parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetSession(t.Context(), parent.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("parent after delete: %v", err)
+	}
+}

@@ -269,11 +269,11 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 			tools = append(tools, tool)
 		}
 		if b.sessionToolFactory != nil && record.ParentSessionID == "" {
-			tool, toolErr := b.sessionToolFactory.Tool(record.ID)
+			sessionTools, toolErr := b.sessionToolFactory.Tools(record.ID)
 			if toolErr != nil {
 				return RuntimeBundle{}, toolErr
 			}
-			tools = append(tools, tool)
+			tools = append(tools, sessionTools...)
 		}
 	}
 	manager, mcpServers, mcpWarnings, diagnostics, err := b.buildMCP(ctx, record.CWD)

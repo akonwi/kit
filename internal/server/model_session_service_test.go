@@ -34,6 +34,13 @@ func (m *fakeModelSessionManager) Delete(_ context.Context, sessionID string) er
 	m.deleted = sessionID
 	return nil
 }
+func (m *fakeModelSessionManager) List(context.Context, string) ([]kitsession.SessionRecord, error) {
+	return nil, nil
+}
+func (m *fakeModelSessionManager) DeletionBlocker(context.Context, string) error { return nil }
+func (m *fakeModelSessionManager) ConfirmToolCall(context.Context, string, droids.ToolContext, kitsession.ToolConfirmation) (kitsession.ToolConfirmationResult, error) {
+	return kitsession.ToolConfirmationResult{}, nil
+}
 
 func TestModelSessionServiceUsesConfiguredDefaultAndStartsPrompt(t *testing.T) {
 	providers := defaultProviders{}

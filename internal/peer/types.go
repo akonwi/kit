@@ -117,4 +117,7 @@ type Session struct {
 	CWD             string `json:"cwd"`
 	ParentSessionID string `json:"parentSessionId,omitempty"`
 	Availability    string `json:"availability"`
+	// Descendants counts the session's children, their children, and so on.
+	// Only a discover of child sessions reports it.
+	Descendants *int `json:"descendants,omitempty"`
 }
