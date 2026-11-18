@@ -107,6 +107,21 @@ struct DictationPress: Equatable {
         return .send
     }
 
+    /// One tap with no press to follow, such as VoiceOver's or the hold
+    /// style's button: starts a tapped recording, or sends the one going.
+    mutating func tapped(idle: Bool, recording: Bool) -> Effect {
+        guard pressedAt == nil else { return .none }
+        cancelArmed = false
+        startedRecording = false
+        if idle {
+            mode = .tap
+            return .start
+        }
+        guard recording else { return .none }
+        mode = .none
+        return .send
+    }
+
     /// The system took the press away, such as for an alert or a call. A
     /// held recording is thrown away; a tapped one keeps going.
     mutating func interrupted() -> Effect {

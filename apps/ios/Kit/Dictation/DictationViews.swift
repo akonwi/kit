@@ -26,49 +26,55 @@ struct DictationButton: View {
 
     var body: some View {
         let state = DictationButtonState(phase: dictation.phase, mode: press.mode, cancelArmed: press.cancelArmed)
-        ZStack {
-            Circle()
-                .fill(circleColor(state))
-            glyph(state)
-        }
-        .frame(width: 40, height: 40)
-        .animation(.snappy(duration: 0.2), value: state)
-        .contentShape(Circle())
-        .gesture(gesture)
-        .onChange(of: pressing) { _, pressing in
-            // After onEnded when the press ended normally; otherwise it was taken away.
-            guard !pressing else { return }
-            Task { @MainActor in apply(press.interrupted()) }
-        }
-        .onChange(of: dictation.phase == .idle) { _, idle in
-            if idle { press.reset() }
-        }
-        .sensoryFeedback(.impact(weight: .light), trigger: state == .holding) { _, holding in holding }
-        .sensoryFeedback(.selection, trigger: press.cancelArmed)
-        .accessibilityElement()
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(state.label)
-        .accessibilityIdentifier("dictate")
-        .accessibilityAction { accessibilityTap() }
+        DictationButtonFace(state: state, look: look)
+            .contentShape(Circle())
+            .gesture(gesture)
+            .onChange(of: pressing) { _, pressing in
+                // After onEnded when the press ended normally; otherwise it was taken away.
+                guard !pressing else { return }
+                Task { @MainActor in control.apply(press.interrupted()) }
+            }
+            .onChange(of: dictation.phase == .idle) { _, idle in
+                if idle { press.reset() }
+            }
+            .sensoryFeedback(.impact(weight: .light), trigger: state == .holding) { _, holding in holding }
+            .sensoryFeedback(.selection, trigger: press.cancelArmed)
+            .accessibilityElement()
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(state.label)
+            .accessibilityIdentifier("dictate")
+            .accessibilityAction { control.tap() }
     }
+
+    private var control: DictationTap { DictationTap(dictation: dictation, press: $press, send: send) }
 
     private var gesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .updating($pressing) { _, pressing, _ in pressing = true }
             .onChanged { value in
-                apply(press.began(at: .now, idle: dictation.phase == .idle))
+                control.apply(press.began(at: .now, idle: dictation.phase == .idle))
                 press.moved(width: value.translation.width)
             }
             .onEnded { _ in
-                apply(press.ended(at: .now, recording: dictation.phase == .recording))
+                control.apply(press.ended(at: .now, recording: dictation.phase == .recording))
             }
     }
+}
 
-    private func apply(_ effect: DictationPress.Effect) {
+/// What a press on the composer's mic does: starts, sends, or throws away
+/// a recording. A tap starts a recording, and the next one sends it.
+@MainActor
+struct DictationTap {
+    let dictation: Dictation
+    let press: Binding<DictationPress>
+    /// Sends the words.
+    let send: (String) -> Void
+
+    func apply(_ effect: DictationPress.Effect) {
         switch effect {
         case .none: break
         case .start:
-            Task { if !(await dictation.start()) { press.reset() } }
+            Task { if !(await dictation.start()) { press.wrappedValue.reset() } }
         case .send:
             // Let go before the microphone was ready: nothing to send.
             if dictation.isPreparing {
@@ -81,20 +87,28 @@ struct DictationButton: View {
         }
     }
 
-    /// VoiceOver: one activation starts a tapped recording, the next sends it.
-    private func accessibilityTap() {
-        switch dictation.phase {
-        case .idle:
-            apply(press.began(at: .now, idle: true))
-            apply(press.ended(at: .now, recording: false))
-        case .recording:
-            Task { if let text = await dictation.finish() { send(text) } }
-        case .preparing, .transcribing:
-            break
+    /// One tap: starts a tapped recording, or sends the one going.
+    func tap() {
+        apply(press.wrappedValue.tapped(idle: dictation.phase == .idle, recording: dictation.phase == .recording))
+    }
+}
+
+/// The composer mic's circle and glyph for a state.
+struct DictationButtonFace: View {
+    let state: DictationButtonState
+    let look: DictationButton.Look
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(circleColor)
+            glyph
         }
+        .frame(width: 40, height: 40)
+        .animation(.snappy(duration: 0.2), value: state)
     }
 
-    private func circleColor(_ state: DictationButtonState) -> Color {
+    private var circleColor: Color {
         switch state {
         case .idle: look == .filled ? Theme.text : .clear
         case .holding: Theme.accent
@@ -104,7 +118,7 @@ struct DictationButton: View {
     }
 
     @ViewBuilder
-    private func glyph(_ state: DictationButtonState) -> some View {
+    private var glyph: some View {
         switch state {
         case .idle:
             Image(systemName: "mic.fill")

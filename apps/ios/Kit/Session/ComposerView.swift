@@ -350,8 +350,7 @@ struct ComposerBar: View {
 }
 
 /// Send, Stop, or a spinner while the server answers.
-private struct ComposerButton: View {
-    @Environment(\.colorScheme) private var colorScheme
+struct ComposerButton: View {
     let action: SessionComposer.Action
     let send: () -> Void
     let stop: () -> Void
@@ -364,49 +363,60 @@ private struct ComposerButton: View {
             case .waiting: break
             }
         } label: {
-            ZStack {
-                Circle().fill(enabled ? Theme.text : Theme.border)
-                switch action {
-                case .send:
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(enabled ? Theme.surface : disabledGlyph)
-                case .stop:
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(enabled ? Theme.surface : disabledGlyph)
-                        .frame(width: 12, height: 12)
-                case .waiting:
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(Theme.surface)
-                }
-            }
-            .frame(width: 40, height: 40)
+            ComposerActionFace(action: action)
         }
         .buttonStyle(.plain)
-        .disabled(!enabled)
-        .accessibilityLabel(label)
+        .disabled(!ComposerActionFace.enabled(action))
+        .accessibilityLabel(ComposerActionFace.label(action))
         .accessibilityIdentifier("composer-action")
     }
+}
 
-    private var enabled: Bool {
+/// The circle Send, Stop, or the server's spinner shows as.
+struct ComposerActionFace: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let action: SessionComposer.Action
+
+    var body: some View {
+        let enabled = Self.enabled(action)
+        ZStack {
+            Circle().fill(enabled ? Theme.text : Theme.border)
+            switch action {
+            case .send:
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(enabled ? Theme.surface : disabledGlyph)
+            case .stop:
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(enabled ? Theme.surface : disabledGlyph)
+                    .frame(width: 12, height: 12)
+            case .waiting:
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(Theme.surface)
+            }
+        }
+        .frame(width: 40, height: 40)
+    }
+
+    static func enabled(_ action: SessionComposer.Action) -> Bool {
         switch action {
         case .send(let enabled), .stop(let enabled): enabled
         case .waiting: true
         }
     }
 
-    /// A grey button's glyph: the surface in light, white at 35% in dark.
-    private var disabledGlyph: Color {
-        colorScheme == .dark ? .white.opacity(0.35) : Theme.surface
-    }
-
-    private var label: String {
+    static func label(_ action: SessionComposer.Action) -> String {
         switch action {
         case .send: "Send"
         case .stop: "Stop"
         case .waiting: "Waiting for the server"
         }
+    }
+
+    /// A grey button's glyph: the surface in light, white at 35% in dark.
+    private var disabledGlyph: Color {
+        colorScheme == .dark ? .white.opacity(0.35) : Theme.surface
     }
 }
 

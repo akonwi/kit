@@ -109,6 +109,17 @@ struct DictationTests {
         #expect(tapped.mode == .tap)
     }
 
+    @Test func aTapStartsATappedRecordingAndTheNextSendsIt() {
+        var press = DictationPress()
+        #expect(press.tapped(idle: true, recording: false) == .start)
+        #expect(press.mode == .tap)
+        // Still getting the microphone ready.
+        #expect(press.tapped(idle: false, recording: false) == .none)
+        #expect(press.mode == .tap)
+        #expect(press.tapped(idle: false, recording: true) == .send)
+        #expect(press.mode == .none)
+    }
+
     @Test func aPressAfterItEndedIsNotTakenAway() {
         var press = DictationPress()
         _ = press.began(at: Self.start, idle: true)
