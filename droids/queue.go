@@ -371,6 +371,36 @@ func (rt *sdkRuntime) queueIdleLocked() bool {
 	return !rt.closed && !isOccupied(rt.state.Status) && rt.contextFlight == nil && rt.resumeFlight == nil && len(rt.state.Started) < maxStartedPrompts
 }
 
+// forgetUntrackedStartedLocked drops started prompts of settled turns when the
+// application does not track them, as a conversation reopened without
+// Config.TrackStartedPrompts after running with it. The caller holds rt.mu.
+func (rt *sdkRuntime) forgetUntrackedStartedLocked(ctx context.Context) error {
+	if rt.config.TrackStartedPrompts || len(rt.state.Started) == 0 {
+		return nil
+	}
+	unsettled := rt.handle != nil
+	before := rt.state
+	var forgotten []QueuedPromptID
+	var kept []startedPromptRef
+	for _, ref := range rt.state.Started {
+		if unsettled && ref.TurnID == rt.state.TurnID {
+			kept = append(kept, ref)
+		} else {
+			forgotten = append(forgotten, ref.ID)
+		}
+	}
+	if len(forgotten) == 0 {
+		return nil
+	}
+	rt.state.Started = kept
+	if err := rt.commitLocked(ctx, deleteQueuedPromptMutations(forgotten), nil); err != nil {
+		rt.state = before
+		return err
+	}
+	rt.forgetQueuedLocked(forgotten)
+	return nil
+}
+
 // acknowledgeSettledLocked removes the started prompt of the settling turn
 // when the application does not track started prompts, and returns it. The
 // caller holds rt.mu and commits the removal with the settlement.

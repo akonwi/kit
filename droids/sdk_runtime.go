@@ -312,6 +312,10 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if rt.state.Status == ExecutionPaused || rt.state.Status == ExecutionInterrupted {
 		rt.handle = newSDKExecution(rt, rt.state.TurnID)
 	}
+	if err := rt.forgetUntrackedStartedLocked(ctx); err != nil {
+		rt.mu.Unlock()
+		return nil, err
+	}
 	rt.queueHeld = len(rt.state.Queue) > 0
 	rt.mu.Unlock()
 	return d, nil

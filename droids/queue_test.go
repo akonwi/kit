@@ -701,3 +701,35 @@ func TestQueueForgetsStartedPromptsWhenTheApplicationDoesNotTrackThem(t *testing
 		}
 	}
 }
+
+func TestQueueForgetsTrackedStartedPromptsWhenReopenedWithoutTracking(t *testing.T) {
+	providers := newQueueProviders()
+	store := droids.NewMemoryStore()
+	config := droids.Config{Store: store, Model: resolvedTestModel(providers, "test/queue"), TrackStartedPrompts: true}
+	first := spawnQueueDroidWith(t, "queue_started_retracked", config)
+	admission, err := first.Enqueue(t.Context(), textInput("tracked"), droids.QueueOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admission.Execution.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	config.TrackStartedPrompts = false
+	second := spawnQueueDroidWith(t, "queue_started_retracked", config)
+	if started, err := second.StartedPrompts(t.Context()); err != nil || len(started) != 0 {
+		t.Fatalf("started prompts after reopening untracked = %+v, %v", started, err)
+	}
+	persisted, err := store.State(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range persisted.RuntimeState {
+		if record.Kind == "queued_prompt" {
+			t.Fatalf("a settled turn kept its prompt record %s", record.ID)
+		}
+	}
+}
