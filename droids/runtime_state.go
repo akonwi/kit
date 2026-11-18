@@ -77,6 +77,12 @@ type durableRuntime struct {
 	AdmissionKey            string                     `json:"admission_key,omitempty"`
 	AdmissionHash           string                     `json:"admission_hash,omitempty"`
 	BoundaryReaction        bool                       `json:"boundary_reaction,omitempty"`
+	// QueuedPromptID identifies the queued prompt that started the current turn.
+	QueuedPromptID QueuedPromptID `json:"queued_prompt_id,omitempty"`
+	// Queue orders the queued prompts, whose bodies are separate runtime
+	// records so that every commit does not rewrite them.
+	Queue        []QueuedPromptID `json:"queue,omitempty"`
+	QueueBlocked string           `json:"queue_blocked,omitempty"`
 }
 
 type durableBoundary struct {
@@ -363,6 +369,12 @@ func validateOpenedRuntime(state durableRuntime) error {
 	}
 	if state.Status != ExecutionReady && state.TurnID == "" {
 		return fmt.Errorf("droids: persisted execution has no turn id")
+	}
+	if state.QueuedPromptID != "" && (state.TurnID == "" || !validID(string(state.QueuedPromptID), queuedPromptIDPrefix)) {
+		return fmt.Errorf("droids: persisted queued turn identity is invalid")
+	}
+	if len(state.QueueBlocked) > queueBlockedReasonLimit || state.QueueBlocked != "" && len(state.Queue) == 0 {
+		return fmt.Errorf("droids: persisted queue block is invalid")
 	}
 	for providerID, tool := range state.Tools {
 		if providerID == "" || tool.ID == "" || tool.Call.Type != "tool_call" || tool.Call.ID != providerID || tool.AdmissionAttemptID == "" {

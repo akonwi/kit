@@ -116,6 +116,7 @@ func (d *Droid) AssessContext(ctx context.Context, target ContextTarget) (Contex
 	flight.err = operationErr
 	close(flight.done)
 	rt.signalChangedLocked()
+	rt.advanceQueueLocked(context.Background())
 	rt.mu.Unlock()
 	cancel()
 	return assessment, operationErr
@@ -257,6 +258,7 @@ func (rt *sdkRuntime) finishContextCompaction(flight *contextMaintenanceFlight, 
 	flight.err = err
 	close(flight.done)
 	rt.signalChangedLocked()
+	rt.advanceQueueLocked(context.Background())
 	rt.mu.Unlock()
 	flight.cancel()
 }

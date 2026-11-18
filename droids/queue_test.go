@@ -1,0 +1,567 @@
+package droids_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/droids/sqlitestore"
+)
+
+func TestQueueStartsAtOnceWhenIdleThenInOrderAfterEachTurn(t *testing.T) {
+	providers := newQueueProviders()
+	var started []droids.TurnID
+	var startedMu sync.Mutex
+	droid := spawnQueueDroid(t, "queue_order", droids.NewMemoryStore(), providers, func(id droids.TurnID) {
+		startedMu.Lock()
+		started = append(started, id)
+		startedMu.Unlock()
+	})
+
+	first, err := droid.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{})
+	if err != nil || first.Execution == nil || first.Replayed {
+		t.Fatalf("first admission = %+v, %v; want a started turn", first, err)
+	}
+	providers.waitStarted(t, "block first")
+	second, err := droid.Enqueue(t.Context(), textInput("second"), droids.QueueOptions{Metadata: json.RawMessage(`{"draft":"second"}`)})
+	if err != nil || second.Execution != nil {
+		t.Fatalf("second admission = %+v, %v; want it queued", second, err)
+	}
+	third, err := droid.Enqueue(t.Context(), textInput("third"), droids.QueueOptions{})
+	if err != nil || third.Execution != nil {
+		t.Fatalf("third admission = %+v, %v; want it queued", third, err)
+	}
+
+	queue, err := droid.Queue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := queuedTexts(queue); !slices.Equal(got, []string{"second", "third"}) || queue.Held || queue.Blocked != "" {
+		t.Fatalf("queue = %+v (%v), want second, third, neither held nor blocked", queue, got)
+	}
+	if string(queue.Prompts[0].Metadata) != `{"draft":"second"}` || queue.Prompts[0].ID != second.Prompt.ID {
+		t.Fatalf("first queued prompt = %+v, want second with its metadata", queue.Prompts[0])
+	}
+	snapshot, err := droid.Snapshot(t.Context(), droids.SnapshotOptions{})
+	if err != nil || snapshot.Pending.Queued != 2 {
+		t.Fatalf("snapshot pending = %+v, %v; want 2 queued", snapshot.Pending, err)
+	}
+
+	providers.release()
+	waitSettled(t, droid)
+	if got := providers.userTexts(); !slices.Equal(got, []string{"block first", "second", "third"}) {
+		t.Fatalf("turn prompts = %v, want block first, second, third", got)
+	}
+	startedMu.Lock()
+	defer startedMu.Unlock()
+	if len(started) != 3 || started[0] != first.Execution.TurnID() {
+		t.Fatalf("started turns = %v, want three beginning with %s", started, first.Execution.TurnID())
+	}
+	queue, err = droid.Queue(t.Context())
+	if err != nil || len(queue.Prompts) != 0 {
+		t.Fatalf("drained queue = %+v, %v", queue, err)
+	}
+}
+
+func TestQueueAdmissionKeyIsIdempotentAfterThePromptRuns(t *testing.T) {
+	providers := newQueueProviders()
+	droid := spawnQueueDroid(t, "queue_admission", droids.NewMemoryStore(), providers, nil)
+	if _, err := droid.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	providers.waitStarted(t, "block first")
+	options := droids.QueueOptions{AdmissionKey: "client_send_1", Metadata: json.RawMessage(`{"n":1}`)}
+	admitted, err := droid.Enqueue(t.Context(), textInput("follow up"), options)
+	if err != nil || admitted.Replayed {
+		t.Fatalf("admission = %+v, %v", admitted, err)
+	}
+	replayed, err := droid.Enqueue(t.Context(), textInput("follow up"), options)
+	if err != nil || !replayed.Replayed || replayed.Prompt.ID != admitted.Prompt.ID || replayed.Execution != nil {
+		t.Fatalf("queued replay = %+v, %v; want prompt %s still queued", replayed, err, admitted.Prompt.ID)
+	}
+	if _, err := droid.Enqueue(t.Context(), textInput("something else"), options); !errors.Is(err, droids.ErrConflict) {
+		t.Fatalf("reused key with other input error = %v, want conflict", err)
+	}
+	if _, err := droid.Enqueue(t.Context(), textInput("follow up"), droids.QueueOptions{AdmissionKey: "client_send_1"}); !errors.Is(err, droids.ErrConflict) {
+		t.Fatalf("reused key with other metadata error = %v, want conflict", err)
+	}
+
+	providers.release()
+	waitSettled(t, droid)
+	replayed, err = droid.Enqueue(t.Context(), textInput("follow up"), options)
+	if err != nil || !replayed.Replayed || replayed.Prompt.ID != admitted.Prompt.ID || replayed.Execution == nil {
+		t.Fatalf("replay after start = %+v, %v; want the current turn", replayed, err)
+	}
+	if outcome, err := replayed.Execution.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("replayed execution outcome = %+v, %v", outcome, err)
+	}
+	if got := providers.userTexts(); !slices.Equal(got, []string{"block first", "follow up"}) {
+		t.Fatalf("turn prompts = %v, want the follow-up to run once", got)
+	}
+}
+
+func TestQueueWithdrawAndPromoteToSteering(t *testing.T) {
+	providers := newQueueProviders()
+	droid := spawnQueueDroid(t, "queue_promote", droids.NewMemoryStore(), providers, nil)
+	if _, err := droid.Promote(t.Context()); !errors.Is(err, droids.ErrConflict) {
+		t.Fatalf("idle promote error = %v, want conflict", err)
+	}
+	running, err := droid.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers.waitStarted(t, "block first")
+	var ids []droids.QueuedPromptID
+	for _, text := range []string{"a", "b", "c"} {
+		admission, err := droid.Enqueue(t.Context(), textInput(text), droids.QueueOptions{Metadata: json.RawMessage(`"` + text + `"`)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, admission.Prompt.ID)
+	}
+
+	withdrawn, err := droid.Withdraw(t.Context(), ids[1], "queued_00000000000000000000000000000000")
+	if err != nil || len(withdrawn) != 1 || withdrawn[0].ID != ids[1] || string(withdrawn[0].Metadata) != `"b"` || promptText(withdrawn[0]) != "b" {
+		t.Fatalf("withdrawn = %+v, %v; want b with its metadata", withdrawn, err)
+	}
+	promoted, err := droid.Promote(t.Context())
+	if err != nil || len(promoted) != 2 || promoted[0].ID != ids[0] || promoted[1].ID != ids[2] {
+		t.Fatalf("promoted = %+v, %v; want a, c", promoted, err)
+	}
+	queue, err := droid.Queue(t.Context())
+	if err != nil || len(queue.Prompts) != 0 {
+		t.Fatalf("queue after promote = %+v, %v", queue, err)
+	}
+
+	providers.release()
+	outcome, err := running.Execution.Wait(t.Context())
+	if err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("outcome = %+v, %v", outcome, err)
+	}
+	waitSettled(t, droid)
+	// The promoted prompts steer the running turn: its second model request
+	// carries them, and no other turn starts.
+	requests := providers.requests()
+	if len(requests) != 2 {
+		t.Fatalf("model requests = %d, want 2", len(requests))
+	}
+	var steered []string
+	for _, message := range requests[1].Messages {
+		if user, ok := message.(droids.UserMessage); ok {
+			steered = append(steered, user.Content[0].(droids.TextInput).Text)
+		}
+	}
+	if !slices.Equal(steered, []string{"block first", "a", "c"}) {
+		t.Fatalf("second request user messages = %v, want block first, a, c", steered)
+	}
+}
+
+func TestQueueWaitsAfterRestartUntilStarted(t *testing.T) {
+	t.Run("memory", func(t *testing.T) {
+		store := droids.NewMemoryStore()
+		exerciseQueueRestart(t, func() droids.Store { return store })
+	})
+	t.Run("sqlite", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "queue.sqlite")
+		exerciseQueueRestart(t, func() droids.Store {
+			store, err := sqlitestore.Open(t.Context(), sqlitestore.Options{Path: path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			return store
+		})
+	})
+}
+
+func exerciseQueueRestart(t *testing.T, openStore func() droids.Store) {
+	providers := newQueueProviders()
+	firstStore := openStore()
+	first := spawnQueueDroid(t, "queue_restart", firstStore, providers, nil)
+	if _, err := first.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	providers.waitStarted(t, "block first")
+	options := droids.QueueOptions{AdmissionKey: "client_send_restart", Metadata: json.RawMessage(`{"kept":true}`)}
+	queued, err := first.Enqueue(t.Context(), textInput("queued before restart"), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The prompt body is its own runtime record, so commits that rewrite the
+	// runtime state do not rewrite it.
+	persisted, err := firstStore.State(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bodies []string
+	for _, record := range persisted.RuntimeState {
+		if record.Kind == "queued_prompt" {
+			bodies = append(bodies, record.ID)
+		}
+	}
+	if !slices.Equal(bodies, []string{string(queued.Prompt.ID)}) {
+		t.Fatalf("queued prompt records = %v, want [%s]", bodies, queued.Prompt.ID)
+	}
+	if err := first.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if closer, ok := firstStore.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	second := spawnQueueDroid(t, "queue_restart", openStore(), providers, nil)
+	queue, err := second.Queue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !queue.Held || len(queue.Prompts) != 1 || queue.Prompts[0].ID != queued.Prompt.ID || string(queue.Prompts[0].Metadata) != `{"kept":true}` || promptText(queue.Prompts[0]) != "queued before restart" {
+		t.Fatalf("restored queue = %+v, want the held prompt with its metadata", queue)
+	}
+	replayed, err := second.Enqueue(t.Context(), textInput("queued before restart"), options)
+	if err != nil || !replayed.Replayed || replayed.Prompt.ID != queued.Prompt.ID {
+		t.Fatalf("replay after restart = %+v, %v", replayed, err)
+	}
+	// Settling the interrupted turn leaves the held queue waiting.
+	if err := second.Abort(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, second)
+	if got := providers.userTexts(); !slices.Equal(got, []string{"block first"}) {
+		t.Fatalf("turn prompts after abort = %v, want no queued turn", got)
+	}
+
+	handle, err := second.StartQueue(t.Context())
+	if err != nil || handle == nil {
+		t.Fatalf("StartQueue = %v, %v; want a started turn", handle, err)
+	}
+	if outcome, err := handle.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("queued outcome = %+v, %v", outcome, err)
+	}
+	if got := providers.userTexts(); !slices.Equal(got, []string{"block first", "queued before restart"}) {
+		t.Fatalf("turn prompts = %v", got)
+	}
+	if handle, err := second.StartQueue(t.Context()); err != nil || handle != nil {
+		t.Fatalf("StartQueue on an empty queue = %v, %v", handle, err)
+	}
+}
+
+func TestQueueEnqueueReleasesAHeldQueue(t *testing.T) {
+	store := droids.NewMemoryStore()
+	providers := newQueueProviders()
+	first := spawnQueueDroid(t, "queue_release", store, providers, nil)
+	if _, err := first.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	providers.waitStarted(t, "block first")
+	if _, err := first.Enqueue(t.Context(), textInput("older"), droids.QueueOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	second := spawnQueueDroid(t, "queue_release", store, providers, nil)
+	if err := second.Abort(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	admission, err := second.Enqueue(t.Context(), textInput("newer"), droids.QueueOptions{})
+	if err != nil || admission.Execution != nil {
+		t.Fatalf("admission = %+v, %v; want it queued behind the older prompt", admission, err)
+	}
+	waitSettled(t, second)
+	if got := providers.userTexts(); !slices.Equal(got, []string{"block first", "older", "newer"}) {
+		t.Fatalf("turn prompts = %v, want the older prompt first", got)
+	}
+}
+
+func TestQueueHoldsAfterPolicyStop(t *testing.T) {
+	providers := newQueueProviders()
+	droid := spawnQueueDroid(t, "queue_policy", droids.NewMemoryStore(), providers, nil)
+	running, err := droid.Enqueue(t.Context(), textInput("block policy"), droids.QueueOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers.waitStarted(t, "block policy")
+	if _, err := droid.Enqueue(t.Context(), textInput("after policy"), droids.QueueOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	providers.release()
+	if outcome, err := running.Execution.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionFailed {
+		t.Fatalf("policy outcome = %+v, %v", outcome, err)
+	}
+	waitSettled(t, droid)
+	queue, err := droid.Queue(t.Context())
+	if err != nil || !queue.Held || len(queue.Prompts) != 1 {
+		t.Fatalf("queue after policy stop = %+v, %v; want one held prompt", queue, err)
+	}
+	if got := providers.userTexts(); !slices.Equal(got, []string{"block policy"}) {
+		t.Fatalf("turn prompts = %v", got)
+	}
+}
+
+func TestQueueIsBounded(t *testing.T) {
+	providers := newQueueProviders()
+	droid := spawnQueueDroid(t, "queue_bounded", droids.NewMemoryStore(), providers, nil)
+	if _, err := droid.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	providers.waitStarted(t, "block first")
+	for index := range 64 {
+		if _, err := droid.Enqueue(t.Context(), textInput("queued"), droids.QueueOptions{}); err != nil {
+			t.Fatalf("enqueue %d: %v", index, err)
+		}
+	}
+	if _, err := droid.Enqueue(t.Context(), textInput("one too many"), droids.QueueOptions{}); !errors.Is(err, droids.ErrBusy) {
+		t.Fatalf("over-capacity error = %v, want busy", err)
+	}
+	if _, err := droid.Enqueue(t.Context(), textInput("bad metadata"), droids.QueueOptions{Metadata: json.RawMessage(`{`)}); err == nil {
+		t.Fatal("invalid metadata was accepted")
+	}
+	if _, err := droid.Withdraw(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	providers.release()
+	waitSettled(t, droid)
+}
+
+func spawnQueueDroid(t *testing.T, id droids.ConversationID, store droids.Store, providers *queueProviders, started func(droids.TurnID)) *droids.Droid {
+	t.Helper()
+	droid, err := droids.Spawn(t.Context(), id, droids.Config{
+		Store: store, Model: resolvedTestModel(providers, "test/queue"), TurnStarted: started,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	return droid
+}
+
+func waitSettled(t *testing.T, droid *droids.Droid) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if _, err := droid.WaitQuiescent(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func textInput(text string) droids.Input {
+	return droids.Input{Content: []droids.InputContent{droids.TextInput{Text: text}}}
+}
+
+func promptText(prompt droids.QueuedPrompt) string {
+	return prompt.Input.Content[0].(droids.TextInput).Text
+}
+
+func queuedTexts(queue droids.QueueSnapshot) []string {
+	texts := make([]string, 0, len(queue.Prompts))
+	for _, prompt := range queue.Prompts {
+		texts = append(texts, promptText(prompt))
+	}
+	return texts
+}
+
+// queueProviders answers each request from the last user message: text
+// starting with "block" waits until release or cancellation, and text ending
+// in "policy" then ends in a provider policy stop.
+type queueProviders struct {
+	mu        sync.Mutex
+	recorded  []droids.Request
+	started   chan string
+	releaseCh chan struct{}
+	once      sync.Once
+}
+
+func newQueueProviders() *queueProviders {
+	return &queueProviders{started: make(chan string, 128), releaseCh: make(chan struct{})}
+}
+
+func (p *queueProviders) release() { p.once.Do(func() { close(p.releaseCh) }) }
+
+func (p *queueProviders) waitStarted(t *testing.T, text string) {
+	t.Helper()
+	select {
+	case got := <-p.started:
+		if got != text {
+			t.Fatalf("started %q, want %q", got, text)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%q did not start", text)
+	}
+}
+
+func (p *queueProviders) requests() []droids.Request {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.recorded)
+}
+
+// userTexts returns the newest user prompt of each turn's first request.
+func (p *queueProviders) userTexts() []string {
+	var texts []string
+	for _, request := range p.requests() {
+		text := lastUserText(request)
+		if len(texts) == 0 || texts[len(texts)-1] != text {
+			texts = append(texts, text)
+		}
+	}
+	return texts
+}
+
+func lastUserText(request droids.Request) string {
+	for index := len(request.Messages) - 1; index >= 0; index-- {
+		if user, ok := request.Messages[index].(droids.UserMessage); ok {
+			return user.Content[0].(droids.TextInput).Text
+		}
+	}
+	return ""
+}
+
+func (p *queueProviders) Models() []droids.Model { return []droids.Model{p.model()} }
+func (p *queueProviders) Resolve(id string) (droids.Model, error) {
+	if id != "test/queue" {
+		return droids.Model{}, errors.New("unknown model")
+	}
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), p.model())
+}
+func (p *queueProviders) Model(id string) (droids.Model, bool) { return p.model(), id == "test/queue" }
+func (*queueProviders) RefreshModels(context.Context) error    { return nil }
+func (*queueProviders) model() droids.Model {
+	return droids.Model{ID: "queue", Provider: "test", API: droids.ModelAPIOpenAIResponses, ContextWindow: 128_000, MaxOutputTokens: 8_192}
+}
+
+func (p *queueProviders) Stream(ctx context.Context, _ droids.Model, request droids.Request) droids.Stream {
+	p.mu.Lock()
+	p.recorded = append(p.recorded, request)
+	p.mu.Unlock()
+	text := lastUserText(request)
+	message := droids.AssistantMessage{
+		Provider: "test", Model: "queue", StopReason: droids.StopReasonStop,
+		Content: []droids.AssistantContent{droids.TextContent{Text: "done: " + text}},
+	}
+	if strings.HasSuffix(text, "policy") {
+		message.StopReason = droids.StopReasonError
+		message.Content = nil
+		message.Error = &droids.ProviderError{Kind: droids.ProviderTransport, Code: droids.MisalignmentPolicyViolation}
+	}
+	if !strings.HasPrefix(text, "block") {
+		return sdkStaticStream(message)
+	}
+	return &queueBlockingStream{ctx: ctx, message: message, text: text, providers: p}
+}
+
+type queueBlockingStream struct {
+	ctx       context.Context
+	message   droids.AssistantMessage
+	text      string
+	providers *queueProviders
+	result    droids.AssistantMessage
+	mu        sync.Mutex
+}
+
+func (s *queueBlockingStream) Events() <-chan droids.StreamEvent {
+	events := make(chan droids.StreamEvent, 2)
+	go func() {
+		defer close(events)
+		events <- droids.StreamStart{Partial: droids.AssistantMessage{Provider: "test", Model: "queue"}}
+		s.providers.started <- s.text
+		select {
+		case <-s.providers.releaseCh:
+			s.setResult(s.message)
+			if s.message.StopReason == droids.StopReasonError {
+				events <- droids.StreamError{Message: s.message}
+			} else {
+				events <- droids.StreamDone{Message: s.message}
+			}
+		case <-s.ctx.Done():
+			aborted := droids.AssistantMessage{Provider: "test", Model: "queue", StopReason: droids.StopReasonAborted}
+			s.setResult(aborted)
+			events <- droids.StreamError{Message: aborted}
+		}
+	}()
+	return events
+}
+
+func (s *queueBlockingStream) setResult(message droids.AssistantMessage) {
+	s.mu.Lock()
+	s.result = message
+	s.mu.Unlock()
+}
+
+func (s *queueBlockingStream) Result() droids.AssistantMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.result
+}
+
+func TestQueueBlocksOnAPromptThatCannotStartUntilItIsWithdrawn(t *testing.T) {
+	providers := newQueueProviders()
+	store := &failQueuedAdmissionStore{Store: droids.NewMemoryStore()}
+	droid := spawnQueueDroid(t, "queue_blocked", store, providers, nil)
+	running, err := droid.Enqueue(t.Context(), textInput("block first"), droids.QueueOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers.waitStarted(t, "block first")
+	stuck, err := droid.Enqueue(t.Context(), textInput("stuck"), droids.QueueOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := droid.Enqueue(t.Context(), textInput("next"), droids.QueueOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	store.armed.Store(true)
+	providers.release()
+	if _, err := running.Execution.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, droid)
+	queue, err := droid.Queue(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(queue.Blocked, "injected queued admission failure") || !slices.Equal(queuedTexts(queue), []string{"stuck", "next"}) {
+		t.Fatalf("queue = %+v, want stuck blocking next", queue)
+	}
+	if handle, err := droid.StartQueue(t.Context()); err == nil || handle != nil {
+		t.Fatalf("StartQueue on a blocked queue = %v, %v; want the block reported", handle, err)
+	}
+
+	withdrawn, err := droid.Withdraw(t.Context(), stuck.Prompt.ID)
+	if err != nil || len(withdrawn) != 1 {
+		t.Fatalf("withdrawn = %+v, %v", withdrawn, err)
+	}
+	waitSettled(t, droid)
+	if got := providers.userTexts(); !slices.Equal(got, []string{"block first", "next"}) {
+		t.Fatalf("turn prompts = %v, want next to start once stuck was withdrawn", got)
+	}
+	queue, err = droid.Queue(t.Context())
+	if err != nil || queue.Blocked != "" || len(queue.Prompts) != 0 {
+		t.Fatalf("queue = %+v, %v", queue, err)
+	}
+}
+
+// failQueuedAdmissionStore fails, once armed, the commit that starts a turn
+// from the queue.
+type failQueuedAdmissionStore struct {
+	droids.Store
+	armed atomic.Bool
+}
+
+func (s *failQueuedAdmissionStore) Commit(ctx context.Context, request droids.CommitRequest) (droids.CommitResult, error) {
+	for _, event := range request.Events {
+		if event.Kind == "turn.admitted" && strings.Contains(string(event.Payload), "queued_id") && s.armed.CompareAndSwap(true, false) {
+			return droids.CommitResult{}, errors.New("injected queued admission failure")
+		}
+	}
+	return s.Store.Commit(ctx, request)
+}

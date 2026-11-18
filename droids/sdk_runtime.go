@@ -54,7 +54,12 @@ type sdkRuntime struct {
 	contextFlight         *contextMaintenanceFlight
 	// settledFork is the settled boundary last left for a turn or context
 	// compaction. It is nil when none is known since the runtime opened.
-	settledFork    *settledForkBoundary
+	settledFork *settledForkBoundary
+	// queueHeld keeps queued prompts from starting until the application
+	// starts the queue: Spawn restored them, or a turn ended in a policy stop.
+	queueHeld bool
+	// queued holds the bodies of the prompts state.Queue orders.
+	queued         map[QueuedPromptID]durableQueuedPrompt
 	abortPending   bool
 	persistenceErr error
 
@@ -261,6 +266,10 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if err := validateOpenedRuntime(state); err != nil {
 		return nil, err
 	}
+	queued, err := loadQueuedPrompts(opened.Conversation.RuntimeState, state.Queue)
+	if err != nil {
+		return nil, err
+	}
 	boundaryReceipts, err := loadBoundaryReceipts(ctx, config.Store)
 	if err != nil {
 		return nil, err
@@ -274,7 +283,7 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 		revision: opened.Conversation.Revision, lastEvent: opened.Conversation.LastEvent,
 		state: state, forkedFrom: forkedFrom, boundaryReceipts: boundaryReceipts, boundaryConsumptions: boundaryConsumptions,
 		annotationSubmissions: make(map[string]MessageID), changed: make(chan struct{}), shutdownDone: make(chan struct{}),
-		subs: make(map[*sdkSubscription]struct{}),
+		subs: make(map[*sdkSubscription]struct{}), queued: queued,
 	}
 	d.sdk = rt
 	rt.baseRequestConfig = requestConfig
@@ -302,6 +311,7 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if rt.state.Status == ExecutionPaused || rt.state.Status == ExecutionInterrupted {
 		rt.handle = newSDKExecution(rt, rt.state.TurnID)
 	}
+	rt.queueHeld = len(rt.state.Queue) > 0
 	rt.mu.Unlock()
 	return d, nil
 }
@@ -457,7 +467,7 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 		return nil, ErrConflict
 	}
 
-	return rt.startTurnLocked(ctx, &message, options.AdmissionKey, admissionHash, nil, nil)
+	return rt.startTurnLocked(ctx, &message, options.AdmissionKey, admissionHash, nil, nil, "")
 }
 
 // React durably starts a context-only turn from pending external boundaries.
@@ -499,7 +509,7 @@ func (d *Droid) React(ctx context.Context, admissionKey string) (handle Executio
 	if len(rt.state.PendingBoundaries) == 0 {
 		return nil, false, ErrUnsafeContinuation
 	}
-	handle, err = rt.startTurnLocked(ctx, nil, admissionKey, admissionHash, nil, nil)
+	handle, err = rt.startTurnLocked(ctx, nil, admissionKey, admissionHash, nil, nil, "")
 	return handle, false, err
 }
 
@@ -569,7 +579,7 @@ func (d *Droid) ReactTo(ctx context.Context, message BoundaryMessage) (Execution
 	event, _ := lifecycleEvent("boundary.accepted", rt.state.TurnID, rt.state.AttemptID, map[string]any{"id": message.ID, "kind": message.Kind, "source": message.Source})
 	pending := rt.state.PendingBoundaries
 	rt.state.PendingBoundaries = append(append([]durableBoundary(nil), pending...), durableBoundary{Message: wire, Accepted: now})
-	handle, err := rt.startTurnLocked(ctx, nil, "", "", mutations, []EncodedDurableEvent{event})
+	handle, err := rt.startTurnLocked(ctx, nil, "", "", mutations, []EncodedDurableEvent{event}, "")
 	if err != nil {
 		rt.state.PendingBoundaries = pending
 		return nil, err
@@ -590,7 +600,9 @@ func BoundaryFraming(kind, source string) string {
 	return framing + "]"
 }
 
-func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage, admissionKey, admissionHash string, extraMutations []EncodedMutation, extraEvents []EncodedDurableEvent) (ExecutionHandle, error) {
+// startTurnLocked admits a turn. queuedID identifies the queued prompt the
+// turn starts from, if any; the queue itself carries over unchanged.
+func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage, admissionKey, admissionHash string, extraMutations []EncodedMutation, extraEvents []EncodedDurableEvent, queuedID QueuedPromptID) (ExecutionHandle, error) {
 	turnID, err := newTurnID()
 	if err != nil {
 		return nil, err
@@ -613,6 +625,9 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	rt.state.SessionUsageInitialized = before.SessionUsageInitialized
 	rt.state.AdmissionKey = admissionKey
 	rt.state.AdmissionHash = admissionHash
+	rt.state.Queue = before.Queue
+	rt.state.QueueBlocked = before.QueueBlocked
+	rt.state.QueuedPromptID = queuedID
 	if message == nil {
 		rt.state.BoundaryReaction = true
 	}
@@ -668,6 +683,9 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	}
 	rt.state.PendingBoundaries = nil
 	admittedData := map[string]any{}
+	if queuedID != "" {
+		admittedData["queued_id"] = queuedID
+	}
 	acceptedAnnotationSubmission := ""
 	if message != nil {
 		messageID, err := newMessageID()
@@ -1456,6 +1474,7 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 	}
 	pending := PendingInputSnapshot{
 		Steering: len(rt.state.PendingSteering), Boundary: len(rt.state.PendingBoundaries),
+		Queued:     len(rt.state.Queue),
 		Boundaries: make([]PendingBoundarySnapshot, 0, len(rt.state.PendingBoundaries)),
 	}
 	for _, boundary := range rt.state.PendingBoundaries {
@@ -1879,7 +1898,18 @@ func (rt *sdkRuntime) settleLocked(ctx context.Context, status ExecutionStatus, 
 	if rt.handle != nil {
 		rt.handle.complete(outcomeFromState(rt.conversation, rt.state))
 	}
+	// A policy stop leaves queued prompts for the application to restore or
+	// start; any other settlement starts the next one.
+	if policyStopped(rt.state) {
+		rt.queueHeld = rt.queueHeld || len(rt.state.Queue) > 0
+	} else {
+		rt.advanceQueueLocked(ctx)
+	}
 	return nil
+}
+
+func policyStopped(state durableRuntime) bool {
+	return state.Final != nil && state.Final.Message.Error != nil && state.Final.Message.Error.Code == MisalignmentPolicyViolation
 }
 
 func (rt *sdkRuntime) finalizeAbortedModelLocked(status ExecutionStatus) ([]EncodedMutation, []EncodedDurableEvent, error) {

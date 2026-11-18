@@ -355,7 +355,9 @@ type PendingBoundarySnapshot struct {
 
 // PendingInputSnapshot reports durable pending steering and boundary state.
 type PendingInputSnapshot struct {
-	Steering   int
+	Steering int
+	// Queued counts prompts waiting to start turns; Droid.Queue lists them.
+	Queued     int
 	Boundary   int
 	Boundaries []PendingBoundarySnapshot
 }

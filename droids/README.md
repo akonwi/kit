@@ -126,6 +126,23 @@ Calling `Spawn` again with the same conversation ID and Store restores its
 state. Interrupted work is restored as recoverable rather than resumed without
 application supervision.
 
+## Queue prompts
+
+`Enqueue` admits a prompt to start the droid's next turn. When the droid is
+idle and nothing is queued, the prompt starts a turn at once; otherwise it
+waits and starts after the current turn settles, in admission order.
+
+```go
+admission, err := agent.Enqueue(ctx, droids.Input{
+	Content: []droids.InputContent{droids.TextInput{Text: "Then summarize it."}},
+}, droids.QueueOptions{AdmissionKey: "send-42", Metadata: draftJSON})
+```
+
+`Queue` lists the waiting prompts with their metadata, `Withdraw` removes
+them, and `Promote` steers them into the running turn. The queue is durable.
+A queue that `Spawn` restores, or that a provider policy stop leaves behind,
+is held until the application calls `StartQueue` or queues another prompt.
+
 ## Package layout
 
 ```text
