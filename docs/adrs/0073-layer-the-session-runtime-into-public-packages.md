@@ -138,6 +138,10 @@ store.
 - The queue survives restarts, but a restored queue waits until the
   application starts it, so queued work does not run when nobody is attending
   to the conversation. Queuing another prompt on an idle droid starts it.
+- An application that follows the turns its queue starts can have droids
+  track them: each started prompt stays, across restarts, until the
+  application acknowledges it, and the queue waits while too many are
+  unacknowledged.
 
 **Interactions.**
 
@@ -179,7 +183,10 @@ Kit's clients do not; the person answers the interaction first.
 `sessions` keeps no queue or interaction state of its own. Its follow-up
 operations (queue, restore to the composer, promote to steering) and its
 interaction operations (list pending, respond) are thin projections of the
-droid's, for clients and the transport.
+droid's, for clients and the transport. Kit starts a restored queue when it
+loads the session, after resuming any turn a restart interrupted. A session
+loads the first time anything needs it: a client, a peer query, a subagent
+result, an ACP client, or a plugin.
 
 ### Scope
 
