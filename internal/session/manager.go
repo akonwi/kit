@@ -2268,14 +2268,18 @@ func projectExecutionStatus(status droids.ExecutionStatus) RunStatus {
 func (m *Manager) drainRunEvents(subscription droids.Subscription, loaded *runtime, sessionID, turnID, runID string) error {
 	// Once the droid starts another turn from its queue, the cursor stays
 	// before that turn's events, so the subscription that follows the turn
-	// replays them.
-	foreign := false
+	// replays them. Only a turn after this one counts: events recorded while
+	// the droid was idle, such as boundaries, carry the previous turn's ID.
+	settled, foreign := false, false
 	for envelope := range subscription.Events() {
 		loaded.mu.Lock()
 		var appendErr error
 		if envelope.TurnID == droids.TurnID(turnID) {
 			appendErr = loaded.events.append(projectDroidEvent(sessionID, turnID, runID, envelope.Event))
-		} else if envelope.TurnID != "" {
+			if lifecycle, ok := envelope.Event.(droids.LifecycleEvent); ok && lifecycle.Kind == "turn.settled" {
+				settled = true
+			}
+		} else if settled && envelope.TurnID != "" {
 			foreign = true
 		}
 		if !foreign && envelope.Durable && envelope.Sequence > loaded.eventCursor {

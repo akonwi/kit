@@ -1205,3 +1205,51 @@ func TestManagerForkPublishesAttachableChildWithParentLineage(t *testing.T) {
 		t.Fatalf("attached parent = %q", attached.ParentSessionID)
 	}
 }
+
+// A boundary recorded while the session is idle carries the previous turn's
+// ID. The next run must still advance the event cursor past it, or a snapshot
+// taken during that run waits forever.
+func TestSnapshotDuringARunAfterAForkNotifiedTheIdleSession(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &authorityProviders{}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	owner, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPrompt(t.Context(), owner.ID, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Fork(t.Context(), owner.ID, session.ForkInput{}); err != nil {
+		t.Fatal(err)
+	}
+
+	block := make(chan struct{})
+	providers.mu.Lock()
+	providers.block, providers.started = block, make(chan struct{})
+	started := providers.started
+	providers.mu.Unlock()
+	if _, err := manager.StartPrompt(t.Context(), owner.ID, "keep going"); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	snapshot, err := manager.Snapshot(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("snapshot during the run = %v", err)
+	}
+	if snapshot.ActiveRunID == "" {
+		t.Fatal("snapshot during the run reports no active run")
+	}
+	close(block)
+}
