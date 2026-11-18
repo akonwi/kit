@@ -30,6 +30,7 @@ export type ToolIcon =
   | "plugin"
   | "peer"
   | "newSession"
+  | "trash"
   | "tool";
 
 export interface ToolPresentation {
@@ -118,6 +119,28 @@ function changedLines(oldText: string, newText: string): { added: number; remove
     end += 1;
   }
   return { removed: before.length - start - end, added: after.length - start - end };
+}
+
+/**
+ * A delete_session call's title and chip: the sessions it deleted once its
+ * result names them, and otherwise how many sessions it names.
+ */
+function deletedSessions(args: Record<string, unknown>, tool: ToolCall): [string, string | undefined] {
+  const ids = Array.isArray(args.sessionIds) ? args.sessionIds : [];
+  const title = ids.length === 1 ? "Delete session" : "Delete sessions";
+  if (tool.status === "done" && !tool.failed) {
+    const result = parse(tool.output);
+    if (result.declined === true) return [title, "declined"];
+    if (Array.isArray(result.deleted) && result.deleted.length > 0) {
+      const names = result.deleted.map((session: unknown) => {
+        const name = (session as Record<string, unknown> | null)?.name;
+        return typeof name === "string" && name.trim() ? oneLine(name) : "Untitled session";
+      });
+      return [title, names.join(", ")];
+    }
+  }
+  if (ids.length === 0) return [title, undefined];
+  return [title, ids.length === 1 ? "1 session" : `${ids.length} sessions`];
 }
 
 export function presentTool(tool: ToolCall): ToolPresentation {
@@ -306,6 +329,7 @@ export function presentTool(tool: ToolCall): ToolPresentation {
       }
       if (kind === "peer_session") return presentation("Peer session", fallback(), "peer", { timed: true });
       if (kind === "create_session") return presentation("New session", fallback(), "newSession");
+      if (kind === "delete_session") return presentation(...deletedSessions(args, tool), "trash");
       return presentation(
         humanize(tool.name.replace(PLUGIN_PREFIX, "")),
         fallback(),

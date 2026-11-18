@@ -125,6 +125,7 @@ public struct ToolPresentation {
             default: return "Peer session"
             }
         case "create_session": return "Create session"
+        case "delete_session": return DeletedSessionsPresentation(tool).title
         case "change_cwd": return "Change directory"
         case "read": return "Read file"
         case "write":
@@ -193,9 +194,14 @@ public struct ToolPresentation {
         case "subagent_inbox", "read_scratchpad": return nil
         case "edit_scratchpad": return edits.count == 1 ? "1 edit" : "\(edits.count) edits"
         case "peer_session":
-            if string("action") == "discover" { return "available sessions" }
+            if string("action") == "discover" {
+                return args["children"] as? Bool == true ? "child sessions" : "available sessions"
+            }
             return text("message").map(Self.oneLine) ?? text("requestId") ?? text("sessionId")
         case "create_session": return CreatedSessionPresentation(tool).summary
+        case "delete_session":
+            let summary = DeletedSessionsPresentation(tool).summary
+            return summary.isEmpty ? nil : summary
         case "show_image": return text("path") ?? text("caption")
         case "open_url": return text("url")
         case "inspect_image": return text("path")

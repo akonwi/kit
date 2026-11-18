@@ -106,6 +106,38 @@ describe("presentTool", () => {
     });
   });
 
+  test("names the sessions a deletion deleted, or that it was declined", () => {
+    const args = '{"sessionIds":["session_docs","session_api"]}';
+    expect(presentTool(call({ name: "delete_session", arguments: args, status: "running" }))).toEqual({
+      title: "Delete sessions",
+      chip: "2 sessions",
+      icon: "trash",
+      facts: [],
+      path: false,
+      timed: false,
+    });
+    expect(
+      presentTool(
+        call({
+          name: "delete_session",
+          arguments: args,
+          output:
+            '{"deleted":[{"id":"session_fork"},{"id":"session_docs","name":"Docs"}],"message":"Deleted 2 sessions."}',
+        }),
+      ),
+    ).toMatchObject({ title: "Delete sessions", chip: "Untitled session, Docs", icon: "trash" });
+    expect(
+      presentTool(
+        call({
+          name: "delete_session",
+          arguments: '{"sessionIds":["session_docs"]}',
+          output:
+            '{"declined":true,"resolution":"negative_confirmation","message":"The user declined. Nothing was deleted."}',
+        }),
+      ),
+    ).toMatchObject({ title: "Delete session", chip: "declined", icon: "trash" });
+  });
+
   test("shows a built-in tool without a presentation of its own as a tool", () => {
     expect(presentTool(call({ name: "open_url", arguments: '{"url":"https://x"}' }))).toMatchObject({
       title: "Open URL",

@@ -341,6 +341,7 @@ private struct ToolRow: View {
         switch tool.name.lowercased() {
         case "peer_session": return "arrow.left.arrow.right"
         case "create_session": return "plus.square"
+        case "delete_session": return "trash"
         case "show_image", "inspect_image": return "photo"
         case "read": return "doc"
         case "write": return "doc.badge.plus"
@@ -399,7 +400,7 @@ private struct ToolDetail: View {
     /// MCP tools, and session tools show their usual view either way.
     private var failure: Bool {
         tool.failed && tool.bashCommand == nil && presentation.server == nil
-            && !["create_session", "peer_session"].contains(tool.name)
+            && !["create_session", "delete_session", "peer_session"].contains(tool.name)
     }
 
     /// Up to `lineLimit` lines of text, then how many more there are.

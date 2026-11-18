@@ -45,11 +45,12 @@ struct ToolCallDetail: View {
             command
         } else if value.server != nil {
             padded { structured(tool.output) }
-        } else if tool.failed && !["create_session", "peer_session"].contains(tool.name) {
+        } else if tool.failed && !["create_session", "delete_session", "peer_session"].contains(tool.name) {
             padded { mono(output, color: theme.danger) }
         } else {
             switch tool.name {
             case "create_session": padded { created }
+            case "delete_session": padded { deletedSessions }
             case "peer_session": padded { PeerSessionDetail(value: PeerSessionPresentation(tool)) }
             case "read":
                 if value.readContent.isEmpty { padded { note("Empty file") } }
@@ -218,6 +219,23 @@ struct ToolCallDetail: View {
             if let prompt = session.prompt { field("Prompt") { MarkdownView(source: prompt) } }
             if session.failed || session.sessionID == nil {
                 Text(session.result).foregroundStyle(session.failed ? theme.danger : theme.muted).textSelection(.enabled)
+            }
+        }
+    }
+
+    @ViewBuilder private var deletedSessions: some View {
+        let value = DeletedSessionsPresentation(tool)
+        VStack(alignment: .leading, spacing: 6) {
+            if !value.deleted.isEmpty {
+                field("Deleted") { Text(value.deleted.joined(separator: "\n")).textSelection(.enabled) }
+            }
+            ForEach(Array(value.failures.enumerated()), id: \.offset) { _, failure in
+                field("Kept") { Text("\(failure.name): \(failure.reason)").textSelection(.enabled) }
+            }
+            if value.declined {
+                Text("Declined").foregroundStyle(theme.muted)
+            } else if value.failed, let result = value.result {
+                Text(result).foregroundStyle(theme.danger).textSelection(.enabled)
             }
         }
     }

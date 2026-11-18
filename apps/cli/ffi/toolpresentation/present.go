@@ -134,6 +134,9 @@ func present(call Call, arguments map[string]any, path string, result Result) Pr
 		summary := formatArguments(call, arguments)
 		if action == "discover" && summary == "" {
 			summary = "available sessions"
+			if children, _ := arguments["children"].(bool); children {
+				summary = "child sessions"
+			}
 		}
 		return Presentation{Title: title, Summary: summaryOrFallback(call, summary)}
 	case "create_session":
@@ -144,6 +147,8 @@ func present(call Call, arguments map[string]any, path string, result Result) Pr
 			summary += " " + middleDot + " " + strings.TrimSpace(cwd)
 		}
 		return Presentation{Title: "Create session", Summary: summaryOrFallback(call, summary)}
+	case "delete_session":
+		return presentDeleteSession(call, arguments, result)
 	case "subagent":
 		action, _ := arguments["action"].(string)
 		title := map[string]string{
@@ -645,4 +650,48 @@ func bashExecutable(command string) string {
 		return base
 	}
 	return "shell"
+}
+
+// presentDeleteSession names the deleted sessions once the result reports
+// them, and otherwise counts the sessions the call names.
+func presentDeleteSession(call Call, arguments map[string]any, result Result) Presentation {
+	ids, _ := arguments["sessionIds"].([]any)
+	title := "Delete sessions"
+	if len(ids) == 1 {
+		title = "Delete session"
+	}
+	var response struct {
+		Deleted []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"deleted"`
+		Declined bool `json:"declined"`
+	}
+	if result.Succeeded && json.Unmarshal([]byte(result.Text), &response) == nil {
+		if response.Declined {
+			return Presentation{Title: title, Summary: "declined"}
+		}
+		if len(response.Deleted) > 0 {
+			names := make([]string, 0, len(response.Deleted))
+			for _, session := range response.Deleted {
+				name := strings.Join(strings.Fields(session.Name), " ")
+				if name == "" {
+					name = "Untitled session"
+				}
+				names = append(names, name)
+			}
+			summary := strings.Join(names, ", ")
+			if utf8.RuneCountInString(summary) > maxArgumentSummaryLength {
+				summary = truncateRunes(summary, maxArgumentSummaryLength-1) + ellipsis
+			}
+			return Presentation{Title: title, Summary: summary}
+		}
+	}
+	if len(ids) == 0 {
+		return Presentation{Title: title, Summary: summaryOrFallback(call, "")}
+	}
+	if len(ids) == 1 {
+		return Presentation{Title: title, Summary: "1 session"}
+	}
+	return Presentation{Title: title, Summary: strconv.Itoa(len(ids)) + " sessions"}
 }

@@ -250,6 +250,7 @@ private struct ToolCallRow: View {
         switch tool.name.lowercased() {
         case "peer_session": return .arrowsLeftRight
         case "create_session": return .plusSquare
+        case "delete_session": return .trash
         case "show_image", "inspect_image": return .image
         case "read": return .file
         case "write": return .filePlus
