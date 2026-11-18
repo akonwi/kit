@@ -1,21 +1,22 @@
 import Foundation
 import Observation
 
-@MainActor @Observable final class BashOperation {
-    private(set) var pending = false
-    private(set) var stopping = false
-    private(set) var error: String?
-    private(set) var executions: [BashExecution] = []
+@MainActor @Observable public final class BashOperation {
+    public init() {}
+    public private(set) var pending = false
+    public private(set) var stopping = false
+    public private(set) var error: String?
+    public private(set) var executions: [BashExecution] = []
     private var anchors: [String: String] = [:]
     /// Settled executions the transcript has shown on its own. It owns their
     /// placement from then on, so they are never re-inserted. Updated while
     /// merging, which presentation reads; it is not observed.
     @ObservationIgnored private var recorded: Set<String> = []
     private var admission: (id: String, draft: String)?
-    var active: BashExecution? { executions.last(where: \.running) }
-    var unresolved: Bool { admission != nil }
-    func dismissError() { error = nil }
-    func record(_ execution: BashExecution) {
+    public var active: BashExecution? { executions.last(where: \.running) }
+    public var unresolved: Bool { admission != nil }
+    public func dismissError() { error = nil }
+    public func record(_ execution: BashExecution) {
         if let index = executions.firstIndex(where: { $0.id == execution.id }) {
             if !executions[index].running && execution.running { return }
             executions[index] = execution
@@ -25,7 +26,7 @@ import Observation
         anchors = anchors.filter { retained.contains($0.key) }
         recorded.formIntersection(retained)
     }
-    func submit(_ draft: String, session: String, client: any BashClient,
+    public func submit(_ draft: String, session: String, client: any BashClient,
                 after messageID: String? = nil, acknowledged: @MainActor (String) -> Void) async {
         guard !pending, active == nil, let command = BashDraft(draft), !command.command.isEmpty else { return }
         // Reuse the identity after an uncertain request, even across explicit retries.
@@ -54,7 +55,7 @@ import Observation
             record(execution); admission = nil; acknowledged(draft)
         } catch { self.error = error.localizedDescription }
     }
-    func merge(into messages: [TranscriptMessage]) -> [TranscriptMessage] {
+    public func merge(into messages: [TranscriptMessage]) -> [TranscriptMessage] {
         // Only records count: an excluded command never becomes one, and its
         // row may be another projection's placement.
         for row in messages {
@@ -65,11 +66,11 @@ import Observation
             row.bash?.running != false || !execution.running
         }
     }
-    func retry(session: String, client: any BashClient, acknowledged: @MainActor (String) -> Void) async {
+    public func retry(session: String, client: any BashClient, acknowledged: @MainActor (String) -> Void) async {
         guard let admission else { return }
         await submit(admission.draft, session: session, client: client, acknowledged: acknowledged)
     }
-    func resolve(session: String, client: any BashClient, acknowledged: @MainActor (String) -> Void) async {
+    public func resolve(session: String, client: any BashClient, acknowledged: @MainActor (String) -> Void) async {
         guard let admission, !pending else { return }
         pending = true
         defer { pending = false }
@@ -84,7 +85,7 @@ import Observation
             record(value); self.admission = nil; error = nil; acknowledged(admission.draft)
         } catch { self.error = error.localizedDescription }
     }
-    func abort(session: String, id: String, client: any BashClient) async {
+    public func abort(session: String, id: String, client: any BashClient) async {
         guard !stopping else { return }
         stopping = true; error = nil
         defer { stopping = false }
