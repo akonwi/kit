@@ -56367,6 +56367,3870 @@ public enum Operations {
             }
         }
     }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/files/content`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)`.
+    public enum DownloadFile {
+        public static let id: Swift.String = "downloadFile"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/path/sessionID`.
+                public var sessionID: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - sessionID:
+                public init(sessionID: Swift.String) {
+                    self.sessionID = sessionID
+                }
+            }
+            public var path: Operations.DownloadFile.Input.Path
+            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/query/workspaceId`.
+                public var workspaceId: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/query/path`.
+                public var path: Swift.String
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - workspaceId:
+                ///   - path:
+                public init(
+                    workspaceId: Swift.String? = nil,
+                    path: Swift.String
+                ) {
+                    self.workspaceId = workspaceId
+                    self.path = path
+                }
+            }
+            public var query: Operations.DownloadFile.Input.Query
+            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/header/X-Kit-Instance-ID`.
+                public var xKitInstanceID: Swift.String
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/header/X-Kit-Protocol-Version`.
+                @frozen public enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
+                    case _51 = 51
+                }
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/header/X-Kit-Protocol-Version`.
+                public var xKitProtocolVersion: Operations.DownloadFile.Input.Headers.XKitProtocolVersionPayload
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/header/Range`.
+                public var range: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/header/If-Range`.
+                public var ifRange: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/header/If-Match`.
+                public var ifMatch: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/header/If-None-Match`.
+                public var ifNoneMatch: Swift.String?
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DownloadFile.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - xKitProtocolVersion:
+                ///   - range:
+                ///   - ifRange:
+                ///   - ifMatch:
+                ///   - ifNoneMatch:
+                ///   - accept:
+                public init(
+                    xKitInstanceID: Swift.String,
+                    xKitProtocolVersion: Operations.DownloadFile.Input.Headers.XKitProtocolVersionPayload,
+                    range: Swift.String? = nil,
+                    ifRange: Swift.String? = nil,
+                    ifMatch: Swift.String? = nil,
+                    ifNoneMatch: Swift.String? = nil,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DownloadFile.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.xKitProtocolVersion = xKitProtocolVersion
+                    self.range = range
+                    self.ifRange = ifRange
+                    self.ifMatch = ifMatch
+                    self.ifNoneMatch = ifNoneMatch
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DownloadFile.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - query:
+            ///   - headers:
+            public init(
+                path: Operations.DownloadFile.Input.Path,
+                query: Operations.DownloadFile.Input.Query,
+                headers: Operations.DownloadFile.Input.Headers
+            ) {
+                self.path = path
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/Cache-Control`.
+                    public var cacheControl: Swift.String
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String,
+                        xKitFilePath: Swift.String,
+                        xKitSessionID: Swift.String,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.DownloadFile.Output.Ok.Headers
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/200/content/application\/octet-stream`.
+                    case binary(OpenAPIRuntime.HTTPBody)
+                    /// The associated value of the enum case if `self` is `.binary`.
+                    ///
+                    /// - Throws: An error if `self` is not `.binary`.
+                    /// - SeeAlso: `.binary`.
+                    public var binary: OpenAPIRuntime.HTTPBody {
+                        get throws {
+                            switch self {
+                            case let .binary(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                ///   - body: Received HTTP response body
+                public init(
+                    headers: Operations.DownloadFile.Output.Ok.Headers,
+                    body: Operations.DownloadFile.Output.Ok.Body
+                ) {
+                    self.headers = headers
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.DownloadFile.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.DownloadFile.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PartialContent: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/Cache-Control`.
+                    public var cacheControl: Swift.String
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String,
+                        xKitFilePath: Swift.String,
+                        xKitSessionID: Swift.String,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.DownloadFile.Output.PartialContent.Headers
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/206/content/application\/octet-stream`.
+                    case binary(OpenAPIRuntime.HTTPBody)
+                    /// The associated value of the enum case if `self` is `.binary`.
+                    ///
+                    /// - Throws: An error if `self` is not `.binary`.
+                    /// - SeeAlso: `.binary`.
+                    public var binary: OpenAPIRuntime.HTTPBody {
+                        get throws {
+                            switch self {
+                            case let .binary(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.PartialContent.Body
+                /// Creates a new `PartialContent`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                ///   - body: Received HTTP response body
+                public init(
+                    headers: Operations.DownloadFile.Output.PartialContent.Headers,
+                    body: Operations.DownloadFile.Output.PartialContent.Body
+                ) {
+                    self.headers = headers
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/206`.
+            ///
+            /// HTTP response code: `206 partialContent`.
+            case partialContent(Operations.DownloadFile.Output.PartialContent)
+            /// The associated value of the enum case if `self` is `.partialContent`.
+            ///
+            /// - Throws: An error if `self` is not `.partialContent`.
+            /// - SeeAlso: `.partialContent`.
+            public var partialContent: Operations.DownloadFile.Output.PartialContent {
+                get throws {
+                    switch self {
+                    case let .partialContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "partialContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotModified: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/Cache-Control`.
+                    public var cacheControl: Swift.String?
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String?
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String?
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String?
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/304/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String? = nil,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String? = nil,
+                        xKitFilePath: Swift.String? = nil,
+                        xKitSessionID: Swift.String? = nil,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.DownloadFile.Output.NotModified.Headers
+                /// Creates a new `NotModified`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                public init(headers: Operations.DownloadFile.Output.NotModified.Headers = .init()) {
+                    self.headers = headers
+                }
+            }
+            /// The client's copy, named by If-None-Match, is current.
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/304`.
+            ///
+            /// HTTP response code: `304 notModified`.
+            case notModified(Operations.DownloadFile.Output.NotModified)
+            /// The associated value of the enum case if `self` is `.notModified`.
+            ///
+            /// - Throws: An error if `self` is not `.notModified`.
+            /// - SeeAlso: `.notModified`.
+            public var notModified: Operations.DownloadFile.Output.NotModified {
+                get throws {
+                    switch self {
+                    case let .notModified(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notModified",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content/json/error/WorkspaceInvalidPathError`.
+                            case invalidPath(Components.Schemas.WorkspaceInvalidPathError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content/json/error/WorkspaceNotFileError`.
+                            case notFile(Components.Schemas.WorkspaceNotFileError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content/json/error/WorkspaceSymlinkTraversalError`.
+                            case symlinkTraversal(Components.Schemas.WorkspaceSymlinkTraversalError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_path":
+                                    self = .invalidPath(try .init(from: decoder))
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                case "not_file":
+                                    self = .notFile(try .init(from: decoder))
+                                case "symlink_traversal":
+                                    self = .symlinkTraversal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidPath(value):
+                                    try value.encode(to: encoder)
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                case let .notFile(value):
+                                    try value.encode(to: encoder)
+                                case let .symlinkTraversal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.BadRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.BadRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.BadRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/400/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.BadRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.BadRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Bad Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.DownloadFile.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.DownloadFile.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/401/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/401/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/401/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/401/content/json/error/WorkspaceCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.WorkspaceCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/401/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/401/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.DownloadFile.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.DownloadFile.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/403/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/403/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/403/content/json/error/WorkspaceOutsideWorkspaceError`.
+                            case outsideWorkspace(Components.Schemas.WorkspaceOutsideWorkspaceError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/403/content/json/error/WorkspacePermissionDeniedError`.
+                            case permissionDenied(Components.Schemas.WorkspacePermissionDeniedError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                case "outside_workspace":
+                                    self = .outsideWorkspace(try .init(from: decoder))
+                                case "permission_denied":
+                                    self = .permissionDenied(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                case let .outsideWorkspace(value):
+                                    try value.encode(to: encoder)
+                                case let .permissionDenied(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/403/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/403/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.DownloadFile.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.DownloadFile.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/404/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/404/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/404/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/404/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.DownloadFile.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.DownloadFile.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/409/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/409/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/409/content/json/error/ConflictError`.
+                            case conflict(Components.Schemas.ConflictError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/409/content/json/error/WorkspaceStaleWorkspaceError`.
+                            case staleWorkspace(Components.Schemas.WorkspaceStaleWorkspaceError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "conflict":
+                                    self = .conflict(try .init(from: decoder))
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                case "stale_workspace":
+                                    self = .staleWorkspace(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .conflict(value):
+                                    try value.encode(to: encoder)
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                case let .staleWorkspace(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/409/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/409/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.DownloadFile.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.DownloadFile.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionFailed: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/Cache-Control`.
+                    public var cacheControl: Swift.String?
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String?
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String?
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String?
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/412/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String? = nil,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String? = nil,
+                        xKitFilePath: Swift.String? = nil,
+                        xKitSessionID: Swift.String? = nil,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.DownloadFile.Output.PreconditionFailed.Headers
+                /// Creates a new `PreconditionFailed`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                public init(headers: Operations.DownloadFile.Output.PreconditionFailed.Headers = .init()) {
+                    self.headers = headers
+                }
+            }
+            /// The file no longer has the revision If-Match names.
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/412`.
+            ///
+            /// HTTP response code: `412 preconditionFailed`.
+            case preconditionFailed(Operations.DownloadFile.Output.PreconditionFailed)
+            /// The associated value of the enum case if `self` is `.preconditionFailed`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionFailed`.
+            /// - SeeAlso: `.preconditionFailed`.
+            public var preconditionFailed: Operations.DownloadFile.Output.PreconditionFailed {
+                get throws {
+                    switch self {
+                    case let .preconditionFailed(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionFailed",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ContentTooLarge: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/413/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/413/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/413/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/413/content/json/error/WorkspaceLimitExceededError`.
+                            case limitExceeded(Components.Schemas.WorkspaceLimitExceededError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "limit_exceeded":
+                                    self = .limitExceeded(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .limitExceeded(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/413/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/413/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.ContentTooLarge.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.ContentTooLarge.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.ContentTooLarge.Body
+                /// Creates a new `ContentTooLarge`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.ContentTooLarge.Body) {
+                    self.body = body
+                }
+            }
+            /// Request Entity Too Large
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/413`.
+            ///
+            /// HTTP response code: `413 contentTooLarge`.
+            case contentTooLarge(Operations.DownloadFile.Output.ContentTooLarge)
+            /// The associated value of the enum case if `self` is `.contentTooLarge`.
+            ///
+            /// - Throws: An error if `self` is not `.contentTooLarge`.
+            /// - SeeAlso: `.contentTooLarge`.
+            public var contentTooLarge: Operations.DownloadFile.Output.ContentTooLarge {
+                get throws {
+                    switch self {
+                    case let .contentTooLarge(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "contentTooLarge",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct RangeNotSatisfiable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/Cache-Control`.
+                    public var cacheControl: Swift.String?
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String?
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String?
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String?
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/416/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String? = nil,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String? = nil,
+                        xKitFilePath: Swift.String? = nil,
+                        xKitSessionID: Swift.String? = nil,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.DownloadFile.Output.RangeNotSatisfiable.Headers
+                /// Creates a new `RangeNotSatisfiable`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                public init(headers: Operations.DownloadFile.Output.RangeNotSatisfiable.Headers = .init()) {
+                    self.headers = headers
+                }
+            }
+            /// The Range starts past the end of the file.
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/416`.
+            ///
+            /// HTTP response code: `416 rangeNotSatisfiable`.
+            case rangeNotSatisfiable(Operations.DownloadFile.Output.RangeNotSatisfiable)
+            /// The associated value of the enum case if `self` is `.rangeNotSatisfiable`.
+            ///
+            /// - Throws: An error if `self` is not `.rangeNotSatisfiable`.
+            /// - SeeAlso: `.rangeNotSatisfiable`.
+            public var rangeNotSatisfiable: Operations.DownloadFile.Output.RangeNotSatisfiable {
+                get throws {
+                    switch self {
+                    case let .rangeNotSatisfiable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "rangeNotSatisfiable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/421/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/421/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/421/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/421/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/421/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.DownloadFile.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            public var misdirectedRequest: Operations.DownloadFile.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/426/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/426/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/426/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/426/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/426/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.DownloadFile.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            public var upgradeRequired: Operations.DownloadFile.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/429/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/429/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/429/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/429/content/json/error/WorkspaceCapacityExceededError`.
+                            case capacityExceeded(Components.Schemas.WorkspaceCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/429/content/json/error/WorkspaceRateLimitedError`.
+                            case rateLimited(Components.Schemas.WorkspaceRateLimitedError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "capacity_exceeded":
+                                    self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/429/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/429/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.DownloadFile.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Operations.DownloadFile.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/500/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/500/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/500/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/500/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/500/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.DownloadFile.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            public var internalServerError: Operations.DownloadFile.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/503/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/503/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/503/content/json/error/UnavailableError`.
+                            case unavailable(Components.Schemas.UnavailableError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "unavailable":
+                                    self = .unavailable(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .unavailable(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/503/content/json/error`.
+                        public var error: Operations.DownloadFile.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.DownloadFile.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DownloadFile.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/GET/responses/503/content/application\/json`.
+                    case json(Operations.DownloadFile.Output.ServiceUnavailable.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.DownloadFile.Output.ServiceUnavailable.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadFile.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadFile.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Service Unavailable
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.DownloadFile.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.DownloadFile.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case binary
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/octet-stream":
+                    self = .binary
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .binary:
+                    return "application/octet-stream"
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .binary,
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `HEAD /v1/sessions/{sessionID}/files/content`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)`.
+    public enum CheckFile {
+        public static let id: Swift.String = "checkFile"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/path/sessionID`.
+                public var sessionID: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - sessionID:
+                public init(sessionID: Swift.String) {
+                    self.sessionID = sessionID
+                }
+            }
+            public var path: Operations.CheckFile.Input.Path
+            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/query/workspaceId`.
+                public var workspaceId: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/query/path`.
+                public var path: Swift.String
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - workspaceId:
+                ///   - path:
+                public init(
+                    workspaceId: Swift.String? = nil,
+                    path: Swift.String
+                ) {
+                    self.workspaceId = workspaceId
+                    self.path = path
+                }
+            }
+            public var query: Operations.CheckFile.Input.Query
+            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/header`.
+            public struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/header/X-Kit-Instance-ID`.
+                public var xKitInstanceID: Swift.String
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/header/X-Kit-Protocol-Version`.
+                @frozen public enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
+                    case _51 = 51
+                }
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/header/X-Kit-Protocol-Version`.
+                public var xKitProtocolVersion: Operations.CheckFile.Input.Headers.XKitProtocolVersionPayload
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/header/Range`.
+                public var range: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/header/If-Range`.
+                public var ifRange: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/header/If-Match`.
+                public var ifMatch: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/header/If-None-Match`.
+                public var ifNoneMatch: Swift.String?
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CheckFile.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - xKitProtocolVersion:
+                ///   - range:
+                ///   - ifRange:
+                ///   - ifMatch:
+                ///   - ifNoneMatch:
+                ///   - accept:
+                public init(
+                    xKitInstanceID: Swift.String,
+                    xKitProtocolVersion: Operations.CheckFile.Input.Headers.XKitProtocolVersionPayload,
+                    range: Swift.String? = nil,
+                    ifRange: Swift.String? = nil,
+                    ifMatch: Swift.String? = nil,
+                    ifNoneMatch: Swift.String? = nil,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CheckFile.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.xKitProtocolVersion = xKitProtocolVersion
+                    self.range = range
+                    self.ifRange = ifRange
+                    self.ifMatch = ifMatch
+                    self.ifNoneMatch = ifNoneMatch
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CheckFile.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - query:
+            ///   - headers:
+            public init(
+                path: Operations.CheckFile.Input.Path,
+                query: Operations.CheckFile.Input.Query,
+                headers: Operations.CheckFile.Input.Headers
+            ) {
+                self.path = path
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/Cache-Control`.
+                    public var cacheControl: Swift.String
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/200/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String,
+                        xKitFilePath: Swift.String,
+                        xKitSessionID: Swift.String,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.CheckFile.Output.Ok.Headers
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                public init(headers: Operations.CheckFile.Output.Ok.Headers) {
+                    self.headers = headers
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.CheckFile.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.CheckFile.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotModified: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/Cache-Control`.
+                    public var cacheControl: Swift.String?
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String?
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String?
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String?
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/304/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String? = nil,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String? = nil,
+                        xKitFilePath: Swift.String? = nil,
+                        xKitSessionID: Swift.String? = nil,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.CheckFile.Output.NotModified.Headers
+                /// Creates a new `NotModified`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                public init(headers: Operations.CheckFile.Output.NotModified.Headers = .init()) {
+                    self.headers = headers
+                }
+            }
+            /// The client's copy, named by If-None-Match, is current.
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/304`.
+            ///
+            /// HTTP response code: `304 notModified`.
+            case notModified(Operations.CheckFile.Output.NotModified)
+            /// The associated value of the enum case if `self` is `.notModified`.
+            ///
+            /// - Throws: An error if `self` is not `.notModified`.
+            /// - SeeAlso: `.notModified`.
+            public var notModified: Operations.CheckFile.Output.NotModified {
+                get throws {
+                    switch self {
+                    case let .notModified(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notModified",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content/json/error/WorkspaceInvalidPathError`.
+                            case invalidPath(Components.Schemas.WorkspaceInvalidPathError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content/json/error/WorkspaceNotFileError`.
+                            case notFile(Components.Schemas.WorkspaceNotFileError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content/json/error/WorkspaceSymlinkTraversalError`.
+                            case symlinkTraversal(Components.Schemas.WorkspaceSymlinkTraversalError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_path":
+                                    self = .invalidPath(try .init(from: decoder))
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                case "not_file":
+                                    self = .notFile(try .init(from: decoder))
+                                case "symlink_traversal":
+                                    self = .symlinkTraversal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidPath(value):
+                                    try value.encode(to: encoder)
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                case let .notFile(value):
+                                    try value.encode(to: encoder)
+                                case let .symlinkTraversal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content/json/error`.
+                        public var error: Operations.CheckFile.Output.BadRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.BadRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.BadRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/400/content/application\/json`.
+                    case json(Operations.CheckFile.Output.BadRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.BadRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Bad Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.CheckFile.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.CheckFile.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/401/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/401/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/401/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/401/content/json/error/WorkspaceCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.WorkspaceCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/401/content/json/error`.
+                        public var error: Operations.CheckFile.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/401/content/application\/json`.
+                    case json(Operations.CheckFile.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.CheckFile.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.CheckFile.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/403/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/403/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/403/content/json/error/WorkspaceOutsideWorkspaceError`.
+                            case outsideWorkspace(Components.Schemas.WorkspaceOutsideWorkspaceError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/403/content/json/error/WorkspacePermissionDeniedError`.
+                            case permissionDenied(Components.Schemas.WorkspacePermissionDeniedError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                case "outside_workspace":
+                                    self = .outsideWorkspace(try .init(from: decoder))
+                                case "permission_denied":
+                                    self = .permissionDenied(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                case let .outsideWorkspace(value):
+                                    try value.encode(to: encoder)
+                                case let .permissionDenied(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/403/content/json/error`.
+                        public var error: Operations.CheckFile.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/403/content/application\/json`.
+                    case json(Operations.CheckFile.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.CheckFile.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.CheckFile.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/404/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/404/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/404/content/json/error`.
+                        public var error: Operations.CheckFile.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/404/content/application\/json`.
+                    case json(Operations.CheckFile.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.CheckFile.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.CheckFile.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/409/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/409/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/409/content/json/error/ConflictError`.
+                            case conflict(Components.Schemas.ConflictError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/409/content/json/error/WorkspaceStaleWorkspaceError`.
+                            case staleWorkspace(Components.Schemas.WorkspaceStaleWorkspaceError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "conflict":
+                                    self = .conflict(try .init(from: decoder))
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                case "stale_workspace":
+                                    self = .staleWorkspace(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .conflict(value):
+                                    try value.encode(to: encoder)
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                case let .staleWorkspace(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/409/content/json/error`.
+                        public var error: Operations.CheckFile.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/409/content/application\/json`.
+                    case json(Operations.CheckFile.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.CheckFile.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.CheckFile.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionFailed: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/Cache-Control`.
+                    public var cacheControl: Swift.String?
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String?
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String?
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String?
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/412/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String? = nil,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String? = nil,
+                        xKitFilePath: Swift.String? = nil,
+                        xKitSessionID: Swift.String? = nil,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.CheckFile.Output.PreconditionFailed.Headers
+                /// Creates a new `PreconditionFailed`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                public init(headers: Operations.CheckFile.Output.PreconditionFailed.Headers = .init()) {
+                    self.headers = headers
+                }
+            }
+            /// The file no longer has the revision If-Match names.
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/412`.
+            ///
+            /// HTTP response code: `412 preconditionFailed`.
+            case preconditionFailed(Operations.CheckFile.Output.PreconditionFailed)
+            /// The associated value of the enum case if `self` is `.preconditionFailed`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionFailed`.
+            /// - SeeAlso: `.preconditionFailed`.
+            public var preconditionFailed: Operations.CheckFile.Output.PreconditionFailed {
+                get throws {
+                    switch self {
+                    case let .preconditionFailed(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionFailed",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ContentTooLarge: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/413/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/413/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/413/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/413/content/json/error/WorkspaceLimitExceededError`.
+                            case limitExceeded(Components.Schemas.WorkspaceLimitExceededError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "limit_exceeded":
+                                    self = .limitExceeded(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .limitExceeded(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/413/content/json/error`.
+                        public var error: Operations.CheckFile.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/413/content/application\/json`.
+                    case json(Operations.CheckFile.Output.ContentTooLarge.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.ContentTooLarge.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.ContentTooLarge.Body
+                /// Creates a new `ContentTooLarge`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.ContentTooLarge.Body) {
+                    self.body = body
+                }
+            }
+            /// Request Entity Too Large
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/413`.
+            ///
+            /// HTTP response code: `413 contentTooLarge`.
+            case contentTooLarge(Operations.CheckFile.Output.ContentTooLarge)
+            /// The associated value of the enum case if `self` is `.contentTooLarge`.
+            ///
+            /// - Throws: An error if `self` is not `.contentTooLarge`.
+            /// - SeeAlso: `.contentTooLarge`.
+            public var contentTooLarge: Operations.CheckFile.Output.ContentTooLarge {
+                get throws {
+                    switch self {
+                    case let .contentTooLarge(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "contentTooLarge",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct RangeNotSatisfiable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// bytes, or none for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/Accept-Ranges`.
+                    public var acceptRanges: Swift.String?
+                    /// private, no-cache; or no-store for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/Cache-Control`.
+                    public var cacheControl: Swift.String?
+                    /// attachment, with the file's base name.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// The byte range a 206 or 416 response describes.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/Content-Range`.
+                    public var contentRange: Swift.String?
+                    /// sandbox; default-src 'none'.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/Content-Security-Policy`.
+                    public var contentSecurityPolicy: Swift.String?
+                    /// The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/ETag`.
+                    public var eTag: Swift.String?
+                    /// nosniff.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/X-Content-Type-Options`.
+                    public var xContentTypeOptions: Swift.String?
+                    /// The file's modification time, RFC 3339 with nanoseconds.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/X-Kit-File-Modified-At`.
+                    public var xKitFileModifiedAt: Swift.String?
+                    /// The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/X-Kit-File-Path`.
+                    public var xKitFilePath: Swift.String?
+                    /// The session.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/X-Kit-Session-ID`.
+                    public var xKitSessionID: Swift.String?
+                    /// Workspace files only: the workspace the file was resolved in.
+                    ///
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/416/headers/X-Kit-Workspace-ID`.
+                    public var xKitWorkspaceID: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - acceptRanges: bytes, or none for a file that reports a size of zero.
+                    ///   - cacheControl: private, no-cache; or no-store for a file that reports a size of zero.
+                    ///   - contentDisposition: attachment, with the file's base name.
+                    ///   - contentRange: The byte range a 206 or 416 response describes.
+                    ///   - contentSecurityPolicy: sandbox; default-src 'none'.
+                    ///   - eTag: The file's revision as a strong validator; absent for a file that reports a size of zero.
+                    ///   - xContentTypeOptions: nosniff.
+                    ///   - xKitFileModifiedAt: The file's modification time, RFC 3339 with nanoseconds.
+                    ///   - xKitFilePath: The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8.
+                    ///   - xKitSessionID: The session.
+                    ///   - xKitWorkspaceID: Workspace files only: the workspace the file was resolved in.
+                    public init(
+                        acceptRanges: Swift.String? = nil,
+                        cacheControl: Swift.String? = nil,
+                        contentDisposition: Swift.String? = nil,
+                        contentRange: Swift.String? = nil,
+                        contentSecurityPolicy: Swift.String? = nil,
+                        eTag: Swift.String? = nil,
+                        xContentTypeOptions: Swift.String? = nil,
+                        xKitFileModifiedAt: Swift.String? = nil,
+                        xKitFilePath: Swift.String? = nil,
+                        xKitSessionID: Swift.String? = nil,
+                        xKitWorkspaceID: Swift.String? = nil
+                    ) {
+                        self.acceptRanges = acceptRanges
+                        self.cacheControl = cacheControl
+                        self.contentDisposition = contentDisposition
+                        self.contentRange = contentRange
+                        self.contentSecurityPolicy = contentSecurityPolicy
+                        self.eTag = eTag
+                        self.xContentTypeOptions = xContentTypeOptions
+                        self.xKitFileModifiedAt = xKitFileModifiedAt
+                        self.xKitFilePath = xKitFilePath
+                        self.xKitSessionID = xKitSessionID
+                        self.xKitWorkspaceID = xKitWorkspaceID
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.CheckFile.Output.RangeNotSatisfiable.Headers
+                /// Creates a new `RangeNotSatisfiable`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                public init(headers: Operations.CheckFile.Output.RangeNotSatisfiable.Headers = .init()) {
+                    self.headers = headers
+                }
+            }
+            /// The Range starts past the end of the file.
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/416`.
+            ///
+            /// HTTP response code: `416 rangeNotSatisfiable`.
+            case rangeNotSatisfiable(Operations.CheckFile.Output.RangeNotSatisfiable)
+            /// The associated value of the enum case if `self` is `.rangeNotSatisfiable`.
+            ///
+            /// - Throws: An error if `self` is not `.rangeNotSatisfiable`.
+            /// - SeeAlso: `.rangeNotSatisfiable`.
+            public var rangeNotSatisfiable: Operations.CheckFile.Output.RangeNotSatisfiable {
+                get throws {
+                    switch self {
+                    case let .rangeNotSatisfiable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "rangeNotSatisfiable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/421/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/421/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/421/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/421/content/json/error`.
+                        public var error: Operations.CheckFile.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/421/content/application\/json`.
+                    case json(Operations.CheckFile.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.CheckFile.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            public var misdirectedRequest: Operations.CheckFile.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/426/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/426/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/426/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/426/content/json/error`.
+                        public var error: Operations.CheckFile.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/426/content/application\/json`.
+                    case json(Operations.CheckFile.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.CheckFile.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            public var upgradeRequired: Operations.CheckFile.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/429/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/429/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/429/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/429/content/json/error/WorkspaceCapacityExceededError`.
+                            case capacityExceeded(Components.Schemas.WorkspaceCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/429/content/json/error/WorkspaceRateLimitedError`.
+                            case rateLimited(Components.Schemas.WorkspaceRateLimitedError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "capacity_exceeded":
+                                    self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/429/content/json/error`.
+                        public var error: Operations.CheckFile.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/429/content/application\/json`.
+                    case json(Operations.CheckFile.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.CheckFile.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Operations.CheckFile.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/500/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/500/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/500/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/500/content/json/error`.
+                        public var error: Operations.CheckFile.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/500/content/application\/json`.
+                    case json(Operations.CheckFile.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.CheckFile.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            public var internalServerError: Operations.CheckFile.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/503/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/503/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/503/content/json/error/UnavailableError`.
+                            case unavailable(Components.Schemas.UnavailableError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "unavailable":
+                                    self = .unavailable(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .unavailable(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/503/content/json/error`.
+                        public var error: Operations.CheckFile.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.CheckFile.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CheckFile.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/content/HEAD/responses/503/content/application\/json`.
+                    case json(Operations.CheckFile.Output.ServiceUnavailable.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CheckFile.Output.ServiceUnavailable.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CheckFile.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CheckFile.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Service Unavailable
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CheckFile.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CheckFile.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
     public enum ForkSession {

@@ -149,6 +149,12 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/files`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/get(getSessionFileIndex)`.
     func getSessionFileIndex(_ input: Operations.GetSessionFileIndex.Input) async throws -> Operations.GetSessionFileIndex.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/files/content`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)`.
+    func downloadFile(_ input: Operations.DownloadFile.Input) async throws -> Operations.DownloadFile.Output
+    /// - Remark: HTTP `HEAD /v1/sessions/{sessionID}/files/content`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)`.
+    func checkFile(_ input: Operations.CheckFile.Input) async throws -> Operations.CheckFile.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
     func forkSession(_ input: Operations.ForkSession.Input) async throws -> Operations.ForkSession.Output
@@ -762,6 +768,32 @@ extension APIProtocol {
         headers: Operations.GetSessionFileIndex.Input.Headers
     ) async throws -> Operations.GetSessionFileIndex.Output {
         try await getSessionFileIndex(Operations.GetSessionFileIndex.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/files/content`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)`.
+    public func downloadFile(
+        path: Operations.DownloadFile.Input.Path,
+        query: Operations.DownloadFile.Input.Query,
+        headers: Operations.DownloadFile.Input.Headers
+    ) async throws -> Operations.DownloadFile.Output {
+        try await downloadFile(Operations.DownloadFile.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `HEAD /v1/sessions/{sessionID}/files/content`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)`.
+    public func checkFile(
+        path: Operations.CheckFile.Input.Path,
+        query: Operations.CheckFile.Input.Query,
+        headers: Operations.CheckFile.Input.Headers
+    ) async throws -> Operations.CheckFile.Output {
+        try await checkFile(Operations.CheckFile.Input(
             path: path,
             query: query,
             headers: headers

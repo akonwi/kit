@@ -5865,6 +5865,8 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/DownloadedFile`.
+        public typealias DownloadedFile = Swift.String
         /// - Remark: Generated from `#/components/schemas/EventsCredentialExpiredError`.
         public struct EventsCredentialExpiredError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/EventsCredentialExpiredError/code`.

@@ -13386,6 +13386,1231 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/files/content`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/get(downloadFile)`.
+    public func downloadFile(_ input: Operations.DownloadFile.Input) async throws -> Operations.DownloadFile.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.DownloadFile.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/v1/sessions/{}/files/content",
+                    parameters: [
+                        input.path.sessionID
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "X-Kit-Instance-ID",
+                    value: input.headers.xKitInstanceID
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "X-Kit-Protocol-Version",
+                    value: input.headers.xKitProtocolVersion
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "workspaceId",
+                    value: input.query.workspaceId
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "path",
+                    value: input.query.path
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "Range",
+                    value: input.headers.range
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "If-Range",
+                    value: input.headers.ifRange
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "If-Match",
+                    value: input.headers.ifMatch
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "If-None-Match",
+                    value: input.headers.ifNoneMatch
+                )
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let headers: Operations.DownloadFile.Output.Ok.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/octet-stream"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/octet-stream":
+                        body = try converter.getResponseBodyAsBinary(
+                            OpenAPIRuntime.HTTPBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .binary(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
+                case 206:
+                    let headers: Operations.DownloadFile.Output.PartialContent.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.PartialContent.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/octet-stream"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/octet-stream":
+                        body = try converter.getResponseBodyAsBinary(
+                            OpenAPIRuntime.HTTPBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .binary(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .partialContent(.init(
+                        headers: headers,
+                        body: body
+                    ))
+                case 304:
+                    let headers: Operations.DownloadFile.Output.NotModified.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    return .notModified(.init(headers: headers))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.BadRequest.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 401:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.Unauthorized.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.Unauthorized.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unauthorized(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.Forbidden.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.NotFound.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.Conflict.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                case 412:
+                    let headers: Operations.DownloadFile.Output.PreconditionFailed.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    return .preconditionFailed(.init(headers: headers))
+                case 413:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.ContentTooLarge.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.ContentTooLarge.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .contentTooLarge(.init(body: body))
+                case 416:
+                    let headers: Operations.DownloadFile.Output.RangeNotSatisfiable.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    return .rangeNotSatisfiable(.init(headers: headers))
+                case 421:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.MisdirectedRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.MisdirectedRequest.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .misdirectedRequest(.init(body: body))
+                case 426:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.UpgradeRequired.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.UpgradeRequired.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .upgradeRequired(.init(body: body))
+                case 429:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.TooManyRequests.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.TooManyRequests.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .tooManyRequests(.init(body: body))
+                case 500:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.InternalServerError.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.InternalServerError.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .internalServerError(.init(body: body))
+                case 503:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.DownloadFile.Output.ServiceUnavailable.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.DownloadFile.Output.ServiceUnavailable.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .serviceUnavailable(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// - Remark: HTTP `HEAD /v1/sessions/{sessionID}/files/content`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/content/head(checkFile)`.
+    public func checkFile(_ input: Operations.CheckFile.Input) async throws -> Operations.CheckFile.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.CheckFile.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/v1/sessions/{}/files/content",
+                    parameters: [
+                        input.path.sessionID
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .head
+                )
+                suppressMutabilityWarning(&request)
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "X-Kit-Instance-ID",
+                    value: input.headers.xKitInstanceID
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "X-Kit-Protocol-Version",
+                    value: input.headers.xKitProtocolVersion
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "workspaceId",
+                    value: input.query.workspaceId
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "path",
+                    value: input.query.path
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "Range",
+                    value: input.headers.range
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "If-Range",
+                    value: input.headers.ifRange
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "If-Match",
+                    value: input.headers.ifMatch
+                )
+                try converter.setHeaderFieldAsURI(
+                    in: &request.headerFields,
+                    name: "If-None-Match",
+                    value: input.headers.ifNoneMatch
+                )
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let headers: Operations.CheckFile.Output.Ok.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getRequiredHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    return .ok(.init(headers: headers))
+                case 304:
+                    let headers: Operations.CheckFile.Output.NotModified.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    return .notModified(.init(headers: headers))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.BadRequest.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 401:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.Unauthorized.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.Unauthorized.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unauthorized(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.Forbidden.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.NotFound.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.Conflict.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                case 412:
+                    let headers: Operations.CheckFile.Output.PreconditionFailed.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    return .preconditionFailed(.init(headers: headers))
+                case 413:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.ContentTooLarge.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.ContentTooLarge.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .contentTooLarge(.init(body: body))
+                case 416:
+                    let headers: Operations.CheckFile.Output.RangeNotSatisfiable.Headers = .init(
+                        acceptRanges: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Accept-Ranges",
+                            as: Swift.String.self
+                        ),
+                        cacheControl: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Cache-Control",
+                            as: Swift.String.self
+                        ),
+                        contentDisposition: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Disposition",
+                            as: Swift.String.self
+                        ),
+                        contentRange: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Range",
+                            as: Swift.String.self
+                        ),
+                        contentSecurityPolicy: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "Content-Security-Policy",
+                            as: Swift.String.self
+                        ),
+                        eTag: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "ETag",
+                            as: Swift.String.self
+                        ),
+                        xContentTypeOptions: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Content-Type-Options",
+                            as: Swift.String.self
+                        ),
+                        xKitFileModifiedAt: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Modified-At",
+                            as: Swift.String.self
+                        ),
+                        xKitFilePath: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-File-Path",
+                            as: Swift.String.self
+                        ),
+                        xKitSessionID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Session-ID",
+                            as: Swift.String.self
+                        ),
+                        xKitWorkspaceID: try converter.getOptionalHeaderFieldAsURI(
+                            in: response.headerFields,
+                            name: "X-Kit-Workspace-ID",
+                            as: Swift.String.self
+                        )
+                    )
+                    return .rangeNotSatisfiable(.init(headers: headers))
+                case 421:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.MisdirectedRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.MisdirectedRequest.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .misdirectedRequest(.init(body: body))
+                case 426:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.UpgradeRequired.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.UpgradeRequired.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .upgradeRequired(.init(body: body))
+                case 429:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.TooManyRequests.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.TooManyRequests.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .tooManyRequests(.init(body: body))
+                case 500:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.InternalServerError.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.InternalServerError.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .internalServerError(.init(body: body))
+                case 503:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CheckFile.Output.ServiceUnavailable.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Operations.CheckFile.Output.ServiceUnavailable.Body.JsonPayload.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .serviceUnavailable(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
     public func forkSession(_ input: Operations.ForkSession.Input) async throws -> Operations.ForkSession.Output {
