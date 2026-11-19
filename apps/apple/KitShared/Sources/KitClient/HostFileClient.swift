@@ -69,7 +69,7 @@ extension ViewedFile {
     /// and keeps within the advertised bounds.
     public static func project(_ read: Components.Schemas.HostFileRead, session: String, requested: String) throws -> ViewedFile {
         func matches(_ path: String) -> Bool {
-            path.hasPrefix("/") && (requested.hasPrefix("~") || path == FilePaths.clean(requested))
+            FilePaths.hostPath(path, answers: requested)
         }
         switch read {
         case .text(let text):

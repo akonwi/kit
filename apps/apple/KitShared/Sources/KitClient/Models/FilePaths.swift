@@ -102,6 +102,36 @@ public enum FilePaths {
         return code
     }
 
+    /// The one spelling of a host path, or nil when it is neither absolute
+    /// nor home-relative: absolute paths cleaned, and home-relative ones in
+    /// `~` form, `~/a/b` without empty or `.` components, and `..` resolved
+    /// except where it climbs out of the home (`~/../b`), as the server
+    /// expands them.
+    public static func normalizedHost(_ path: String) -> String? {
+        if path.hasPrefix("/") { return clean(path) }
+        guard path == "~" || path.hasPrefix("~/") else { return nil }
+        var parts: [Substring] = []
+        for part in path.dropFirst().split(separator: "/", omittingEmptySubsequences: true) {
+            switch part {
+            case ".": continue
+            case "..": if let last = parts.last, last != ".." { parts.removeLast() } else { parts.append(part) }
+            default: parts.append(part)
+            }
+        }
+        return parts.isEmpty ? "~" : "~/" + parts.joined(separator: "/")
+    }
+
+    /// Whether `path`, a server's answer, can be the file `requested` names:
+    /// the same absolute path, cleaned, or one ending in the normalized
+    /// home-relative path. The server's home isn't known here, so `~`, or a
+    /// request that climbs out of the home, accepts any clean absolute path.
+    public static func hostPath(_ path: String, answers requested: String) -> Bool {
+        guard path.hasPrefix("/"), path == clean(path), let requested = normalizedHost(requested) else { return false }
+        if requested.hasPrefix("/") { return path == requested }
+        if requested == "~" || requested == "~/.." || requested.hasPrefix("~/../") { return true }
+        return path.hasSuffix(requested.dropFirst())
+    }
+
     /// An absolute path without empty, `.`, or `..` components, as Go's
     /// `filepath.Clean` makes one. Symbolic links are left alone: the path
     /// may name a file on another machine.

@@ -165,7 +165,7 @@ public struct ServerIdentity: Equatable, Sendable {
     }
 }
 
-public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, HostFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, ClientPluginHostingClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionAttentionClient, SessionForkClient, ComposerClient, AttachmentClient {
+public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, HostFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, ClientPluginHostingClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionAttentionClient, SessionForkClient, ComposerClient, AttachmentClient, FileDownloadClient {
     public let serverID: String
     public let isDemo = false
     public let endpoint: URL
@@ -1087,6 +1087,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     }
 
     public func readHostFile(_ id: String, path: String) async throws -> ViewedFile {
+        let path = FilePaths.normalizedHost(path) ?? path
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               path.hasPrefix("/") || path == "~" || path.hasPrefix("~/"), !path.contains("\0"),
               path.utf8.count <= 4096 else { throw ViewedFileError.invalidPath }
@@ -1307,6 +1308,124 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
                   SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == info.sha256 else { throw ClientError.invalidPayload }
             return data
         } onCancel: { bytes.task.cancel() }
+    }
+
+    public func downloadFile(_ id: String, target: FileDownloadTarget, cachedRevision: String?, maxBytes: Int64?,
+                             to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) async throws -> FileDownloadResult {
+        let target = target.normalized
+        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }), target.isValid,
+              cachedRevision.map(Self.validRevision) ?? true, (maxBytes ?? 1) > 0 else { throw FileDownloadError.invalidTarget }
+        var request = try request("v1/sessions/" + id + "/files/content", query: target.query)
+        // The download store owns caching; URLSession's cache would answer a
+        // 304 with its own copy, and keep file content in its memory.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let cachedRevision { request.setValue("\"" + cachedRevision + "\"", forHTTPHeaderField: "If-None-Match") }
+        if let maxBytes { request.setValue("bytes=0-" + String(maxBytes - 1), forHTTPHeaderField: "Range") }
+        let (bytes, response) = try await TransportFailures.bytes(session, request, reporting: failures)
+        defer { bytes.task.cancel() }
+        return try await withTaskCancellationHandler {
+            guard let http = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
+            switch http.statusCode {
+            case 200, 206, 304: break
+            case 404:
+                // A declared not_found decodes; an older server's unrouted 404 doesn't.
+                var body = Data()
+                for try await byte in bytes {
+                    body.append(byte)
+                    if body.count == 64 * 1024 { break }
+                }
+                guard let decoded = try? JSONSerialization.jsonObject(with: body) as? [String: Any], decoded["error"] is [String: Any] else {
+                    throw FileDownloadError.serverNeedsUpdate
+                }
+                throw FileDownloadError.response(404)
+            default: throw FileDownloadError.response(http.statusCode)
+            }
+            let info = try Self.downloadInfo(http, session: id, target: target)
+            if http.statusCode == 304 {
+                guard let cachedRevision, info.revision == cachedRevision else { throw ClientError.invalidPayload }
+                return FileDownloadResult(info: info, notModified: true, bytes: 0, truncated: false)
+            }
+            // The whole file, a range from its start, or, for a file without a
+            // length, its content until the limit.
+            var size = info.size
+            var expected: Int64? = info.size
+            if http.statusCode == 206 {
+                guard maxBytes != nil, let range = Self.contentRange(http), range.start == 0,
+                      range.length == http.expectedContentLength else { throw ClientError.invalidPayload }
+                size = range.size; expected = range.length
+            }
+            let file = FileDownloadInfo(session: info.session, workspace: info.workspace, path: info.path,
+                                        revision: info.revision, size: size, modifiedAt: info.modifiedAt)
+            guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]),
+                  let handle = try? FileHandle(forWritingTo: destination) else { throw ClientError.invalidPayload }
+            defer { try? handle.close() }
+            var written: Int64 = 0
+            var truncated = false
+            var buffer = Data(capacity: 64 * 1024)
+            func flush() throws {
+                guard !buffer.isEmpty else { return }
+                try handle.write(contentsOf: buffer)
+                written += Int64(buffer.count)
+                buffer.removeAll(keepingCapacity: true)
+                progress?(written, size)
+            }
+            for try await byte in bytes {
+                if let maxBytes, written + Int64(buffer.count) >= maxBytes { truncated = true; break }
+                buffer.append(byte)
+                if buffer.count == 64 * 1024 { try flush() }
+            }
+            try flush()
+            try Task.checkCancellation()
+            if let expected, !truncated {
+                guard written == expected else { throw ClientError.invalidPayload }
+                truncated = http.statusCode == 206 && expected < (size ?? expected)
+            }
+            return FileDownloadResult(info: file, notModified: false, bytes: written, truncated: truncated)
+        } onCancel: { bytes.task.cancel() }
+    }
+
+    /// A file revision: a workspace `file_` or a host `hostfile_` token.
+    static func validRevision(_ value: String) -> Bool {
+        FileDownloadInfo.validToken(value, prefix: "file_") || FileDownloadInfo.validToken(value, prefix: "hostfile_")
+    }
+
+    /// Reads and checks a download's identity headers against its request.
+    static func downloadInfo(_ http: HTTPURLResponse, session: String, target: FileDownloadTarget) throws -> FileDownloadInfo {
+        func header(_ name: String) -> String? { http.value(forHTTPHeaderField: name) }
+        guard header("X-Kit-Session-ID") == session, let encoded = header("X-Kit-File-Path"),
+              let path = encoded.removingPercentEncoding, let modifiedAt = header("X-Kit-File-Modified-At"), !modifiedAt.isEmpty else {
+            throw ClientError.invalidPayload
+        }
+        var revision: String?
+        if let etag = header("ETag") {
+            guard etag.count > 2, etag.hasPrefix("\""), etag.hasSuffix("\""), validRevision(String(etag.dropFirst().dropLast())) else {
+                throw ClientError.invalidPayload
+            }
+            revision = String(etag.dropFirst().dropLast())
+        }
+        let workspace = header("X-Kit-Workspace-ID")
+        switch target {
+        case .workspace(let id, let requested):
+            guard workspace == id, path == requested, revision.map({ $0.hasPrefix("file_") }) ?? true else { throw ClientError.invalidPayload }
+        case .host(let requested):
+            guard workspace == nil, FilePaths.hostPath(path, answers: requested),
+                  revision.map({ $0.hasPrefix("hostfile_") }) ?? true else { throw ClientError.invalidPayload }
+        }
+        // A file without a revision has no length; one with a revision has one.
+        let length = http.expectedContentLength
+        let size: Int64? = revision == nil ? nil : (http.statusCode == 200 && length > 0 ? length : nil)
+        if revision != nil, http.statusCode == 200, size == nil { throw ClientError.invalidPayload }
+        return FileDownloadInfo(session: session, workspace: workspace, path: path, revision: revision, size: size, modifiedAt: modifiedAt)
+    }
+
+    /// Reads `bytes start-end/size` from a 206 response.
+    static func contentRange(_ http: HTTPURLResponse) -> (start: Int64, length: Int64, size: Int64)? {
+        guard let value = http.value(forHTTPHeaderField: "Content-Range"), value.hasPrefix("bytes ") else { return nil }
+        let parts = value.dropFirst(6).split(separator: "/")
+        guard parts.count == 2, let size = Int64(parts[1]) else { return nil }
+        let span = parts[0].split(separator: "-")
+        guard span.count == 2, let start = Int64(span[0]), let end = Int64(span[1]), start >= 0, end >= start, end < size else { return nil }
+        return (start, end - start + 1, size)
     }
 
     public func respond(_ id: String, input: WireInteractionResponse) async throws {
