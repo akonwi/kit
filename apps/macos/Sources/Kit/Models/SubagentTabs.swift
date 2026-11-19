@@ -42,8 +42,10 @@ struct SubagentTabs: Equatable {
             changes.close = open.filter { current[$0] == nil }
             return changes
         }
-        let order = Self.startOrder(messages)
-        changes.open = current.filter { !seen.contains($0.value) }.map(\.key).sorted { a, b in
+        let started = current.filter { !seen.contains($0.value) }.map(\.key)
+        // Most updates start nothing, or one agent; only more need the transcript.
+        let order = started.count > 1 ? Self.startOrder(messages) : [:]
+        changes.open = started.sorted { a, b in
             switch (order[a], order[b]) {
             case let (x?, y?): return x < y
             case (_?, nil): return true
@@ -56,15 +58,17 @@ struct SubagentTabs: Equatable {
         return changes
     }
 
-    /// Each agent's position among the transcript's Start agent calls, as
-    /// the iOS app orders its agent strip. Other calls naming an agent, such
-    /// as a message to it, don't count.
+    /// The position of each agent's latest Start agent call in the
+    /// transcript, so an agent started again is placed by its new start.
+    /// Other calls naming an agent, such as a message to it, don't count.
     static func startOrder(_ messages: [TranscriptMessage]) -> [String: Int] {
         var order: [String: Int] = [:]
+        var position = 0
         for message in messages where message.role == "tools" {
             for tool in message.tools where isStart(tool) {
-                guard case .agent(let name)? = ToolPresentation(tool).link, order[name] == nil else { continue }
-                order[name] = order.count
+                guard case .agent(let name)? = ToolPresentation(tool).link else { continue }
+                order[name] = position
+                position += 1
             }
         }
         return order

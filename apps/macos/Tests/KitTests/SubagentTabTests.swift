@@ -210,6 +210,20 @@ private actor RosterClient: SessionClient {
         store.detach()
     }
 
+    @Test func anAgentStartedAgainIsPlacedByItsNewStart() async throws {
+        let (store, client) = try await attached(excerpt("Attached", [
+            ("reviewer", "c1", "idle"), ("helper", nil, "inactive"),
+        ], started: ["reviewer"]))
+        try await deliver(excerpt("Reviewer dismissed", [("reviewer", nil, "inactive"), ("helper", nil, "inactive")],
+                                  started: ["reviewer"]), to: client, store)
+        // Helper starts, then reviewer starts again, in one update.
+        try await deliver(excerpt("Both started", [("reviewer", "c3", "running"), ("helper", "c2", "running")],
+                                  started: ["reviewer", "helper", "reviewer"]), to: client, store)
+        #expect(panes(store) == [.conversation, .agent("helper"), .agent("reviewer")])
+        #expect(store.ui.workspace.selected == .conversation)
+        store.detach()
+    }
+
     @Test func aRestoredTabWhoseConversationEndedMeanwhileCloses() async throws {
         // Last time, reviewer's and helper's tabs were open beside Agent's,
         // with helper's selected; helper was dismissed while the app was quit.
