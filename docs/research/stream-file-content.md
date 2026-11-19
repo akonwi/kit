@@ -117,7 +117,8 @@ stat operation considered earlier.
 | Shape | A standard HTTP file download: `GET` with `ETag`, `Content-Length`, conditional requests, `Range` resume, and `HEAD` |
 | File changes mid-download | Deliver what was read, then mark it changed |
 | How the client learns of a change | `HEAD` after the download, comparing the `ETag` |
-| Routes | One `GET …/files/content`. The path's form picks the kind: relative with `workspaceId` for a workspace file, absolute or `~` for a host file. |
+| Routes | One `GET …/files/content`. The presence of `workspaceId` picks the kind: with it, a workspace file; without it, a host file. The path's form isn't used, because a workspace folder named `~` would collide with home-relative paths. |
+| ETag | The metadata revision, as a strong validator. The ADR states its limit: resume and `HEAD` are exactly as reliable as the revision. |
 | Content check | None. Any regular file's bytes are served, and the client decides what it can show. |
 | Size cap | None on the server. Clients cancel at their own budget. |
 | First client | macOS |

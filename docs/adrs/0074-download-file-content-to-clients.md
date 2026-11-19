@@ -18,64 +18,80 @@ A client that shows a file wants what a web browser does with a URL: download
 the bytes once, keep them in a local cache, check cheaply whether the cache is
 still current, and resume a download that was cut off. HTTP already defines
 all of this. Validators, conditional requests, ranges, and `HEAD` are
-implemented by Go's `http.ServeContent`, `URLSession`, and `fetch`. Kit
-already serves attachment bytes on a raw route with identity in headers.
+understood by `URLSession`, `fetch`, and Go's HTTP client. Kit already serves
+attachment bytes on a raw route with identity in headers.
 
 ## Decision
 
 ### One download route
 
-`downloadFile` (`GET /v1/sessions/{sessionID}/files/content?path=…`) serves
-the complete bytes of a file. The form of `path` selects the kind of file;
-the two forms never overlap:
+`downloadFile` (`GET /v1/sessions/{sessionID}/files/content`) serves the
+complete bytes of one file. Whether the request names a workspace selects the
+kind of file:
 
-- **Workspace file:** a canonical workspace path (ADR 0019), which is always
-  relative. The request must also name `workspaceId`. Resolution,
-  containment, and symbolic link rules are those of `readWorkspaceFile`.
-- **Host file:** an absolute, `~`, or `~/…` path (ADR 0050). The request
-  must not name `workspaceId`. The access policy is that of `readHostFile`.
+- **Workspace file:** the query has `workspaceId` and `path`. `path` is
+  always a canonical workspace path (ADR 0019), including paths such as `~`
+  or `~/notes` that name entries in the workspace. Resolution, containment,
+  and symbolic link rules are those of `readWorkspaceFile`.
+- **Host file:** the query has `path` and no `workspaceId`. `path` is
+  absolute, `~`, or `~/…` (ADR 0050), normalized exactly as `readHostFile`
+  normalizes it, so both operations name the same file. Other forms,
+  including relative paths and `~user`, are `invalid_path`. The access
+  policy is that of `readHostFile`.
 
-An absolute path inside the working directory is a host file. A client that
-wants the workspace revision, for example to anchor annotations, sends the
-relative workspace path.
+A request is validated only as the kind it names. A path that fails one
+kind's validation is never retried as the other kind. An absolute path inside
+the working directory, sent without `workspaceId`, is a host file. A client
+that wants the workspace revision, for example to anchor annotations, sends
+the workspace path with `workspaceId`.
 
 The server serves any regular file. It doesn't sniff, classify, or validate
 the content, and it doesn't reject binary files. Deciding what can be shown,
 such as UTF-8 text or a supported image, is the client's job. Directories,
-devices, sockets, and FIFOs fail with `not_file` before they're opened, as
-they do for reads.
+devices, sockets, and FIFOs fail with `not_file`. The server checks the path's
+type before opening it, opens with `O_NONBLOCK` and `O_NOCTTY`, and checks the
+type and identity of the opened descriptor before sending anything. These
+steps narrow a replacement race but don't remove it, which is also true of
+`readHostFile`.
 
-Each file is an ordinary HTTP resource. The server serves it from the opened
-descriptor with standard HTTP semantics:
+### HTTP semantics
 
-- `ETag` is a strong validator: the file's revision in quotes. For workspace
-  files it is the `file_` revision that directory entries, reads, and
-  annotations already use. Host files get a `hostfile_` revision derived the
-  same way, from the cleaned absolute path, size, high-resolution mtime,
-  device, inode, and ctime.
-- `Content-Length` is the file's size when it was opened, and the body is
-  exactly that many bytes. A file that grows during the download is served
-  to its length at open.
-- `If-None-Match` answers `304 Not Modified` when the client's cached
+Each file is an ordinary HTTP resource, served from the opened descriptor.
+
+- **`ETag`** is the file's revision in quotes, as a strong validator. For
+  workspace files it is the `file_` revision that directory entries, reads,
+  and annotations already use. Host files get a `hostfile_` revision derived
+  the same way, from the cleaned absolute path, size, nanosecond mtime,
+  device, inode, and ctime. The revision is derived from metadata, not
+  content, so it is as strong as the guarantee ADR 0019 states. On
+  filesystems that record ctime in nanoseconds, such as APFS and ext4, every
+  write changes it. On filesystems with coarse timestamps, an in-place write
+  within the same tick can keep the revision unchanged.
+- **`Content-Length`** is the size reported by the opened descriptor. The
+  body is that many bytes, read from offset zero. A file that grows during
+  the download is served to its length at open.
+- **`If-None-Match`** answers `304 Not Modified` when the client's cached
   revision is current.
-- `If-Match` answers `412 Precondition Failed` when the file no longer has
-  the expected revision, before any content is sent.
-- `Range` and `If-Range` answer `206 Partial Content`, so a client can resume
-  an interrupted download of the same revision. A stale `If-Range` gets the
-  whole file with `200`. An unsatisfiable range gets `416`. Clients send
-  `If-Range` with every `Range` request, so a resumed download never joins
-  bytes from two revisions.
-- `HEAD` returns the same headers with no body. It is the cheap way to check
-  a file's current revision.
-- `Last-Modified` isn't sent: one-second precision would make
-  `If-Modified-Since` miss changes. Clients revalidate with the ETag only.
+- **`If-Match`** answers `412 Precondition Failed`, before any content, when
+  the file no longer has the expected revision.
+- **One `Range`** with `If-Range` answers `206 Partial Content` with that
+  byte range. Clients send `If-Range` with every `Range`. A stale `If-Range`
+  gets the whole file with `200`. A request for more than one range also
+  gets the whole file with `200`. An unsatisfiable range gets `416` with
+  `Content-Range: bytes */size`.
+- **`HEAD`** returns the headers a `GET` would, with no body. It is the cheap
+  way to check a file's current revision.
+- **`Last-Modified` isn't sent.** Its one-second precision would let
+  `If-Modified-Since` miss changes, so clients revalidate with the ETag only.
 
-A file that reports a size of zero is served with chunked transfer until
-end of file, without `Content-Length` or range support (`Accept-Ranges:
-none`). Some host files, such as those under `/proc`, report zero whatever
-their content.
+A file that reports a size of zero, such as many files under `/proc`, is
+served as an unknown-length transfer until end of file. It has no
+`Content-Length`, and ranges aren't supported (`Accept-Ranges: none`).
 
-Every success, `304`, and `412` carries:
+### Headers
+
+`200`, `206`, and `HEAD` responses carry all of the following. `304`, `412`,
+and `416` carry `ETag`, the `X-Kit-*` headers, and `Cache-Control`.
 
 | Header | Value |
 | --- | --- |
@@ -84,8 +100,9 @@ Every success, `304`, and `412` carries:
 | `X-Kit-Workspace-ID` | workspace files only: the workspace the file was resolved in |
 | `X-Kit-File-Path` | the canonical workspace path, or the cleaned absolute host path with `~` expanded, percent-encoded as UTF-8 |
 | `X-Kit-File-Modified-At` | RFC 3339 time with nanoseconds |
-| `Content-Type` | `application/octet-stream` |
 | `Cache-Control` | `private, no-cache` |
+| `Accept-Ranges` | `bytes`, or `none` for a file that reports a size of zero |
+| `Content-Type` | `application/octet-stream` |
 | `X-Content-Type-Options` | `nosniff` |
 | `Content-Security-Policy` | `sandbox; default-src 'none'` |
 | `Content-Disposition` | `attachment`, with the file's base name as an RFC 6266 `filename` and an RFC 5987 `filename*` |
@@ -93,80 +110,102 @@ Every success, `304`, and `412` carries:
 The content isn't compressed, so ranges are byte offsets into the file.
 
 The route serves arbitrary bytes, including HTML and SVG, from the same
-origin as the browser client (ADR 0059). The last four headers stop a
-browser that opens a download URL directly from rendering or running the
-content with that origin's authority, as they do for attachments.
+origin as the browser client (ADR 0059). The last four headers stop a browser
+that opens a download URL directly from rendering or running the content
+with that origin's authority, as they do for attachments. They don't protect
+a document the client itself builds from downloaded bytes, such as a `blob:`
+URL. The browser client keeps ADR 0059's rule that it never renders HTML,
+SVG, or other active content as a document with its origin.
 
 ### Consistency
 
-The workspace ID is checked when the request is admitted. A mismatch fails
-with `stale_workspace` before any content is sent. The revision is taken from
-the opened descriptor, and every precondition is evaluated against it.
+For a workspace file, the server checks `workspaceId` when it admits the
+request. It checks again after the file is resolved and opened, immediately
+before it sends headers. A mismatch at either check fails with
+`stale_workspace` and sends no content. The revision is taken from the
+opened descriptor, and every precondition is evaluated against it. Once
+headers are sent, the descriptor keeps serving the file that was admitted,
+even if the cwd changes.
 
 A download is not a snapshot. If the file changes after the headers are sent:
 
-- **Replaced or renamed:** the descriptor keeps reading the original file,
-  so the body is coherent.
+- **Replaced or renamed:** the descriptor keeps reading the original file, so
+  the body is coherent.
 - **Grown:** the body stops at the length at open.
 - **Truncated below the length at open:** the body ends short of
-  `Content-Length`. The client sees a failed transfer and retries.
+  `Content-Length`. The client sees a failed transfer.
 - **Written in place:** the body may mix old and new bytes.
 
-After a complete download, a client that needs to know whether the bytes
-are current sends `HEAD` and compares the `ETag` with the one it
+After every download, whole or resumed, a client that needs to know whether
+its bytes are current sends `HEAD` and compares the `ETag` with the one it
 downloaded. If they differ, or `HEAD` fails with `stale_workspace` or
-`not_found`, the client keeps what it downloaded, marks it as changed while
-loading, and may download again. The revision has the limits ADR 0019
-states: an in-place write that changes no observable metadata isn't
-detected.
+`not_found`, the client keeps what it has, marks it as changed while loading,
+and may download again. A resumed download is exactly as reliable as the
+revision. A change that leaves the revision unchanged isn't detected by a
+resume or by `HEAD`, just as it isn't detected by `readWorkspaceFile` or by
+annotations.
 
 ### Admission, backpressure, and cancellation
 
-A request is first admitted through the per-session and daemon-wide gates
-that reads use. Requests that send no body (`HEAD`, `304`, `412`, `416`, and
-pre-body errors) release that admission when they respond.
+A download moves through admission in this order:
 
-A response with a body also holds a download slot until the body is
-written: at most 2 per session and 8 for the daemon. When no slot is free
-the request fails with `capacity_exceeded`, with the same `scope` detail
-reads use. A slow download therefore can't hold one of the four read slots
-that previews and annotations use.
+1. It takes a read admission from the per-session and daemon-wide gates
+   that reads use, and waits in their bounded queues like a read.
+2. It validates the request, resolves and opens the file, and evaluates
+   preconditions. Requests that send no body (`HEAD`, `304`, `412`, `416`,
+   and errors) respond and release the read admission here.
+3. A response with a body tries to take a download slot, first per session
+   (at most 2), then for the daemon (at most 8), without waiting. If either
+   is full, the request releases whatever it took and fails with
+   `capacity_exceeded`, with `scope` naming the first gate that was full.
+4. It releases its read admission, then sends headers and body. A slow
+   download therefore never holds one of the read slots that previews and
+   annotations use.
+5. When the body is complete, or the client cancels, or a write fails or
+   misses its deadline, it releases the download slots and closes the
+   descriptor, exactly once.
 
-The server reads and writes in bounded blocks, so its memory per download
-doesn't depend on the file's size. Backpressure is TCP's. Each write has a
-10-second deadline (the stream write timeout of ADR 0035), so a stalled
-client ends its download rather than holding a slot. The client cancels by
-closing the request, which ends the read.
+The server copies the body in bounded blocks, so its memory per download
+doesn't depend on the file's size. Backpressure is TCP's. Every write gets a
+fresh 10-second deadline (the stream write timeout of ADR 0035), so a client
+that stops reading loses its download rather than holding a slot. The copy
+stops when the request's context ends. A read that blocks in the filesystem
+is not interrupted by cancellation on every filesystem. It finishes when the
+read returns.
 
-The server sets no size cap. The client decides how much to download and
+The server sets no size cap. The client decides how much to download, and
 cancels or doesn't start past its own budget. It learns the size from
 `HEAD`, from `Content-Length`, or from a directory entry. A cap isn't needed
 to protect the server:
 
-- A body with a known size ends at the size at open, however the file
+- A body with a known size ends at the size at open, however much the file
   grows.
 - Memory per download is bounded. A download holds one of a few download
-  slots and ends when the client cancels or stalls past the write deadline.
+  slots and ends when the client cancels or stops reading.
 - A file that misreports its size, such as `/proc/kcore`, or a zero-size
   file that never reaches end of file, runs only as long as a client reads
   it. Clients learn the reported size before the body and stop at their
   budget.
-- The same caller can already read any such file with a shell command in
-  the session.
+- The same caller can already read any such file with a shell command in the
+  session.
 
-A client that loses its connection, including to the write deadline,
-resumes with `Range` and `If-Range` from the bytes it has. If the file
-changed in the meantime it receives the new revision whole, with `200`.
+A client that loses its connection, including to the write deadline, resumes
+with `Range` and `If-Range` from the bytes it has. If the file changed in the
+meantime, it gets the new revision whole, with `200`.
 
 ### Errors and authorization
 
 Failures before the body use the ADR 0034 error body with the codes of the
-matching read: `invalid_path`, `not_found`, `not_file`, `permission_denied`,
-`outside_workspace`, `symlink_traversal`, and `stale_workspace` (workspace
-files only), `limit_exceeded` for request bounds,
-`capacity_exceeded`, `unavailable`, and `internal`. `binary_file` doesn't
-apply. `304`, `412`, and `416` carry no error body: they are HTTP
-conditional responses, and the catalog declares them as such.
+matching read:
+
+- **Both kinds:** `invalid_request` (malformed query), `invalid_path`,
+  `not_found`, `not_file`, `permission_denied`, `limit_exceeded` (request
+  bounds), `capacity_exceeded`, `unavailable`, and `internal`.
+- **Workspace files only:** `outside_workspace`, `symlink_traversal`, and
+  `stale_workspace`.
+
+`binary_file` doesn't apply. `304`, `412`, and `416` are HTTP conditional
+responses. They carry no error body, and the catalog declares them as such.
 
 The route requires the same Host, Origin, credential, instance, and
 session-protocol checks as every session route. It grants no authority
@@ -178,46 +217,50 @@ request returns.
 ### Contract
 
 `internal/httpapi` catalogs the operation with `HandleRaw`, as
-`readAttachment` is catalogued. It declares the union of the two kinds'
-errors. The catalog gains three declarations, and
-the OpenAPI document publishes them:
+`readAttachment` is catalogued, and declares both kinds' errors together.
+The catalog gains three declarations, and the OpenAPI document publishes
+them:
 
 - the response headers of an operation;
 - the bodiless responses `304`, `412`, and `416`; and
 - `206` as an additional success.
 
-The query is validated as `ReadWorkspaceFileInput` when `path` is relative
-and as `ReadHostFileInput` otherwise, without the highlight flag; any other
-combination of `path` and `workspaceId` is `invalid_request`. `api.Session`
-exposes a download as a reader that carry the response
-metadata, and the Go client validates the metadata headers as it validates
+With `workspaceId`, the query is validated as `ReadWorkspaceFileInput`;
+without it, as `ReadHostFileInput`. Neither takes the highlight flag.
+`api.Session` exposes a download as a reader that carries the response
+metadata. The Go client validates the metadata headers as it validates
 response records.
 
 ### Highlighting
 
 The download carries no highlighting. A client with its own highlighter,
-such as the macOS or iOS app, colors the downloaded text itself. A client
-without one shows the text plain or reads a highlighted preview with
-`readWorkspaceFile`.
+such as the macOS or iOS app, colors the downloaded text itself. A
+highlighter that keeps per-line state can color lines as the bytes arrive. A
+client without a highlighter shows the text plain, or reads a highlighted
+preview with `readWorkspaceFile`.
 
 ### Compatibility
 
 The route is additive, and the session protocol version doesn't change.
-`readWorkspaceFile`, `readHostFile`, and directory listings stay as they
-are. An older server answers the new route with an unrouted `404` whose body
+`readWorkspaceFile`, `readHostFile`, and directory listings stay as they are.
+An older server answers the new route with an unrouted `404` whose body
 doesn't decode as an error body. A client treats that as "not supported" and
 falls back to the bounded read.
 
 ## Consequences
 
-- Clients can show a whole file, however long, with one request, and revalidate
-  a cached copy with a bodiless request.
-- An interrupted download of a large file resumes rather than restarts.
-- The server's memory and admission per download are bounded, whatever the
+- Clients can show a whole file, however long, with one request, and
+  revalidate a cached copy with a bodiless request.
+- An interrupted download of a large file resumes rather than restarts, with
+  the revision's guarantee.
+- The server's memory and admission per download are bounded whatever the
   file's size. Disk and network cost grow with what clients choose to
   download.
 - Clients own size budgets, text decoding, binary detection, and the
   presentation of a copy that changed while it loaded.
+- Go's `http.ServeContent` doesn't provide the zero-size, single-range,
+  `416`, and header behavior above. The server implements these on a
+  fixed-length section of the descriptor.
 - The macOS app adopts the route first. The web client needs a virtualized
   line list before it can show files well past today's preview bounds. The
   TUI and iOS app can keep the bounded read until a need appears.
