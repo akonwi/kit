@@ -22,6 +22,11 @@ reads the break, an offset into the run, as a length from the fragment's start,
 so every fragment after the first also drew the text of the rows below it and
 ran past the wrap width.
 
+TextView doesn't lay out lines when it is created. Before it is in a scroll
+view its frame is the document's height, so upstream's layout there builds a
+view for every line, which is quadratic in the line count. AppKit lays out
+the visible lines once the view is shown.
+
 When updating, reapply the changes in TextLayoutManager.swift and
 TextLayoutManager+Layout.swift, TextView.swift, TextView+Layout.swift, and
 Typesetter.swift and run Kit's editor geometry/selection tests.

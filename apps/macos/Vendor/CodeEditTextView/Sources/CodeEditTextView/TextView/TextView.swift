@@ -356,7 +356,9 @@ open class TextView: NSView, NSTextContent {
 
         _undoManager = CEUndoManager(textView: self)
 
-        layoutManager.layoutLines()
+        // Kit: no layout here. Until the view is in a scroll view its frame
+        // grows to the document height, so a layout now would build a view
+        // for every line. AppKit lays out the visible lines once it is shown.
         setUpDragGesture()
     }
 

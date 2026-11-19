@@ -139,6 +139,31 @@ struct FileEditorTests {
         for row in rows { #expect(row.maxX <= visible.maxX, "row \(row) ends past the editor at \(visible.maxX)") }
     }
 
+    @Test func aLargeDocumentBuildsViewsOnlyForTheLinesOnScreen() {
+        // The annotated editor creates its controller with the document's
+        // text; that must lay out only what's on screen.
+        _ = NSApplication.shared
+        let lines = (1...20_000).map { "line \($0)\n" }
+        let source = lines.joined()
+        let controller = TextViewController(string: source, language: .default,
+            configuration: FileEditorTheme.configuration(MicaTheme(dark: false)), cursorPositions: [], highlightProviders: [])
+        func rows() -> [LineFragmentView] {
+            controller.textView.subviews.compactMap { $0 as? LineFragmentView }.filter { $0.lineFragment != nil }
+        }
+        // Off screen, nothing is laid out yet.
+        #expect(rows().count == 0)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 400))
+        window.contentViewController = controller; window.orderFront(nil)
+        defer { window.close() }
+        window.layoutIfNeeded(); window.displayIfNeeded()
+        let shown = rows().sorted { $0.frame.minY < $1.frame.minY }
+            .map { (source as NSString).substring(with: $0.lineFragment!.documentRange) }
+        // The first lines, in order, and no more than fill the window and
+        // its layout margin.
+        #expect(shown.count > 20 && shown.count < 100, "\(shown.count) rows")
+        #expect(shown == Array(lines.prefix(shown.count)))
+    }
+
     @Test func languagesFollowFilenameAndExtension() {
         #expect(ReadOnlyFileEditor.language(for: "main.go").id == CodeLanguage.go.id)
         #expect(ReadOnlyFileEditor.language(for: "View.swift").id == CodeLanguage.swift.id)
