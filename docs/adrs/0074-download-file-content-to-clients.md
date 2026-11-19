@@ -23,18 +23,21 @@ already serves attachment bytes on a raw route with identity in headers.
 
 ## Decision
 
-### Two download routes
+### One download route
 
-The session API serves the complete bytes of a file on two `GET` routes:
+`downloadFile` (`GET /v1/sessions/{sessionID}/files/content?path=…`) serves
+the complete bytes of a file. The form of `path` selects the kind of file;
+the two forms never overlap:
 
-- `downloadWorkspaceFile`:
-  `GET /v1/sessions/{sessionID}/workspace/files/content?workspaceId=…&path=…`
-  serves a workspace file. `path` is a canonical workspace path (ADR 0019).
-  Resolution, containment, and symbolic link rules are those of
-  `readWorkspaceFile`.
-- `downloadHostFile`: `GET /v1/sessions/{sessionID}/host-files/content?path=…`
-  serves a file on the server's machine. `path` follows ADR 0050: absolute,
-  `~`, or `~/…`. The access policy is that of `readHostFile`.
+- **Workspace file:** a canonical workspace path (ADR 0019), which is always
+  relative. The request must also name `workspaceId`. Resolution,
+  containment, and symbolic link rules are those of `readWorkspaceFile`.
+- **Host file:** an absolute, `~`, or `~/…` path (ADR 0050). The request
+  must not name `workspaceId`. The access policy is that of `readHostFile`.
+
+An absolute path inside the working directory is a host file. A client that
+wants the workspace revision, for example to anchor annotations, sends the
+relative workspace path.
 
 The server serves any regular file. It doesn't sniff, classify, or validate
 the content, and it doesn't reject binary files. Deciding what can be shown,
@@ -42,7 +45,7 @@ such as UTF-8 text or a supported image, is the client's job. Directories,
 devices, sockets, and FIFOs fail with `not_file` before they're opened, as
 they do for reads.
 
-Each route is an ordinary HTTP resource. The server serves it from the opened
+Each file is an ordinary HTTP resource. The server serves it from the opened
 descriptor with standard HTTP semantics:
 
 - `ETag` is a strong validator: the file's revision in quotes. For workspace
@@ -78,7 +81,7 @@ Every success, `304`, and `412` carries:
 | --- | --- |
 | `ETag` | `"file_…"` or `"hostfile_…"` |
 | `X-Kit-Session-ID` | the session |
-| `X-Kit-Workspace-ID` | workspace route only: the workspace the file was resolved in |
+| `X-Kit-Workspace-ID` | workspace files only: the workspace the file was resolved in |
 | `X-Kit-File-Path` | the canonical workspace path, or the cleaned absolute host path with `~` expanded, percent-encoded as UTF-8 |
 | `X-Kit-File-Modified-At` | RFC 3339 time with nanoseconds |
 | `Content-Type` | `application/octet-stream` |
@@ -89,7 +92,7 @@ Every success, `304`, and `412` carries:
 
 The content isn't compressed, so ranges are byte offsets into the file.
 
-The routes serve arbitrary bytes, including HTML and SVG, from the same
+The route serves arbitrary bytes, including HTML and SVG, from the same
 origin as the browser client (ADR 0059). The last four headers stop a
 browser that opens a download URL directly from rendering or running the
 content with that origin's authority, as they do for attachments.
@@ -159,14 +162,14 @@ changed in the meantime it receives the new revision whole, with `200`.
 
 Failures before the body use the ADR 0034 error body with the codes of the
 matching read: `invalid_path`, `not_found`, `not_file`, `permission_denied`,
-`outside_workspace` and `symlink_traversal` (workspace only),
-`stale_workspace` (workspace only), `limit_exceeded` for request bounds,
+`outside_workspace`, `symlink_traversal`, and `stale_workspace` (workspace
+files only), `limit_exceeded` for request bounds,
 `capacity_exceeded`, `unavailable`, and `internal`. `binary_file` doesn't
 apply. `304`, `412`, and `416` carry no error body: they are HTTP
 conditional responses, and the catalog declares them as such.
 
-The routes require the same Host, Origin, credential, instance, and
-session-protocol checks as every session route. They grant no authority
+The route requires the same Host, Origin, credential, instance, and
+session-protocol checks as every session route. It grants no authority
 beyond `readWorkspaceFile` and `readHostFile`. As ADR 0050 decides, any
 authenticated caller may read any regular file the server's OS user can
 read. Downloads keep that boundary and change only how much of a file one
@@ -174,17 +177,19 @@ request returns.
 
 ### Contract
 
-`internal/httpapi` catalogs both operations with `HandleRaw`, as
-`readAttachment` is catalogued. The catalog gains three declarations, and
+`internal/httpapi` catalogs the operation with `HandleRaw`, as
+`readAttachment` is catalogued. It declares the union of the two kinds'
+errors. The catalog gains three declarations, and
 the OpenAPI document publishes them:
 
 - the response headers of an operation;
 - the bodiless responses `304`, `412`, and `416`; and
 - `206` as an additional success.
 
-The query parameters reuse the request validation of
-`ReadWorkspaceFileInput` and `ReadHostFileInput` without the highlight flag.
-`api.Session` exposes the downloads as readers that carry the response
+The query is validated as `ReadWorkspaceFileInput` when `path` is relative
+and as `ReadHostFileInput` otherwise, without the highlight flag; any other
+combination of `path` and `workspaceId` is `invalid_request`. `api.Session`
+exposes a download as a reader that carry the response
 metadata, and the Go client validates the metadata headers as it validates
 response records.
 
@@ -197,7 +202,7 @@ without one shows the text plain or reads a highlighted preview with
 
 ### Compatibility
 
-The routes are additive, and the session protocol version doesn't change.
+The route is additive, and the session protocol version doesn't change.
 `readWorkspaceFile`, `readHostFile`, and directory listings stay as they
 are. An older server answers the new route with an unrouted `404` whose body
 doesn't decode as an error body. A client treats that as "not supported" and
@@ -213,7 +218,7 @@ falls back to the bounded read.
   download.
 - Clients own size budgets, text decoding, binary detection, and the
   presentation of a copy that changed while it loaded.
-- The macOS app adopts the routes first. The web client needs a virtualized
+- The macOS app adopts the route first. The web client needs a virtualized
   line list before it can show files well past today's preview bounds. The
   TUI and iOS app can keep the bounded read until a need appears.
 - Diffs and directory listings keep their bounded, paginated contracts.

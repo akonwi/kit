@@ -117,6 +117,7 @@ stat operation considered earlier.
 | Shape | A standard HTTP file download: `GET` with `ETag`, `Content-Length`, conditional requests, `Range` resume, and `HEAD` |
 | File changes mid-download | Deliver what was read, then mark it changed |
 | How the client learns of a change | `HEAD` after the download, comparing the `ETag` |
+| Routes | One `GET …/files/content`. The path's form picks the kind: relative with `workspaceId` for a workspace file, absolute or `~` for a host file. |
 | Content check | None. Any regular file's bytes are served, and the client decides what it can show. |
 | Size cap | None on the server. Clients cancel at their own budget. |
 | First client | macOS |
