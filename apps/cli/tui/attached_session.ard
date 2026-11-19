@@ -3823,6 +3823,22 @@ impl Controller {
     }
   }
 
+  // Replaces a waiting diagram comment's text, returning why it can't, or
+  // "".
+  fn mut update_diagram_note(id: Int, comment: Str) Str {
+    match diagram_notes::update(self.pending_diagram_notes(), id, comment) {
+      ok(_) => {
+        self.diagram_notes = diagram_notes::update(
+          self.diagram_notes,
+          id,
+          comment,
+        ).expect("a waiting comment")
+        ""
+      },
+      err(reason) => reason,
+    }
+  }
+
   fn mut remove_diagram_note(id: Int) {
     self.diagram_notes = diagram_notes::without(self.diagram_notes, [id])
   }
@@ -3840,6 +3856,21 @@ impl Controller {
       ok(added) => {
         self.text_notes = added
         self.next_text_note =+ 1
+        ""
+      },
+      err(reason) => reason,
+    }
+  }
+
+  // Replaces a waiting comment's text, returning why it can't, or "".
+  fn mut update_text_note(id: Int, comment: Str) Str {
+    match text_notes::update(self.pending_text_notes(), id, comment) {
+      ok(_) => {
+        self.text_notes = text_notes::update(
+          self.text_notes,
+          id,
+          comment,
+        ).expect("a waiting comment")
         ""
       },
       err(reason) => reason,

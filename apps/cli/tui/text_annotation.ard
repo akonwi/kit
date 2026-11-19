@@ -23,7 +23,7 @@ let limit = 16
 // where those words came from, and the nonce its fence is tagged with.
 struct Annotation {
   comment: Str,
-  // Where the words came from, as a person reads it: "Transcript",
+  // Where the words came from, as a person reads it: "Assistant reply",
   // "Scratchpad".
   source: Str,
   quote: Str,

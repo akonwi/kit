@@ -1,101 +1,19 @@
-use cooper/cui
-use cooper/keymap
 use cooper/ui
-use kit/tui/modal
-use kit/tui/text_notes
-use kit/tui/theme
-use go:strings
 
-// The comment box for selected text, opened from the selection menu's
-// Comment (ADR 0070). Saving adds the comment to those waiting for the next
-// message.
+// A comment on selected text, opened from the selection menu's Comment, or
+// from its chip to edit it (ADR 0070). Its box opens at the words
+// (`comment_box`); saving adds the comment to those waiting for the next
+// message, or replaces the one it edits.
 
-// Request is the selected text and where it was selected.
+// Request is the selected words, where they were selected, and where they
+// are on screen.
 struct Request {
   quote: Str,
   source: Str,
-}
-
-struct Props {
-  themes: theme::Context,
-  request: Request,
-  dismiss: keymap::SimpleCommand,
-  // Adds the comment, returning why it can't be added, or "".
-  save: fn(Str) Str,
-}
-
-struct Dialog {
-  props: &mut Props,
+  // The words' cells, or the chip's when it edits a waiting comment.
+  anchor: ui::Rect,
+  // The waiting comment it edits, or 0 for a new one.
+  editing: Int,
+  // The comment the box opens with.
   comment: Str,
-  error: Str,
-}
-
-fn new(props: &mut Props) &mut Dialog {
-  &mut Dialog{
-    props: props,
-    comment: "",
-    error: "",
-  }
-}
-
-impl Dialog {
-  private fn mut submit() {
-    if strings::TrimSpace(self.comment) != "" {
-      self.error = (self.props.save)(self.comment)
-    }
-  }
-}
-
-impl cui::Component for Dialog {
-  fn mut render() cui::View {
-    let colors = self.props.themes.current()
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::centered,
-        title: "Comment",
-        meta: self.props.request.source,
-        header: [],
-        body: cui::box(
-          [
-            cui::text(
-              "▎ {text_notes::excerpt(self.props.request.quote)}",
-              text_style: ui::text_style(foreground: colors.muted),
-              wrap: ui::TextWrap::none,
-              overflow: ui::TextOverflow::ellipsis,
-            ),
-            cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)),
-            cui::input(
-              self.comment,
-              key: "text.comment",
-              placeholder: "Add a comment…",
-              autofocus: true,
-              on_input: fn(value: Str, ctx: cui::Context) {
-                self.comment = value
-                self.error = ""
-              },
-              on_submit: fn(value: Str, ctx: cui::Context) {
-                self.submit()
-              },
-            ),
-            cui::text(self.error, text_style: ui::text_style(foreground: colors.danger_text)),
-          ],
-          styles: ui::style(
-            flex_direction: ui::FlexDirection::column,
-            padding: ui::Edges{
-              top: ui::cells(1),
-              right: ui::cells(1),
-              bottom: ui::cells(1),
-              left: ui::cells(1),
-            },
-          ),
-        ),
-        footer: Maybe::new<cui::View>(),
-        autofocus: false,
-        dismiss: self.props.dismiss,
-        commands: Maybe::new<[keymap::Command]>(),
-        bindings: Maybe::new<[keymap::Binding]>(),
-      },
-    )
-  }
 }

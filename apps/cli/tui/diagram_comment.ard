@@ -1,98 +1,21 @@
-use cooper/cui
-use cooper/keymap
 use cooper/ui
 use kit/tui/diagram_notes
-use kit/tui/modal
-use kit/tui/theme
-use go:strings
 
-// The comment box for a part of a drawn diagram, opened by clicking the part
-// while the diagram is in Annotate mode. Saving adds the comment to those
-// waiting for the next message.
+// A comment on a part of a drawn diagram, opened by clicking the part while
+// the diagram is in Annotate mode, or from its chip to edit it. Its box opens
+// at the part (`comment_box`); saving adds the comment to those waiting for
+// the next message, or replaces the one it edits.
 
-// Request is the part the comment is on: its diagram's source, and the part
-// as the model's text names it.
+// Request is the part the comment is on: its diagram's source, the part as
+// the model's text names it, and where it was clicked.
 struct Request {
   source: Str,
   part: diagram_notes::Part,
   summary: Str,
-}
-
-struct Props {
-  themes: theme::Context,
-  request: Request,
-  dismiss: keymap::SimpleCommand,
-  // Adds the comment, returning why it can't be added, or "".
-  save: fn(Str) Str,
-}
-
-struct Dialog {
-  props: &mut Props,
+  // The clicked cell, or the chip's when it edits a waiting comment.
+  anchor: ui::Rect,
+  // The waiting comment it edits, or 0 for a new one.
+  editing: Int,
+  // The comment the box opens with.
   comment: Str,
-  error: Str,
-}
-
-fn new(props: &mut Props) &mut Dialog {
-  &mut Dialog{
-    props: props,
-    comment: "",
-    error: "",
-  }
-}
-
-impl Dialog {
-  private fn mut submit() {
-    if strings::TrimSpace(self.comment) != "" {
-      self.error = (self.props.save)(self.comment)
-    }
-  }
-}
-
-impl cui::Component for Dialog {
-  fn mut render() cui::View {
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::centered,
-        title: self.props.request.summary,
-        meta: "",
-        header: [],
-        body: cui::box(
-          [
-            cui::input(
-              self.comment,
-              key: "diagram.comment",
-              placeholder: "Comment on this part…",
-              autofocus: true,
-              on_input: fn(value: Str, ctx: cui::Context) {
-                self.comment = value
-                self.error = ""
-              },
-              on_submit: fn(value: Str, ctx: cui::Context) {
-                self.submit()
-              },
-            ),
-            cui::text(
-              self.error,
-              text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
-            ),
-          ],
-          styles: ui::style(
-            flex_direction: ui::FlexDirection::column,
-            padding: ui::Edges{
-              top: ui::cells(1),
-              right: ui::cells(1),
-              bottom: ui::cells(1),
-              left: ui::cells(1),
-            },
-          ),
-        ),
-        footer: Maybe::new<cui::View>(),
-        autofocus: false,
-        dismiss: self.props.dismiss,
-        commands: Maybe::new<[keymap::Command]>(),
-        bindings: Maybe::new<[keymap::Binding]>(),
-      },
-    )
-  }
 }

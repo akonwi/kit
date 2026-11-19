@@ -71,6 +71,9 @@ struct ButtonProps {
   hover_label: Str?,
   // Whether the button's fill spans its whole width.
   stretch: Bool,
+  // Whether a label too wide for the button is cut short with …, rather
+  // than wrapped.
+  truncate: Bool,
   control: &mut cui::BoxRef,
 }
 
@@ -98,6 +101,7 @@ fn button(
   hover_label: Str?,
   stretch: Bool?,
   ref: (&mut cui::BoxRef)?,
+  truncate: Bool?,
 ) cui::View {
   cui::child(
     new,
@@ -114,6 +118,7 @@ fn button(
       foreground: foreground,
       hover_label: hover_label,
       stretch: stretch.or(false),
+      truncate: truncate.or(false),
       control: ref.or(cui::box_ref()),
     },
   )
@@ -235,15 +240,31 @@ impl cui::Component for Button {
       true => self.props.hover_label.or(self.props.label),
       false => self.props.label,
     }
+    let text = match self.props.truncate {
+      true => {
+        cui::text(
+          label,
+          text_style: ui::text_style(foreground: self.foreground()),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        )
+      },
+      false => cui::text(label, text_style: ui::text_style(foreground: self.foreground())),
+    }
     cui::box(
       [
         cui::box(
-          [cui::text(label, text_style: ui::text_style(foreground: self.foreground()))],
+          [text],
           styles: ui::style(
             flex_grow: match self.props.stretch {
               true => 1.0,
               false => 0.0,
             },
+            flex_shrink: match self.props.truncate {
+              true => 1.0,
+              false => 0.0,
+            },
+            min_width: ui::cells(0),
             background: self.fill(),
             padding: ui::Edges{
               top: ui::cells(0),

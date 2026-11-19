@@ -49,6 +49,43 @@ fn add(notes: [Note], id: Int, comment: Str, source: Str, quote: Str) [Note]!Str
   }
 }
 
+// notes with id's comment replaced, or why it can't be.
+fn update(notes: [Note], id: Int, comment: Str) [Note]!Str {
+  match {
+    strings::TrimSpace(comment) == "" => Result::err("Write a comment."),
+    not has(notes, id) => Result::err("This comment was already sent."),
+    _ => {
+      let updated = &mut List::new<Note>()
+      for note in notes {
+        match note.id == id {
+          true => {
+            mut changed = note
+            changed.annotation.comment = strings::TrimSpace(comment)
+            updated.push(changed)
+          },
+          false => updated.push(note),
+        }
+      }
+      Result::ok(updated.*)
+    },
+  }
+}
+
+// The note with id, if it's among notes.
+fn find(notes: [Note], id: Int) Note? {
+  mut found = Maybe::new<Note>()
+  for note in notes {
+    if note.id == id {
+      found = Maybe::new(note)
+    }
+  }
+  found
+}
+
+private fn has(notes: [Note], id: Int) Bool {
+  find(notes, id).is_some()
+}
+
 // notes without those whose ids are listed.
 fn without(notes: [Note], ids: [Int]) [Note] {
   let kept = &mut List::new<Note>()
@@ -103,6 +140,17 @@ test fn comments_follow_the_message_text() Void!Str {
   try testing::assert(sent.text == "Fix these." and sent.sent.size() == 2, "both blocks follow the text")
   let kept = ids(without(notes, [1]))
   testing::assert(kept.size() == 1 and kept.at(0).or(0) == 2, "removing one keeps the other")
+}
+
+test fn a_waiting_comment_can_be_edited() Void!Str {
+  let notes = add([], 1, "Back off.", "Assistant reply", "every 2 seconds").expect("a comment")
+  let edited = update(notes, 1, "  Back off exponentially. ").expect("edited")
+  try testing::assert(
+    find(edited, 1).expect("the note").annotation.comment == "Back off exponentially.",
+    "the comment is replaced and trimmed",
+  )
+  try testing::assert(update(notes, 1, " ").is_err(), "an empty comment is refused")
+  testing::assert(update(notes, 2, "Hm.").is_err(), "a sent comment can't be edited")
 }
 
 test fn a_message_holds_a_bounded_number_of_comments() Void!Str {

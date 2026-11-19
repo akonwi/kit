@@ -1,0 +1,371 @@
+use ard/testing
+
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use kit/tui/controls
+use kit/tui/theme
+use go:strings
+
+// The comment box for selected words or a diagram's part (ADR 0070), like the
+// macOS app's: a card that opens at what it comments on, holding the words,
+// the comment, and Cancel and Comment (Save, beside Delete, when it edits a
+// waiting comment). Enter saves, Shift+Enter starts a line, and Escape or a
+// press outside the card closes it. It is a root-shell layer over the
+// viewport, like the selection menu.
+
+// The card's widest, in cells: about the macOS box's 340 points.
+let card_width = 48
+// Rows the comment field shows.
+let field_rows = 3
+// Rows of the words shown above the field.
+let quote_rows = 2
+
+// Placement is the card's top-left corner and size in viewport cells.
+struct Placement {
+  left: Int,
+  top: Int,
+  width: Int,
+  height: Int,
+}
+
+// place opens the card on the row below what it comments on, starting at its
+// column, or ending on the row above it when there's no room below, so the
+// words stay in sight. A card that would cross the right edge moves left; one
+// that fits neither below nor above keeps to the viewport's bottom.
+fn place(anchor: ui::Rect, viewport: ui::Rect, height: Int) Placement {
+  let width = smaller(card_width, viewport.width)
+  let x = anchor.x - viewport.x
+  let y = anchor.y - viewport.y
+  let below = y + larger(anchor.height, 1)
+  let above = y - height
+  let top = match {
+    below + height <= viewport.height => below,
+    above >= 0 => above,
+    _ => viewport.height - height,
+  }
+  Placement{
+    left: larger(smaller(x, viewport.width - width), 0),
+    top: larger(top, 0),
+    width: width,
+    height: height,
+  }
+}
+
+// The card's rows: its frame, the words, the field, a failure, and the
+// buttons.
+fn height(quote: [Str], failure: Bool) Int {
+  let failed = match failure {
+    true => 1,
+    false => 0,
+  }
+  2 + quote.size() + field_rows + failed + 1
+}
+
+// The words as the card shows them: their first two lines with text, the
+// second ending in … when more follow.
+fn quote_lines(quote: Str) [Str] {
+  let lines = &mut List::new<Str>()
+  for line in strings::Split(strings::ReplaceAll(quote, "\r\n", "\n"), "\n") {
+    let shown = strings::TrimSpace(strings::ReplaceAll(line, "\t", "  "))
+    if shown != "" {
+      lines.push(shown)
+    }
+  }
+  let kept = &mut List::new<Str>()
+  for line, index in lines.* {
+    if index < quote_rows {
+      let more = index == quote_rows - 1 and lines.size() > quote_rows
+      kept.push(
+        match more {
+          true => "{line} …",
+          false => line,
+        },
+      )
+    }
+  }
+  kept.*
+}
+
+private fn smaller(left: Int, right: Int) Int {
+  match left < right {
+    true => left,
+    false => right,
+  }
+}
+
+private fn larger(left: Int, right: Int) Int {
+  match left > right {
+    true => left,
+    false => right,
+  }
+}
+
+struct Props {
+  themes: theme::Context,
+  // What the comment is on and the viewport the card must fit, both in
+  // screen cells.
+  anchor: ui::Rect,
+  viewport: ui::Rect,
+  // The rows naming what the comment is on, shown muted after a rule.
+  quote: [Str],
+  placeholder: Str,
+  // The comment it opens with: a waiting comment's, when it edits one.
+  comment: Str,
+  editing: Bool,
+  // Saves the comment, returning why it can't be saved, or "". The owner
+  // closes the card once it's saved.
+  save: fn(Str) Str,
+  cancel: fn(),
+  // Deletes the waiting comment it edits.
+  delete: fn()?,
+}
+
+// view renders the card over the viewport.
+fn view(props: Props, key: Str) cui::View {
+  cui::child(new, props, key: key)
+}
+
+private struct Card {
+  props: &mut Props,
+  comment: Str,
+  failure: Str,
+}
+
+private fn new(props: &mut Props) &mut Card {
+  &mut Card{
+    props: props,
+    comment: props.comment,
+    failure: "",
+  }
+}
+
+impl Card {
+  private fn mut submit() {
+    if strings::TrimSpace(self.comment) != "" {
+      self.failure = (self.props.save)(self.comment)
+    }
+  }
+
+  private fn mut buttons(save: keymap::SimpleCommand, cancel: keymap::SimpleCommand) cui::View {
+    let row = &mut List::new<cui::View>()
+    match self.props.delete {
+      delete => {
+        let remove = keymap::simple_command("comment-box.delete", "Delete comment", fn() Bool {
+          delete()
+          true
+        })
+        row.push(
+          controls::button(
+            self.props.themes,
+            "Delete",
+            remove,
+            variant: controls::ButtonVariant::ghost,
+            focusable: false,
+            foreground: self.props.themes.current().danger_text,
+          ),
+        )
+      },
+      _ => (),
+    }
+    row.push(cui::box([], styles: ui::style(flex_grow: 1.0)))
+    row.push(
+      controls::button(
+        self.props.themes,
+        "Cancel",
+        cancel,
+        variant: controls::ButtonVariant::secondary,
+        focusable: false,
+      ),
+    )
+    row.push(
+      controls::button(
+        self.props.themes,
+        match self.props.editing {
+          true => "Save",
+          false => "Comment",
+        },
+        save,
+        focusable: false,
+      ),
+    )
+    cui::box(
+      row.*,
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        gap: ui::cells(2),
+      ),
+    )
+  }
+}
+
+impl cui::Component for Card {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let quote = self.props.quote
+    let placed = place(self.props.anchor, self.props.viewport, height(quote, self.failure != ""))
+    let save = keymap::simple_command("comment-box.save", "Save comment", fn() Bool {
+      self.submit()
+      true
+    })
+    let cancel_comment = self.props.cancel
+    let cancel = keymap::simple_command("comment-box.cancel", "Close", fn() Bool {
+      cancel_comment()
+      true
+    })
+    let editing = keymap::rebind(
+      ui::default_text_area_bindings(),
+      ui::TextAreaAction::insert_newline,
+      [keymap::key("return", shift: true)],
+    )
+    let rows = &mut List::new<cui::View>()
+    for line in quote {
+      rows.push(
+        cui::text(
+          "▎ {line}",
+          styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      )
+    }
+    rows.push(
+      cui::text_area(
+        self.comment,
+        key: "comment-box.field",
+        styles: ui::style(flex_shrink: 0.0, height: ui::cells(field_rows)),
+        text_style: ui::text_style(foreground: colors.foreground),
+        selection_style: theme::selection_style(colors),
+        placeholder: self.props.placeholder,
+        autofocus: true,
+        on_input: fn(value: Str, context: cui::Context) {
+          self.comment = value
+          self.failure = ""
+        },
+        key_bindings: editing,
+        commands: [save, cancel, controls::keep_interrupt],
+        bindings: [
+          keymap::binding(keymap::key("return"), save.with()),
+          keymap::binding(keymap::key("escape"), cancel.with()),
+          controls::keep_interrupt_binding(),
+        ],
+      ),
+    )
+    if self.failure != "" {
+      rows.push(
+        cui::text(
+          self.failure,
+          styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: colors.danger_text),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      )
+    }
+    rows.push(self.buttons(save, cancel))
+    cui::box(
+      [
+        cui::box(
+          rows.*,
+          key: "comment-box.card",
+          styles: ui::style(
+            position: ui::Position::absolute,
+            top: ui::cells(placed.top),
+            left: ui::cells(placed.left),
+            width: ui::cells(placed.width),
+            height: ui::cells(placed.height),
+            flex_direction: ui::FlexDirection::column,
+            background: colors.background,
+            foreground: colors.foreground,
+            border: ui::Border::single,
+            border_color: colors.border,
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(1),
+              bottom: ui::cells(0),
+              left: ui::cells(1),
+            },
+          ),
+          on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
+            // Presses on the card stay with it.
+            if received.event_type == event::MouseEventType::down {
+              received.stop_propagation()
+            }
+          },
+        ),
+      ],
+      key: "comment-box.layer",
+      styles: ui::style(
+        position: ui::Position::absolute,
+        top: ui::cells(0),
+        right: ui::cells(0),
+        bottom: ui::cells(0),
+        left: ui::cells(0),
+        z_index: 90,
+      ),
+      on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
+        // A press outside the card closes it; the wheel moves nothing under it.
+        if received.event_type == event::MouseEventType::down {
+          received.prevent_default()
+          received.stop_propagation()
+          cancel_comment()
+        } else if received.event_type == event::MouseEventType::scroll {
+          received.prevent_default()
+          received.stop_propagation()
+        }
+      },
+    )
+  }
+}
+
+private fn rect(x: Int, y: Int, width: Int, height: Int) ui::Rect {
+  ui::Rect{
+    x: x,
+    y: y,
+    width: width,
+    height: height,
+  }
+}
+
+test fn the_card_opens_below_its_words_at_their_column() Void!Str {
+  let placed = place(rect(6, 3, 10, 1), rect(0, 0, 80, 24), 8)
+  testing::assert(
+    placed.left == 6 and placed.top == 4 and placed.width == card_width and placed.height == 8,
+    "placed at {placed.left},{placed.top} {placed.width}x{placed.height}",
+  )
+}
+
+test fn the_card_ends_above_words_near_the_bottom() Void!Str {
+  let placed = place(rect(6, 20, 10, 2), rect(0, 0, 80, 24), 8)
+  testing::assert(placed.top == 12, "top {placed.top}")
+}
+
+test fn the_card_moves_left_from_the_right_edge() Void!Str {
+  let placed = place(rect(70, 3, 5, 1), rect(0, 0, 80, 24), 8)
+  testing::assert(placed.left == 80 - card_width, "left {placed.left}")
+}
+
+test fn the_card_narrows_to_a_narrow_viewport() Void!Str {
+  let placed = place(rect(10, 3, 5, 1), rect(0, 0, 30, 24), 8)
+  testing::assert(placed.left == 0 and placed.width == 30, "{placed.left} {placed.width}")
+}
+
+test fn a_card_with_room_on_neither_side_keeps_to_the_bottom() Void!Str {
+  let placed = place(rect(0, 2, 10, 8), rect(0, 0, 80, 12), 8)
+  testing::assert(placed.top == 4, "top {placed.top}")
+}
+
+test fn the_card_is_placed_in_the_viewport_it_fits() Void!Str {
+  let placed = place(rect(16, 6, 4, 1), rect(10, 2, 60, 20), 6)
+  testing::assert(placed.left == 6 and placed.top == 5, "{placed.left},{placed.top}")
+}
+
+test fn the_card_shows_two_lines_of_the_words() Void!Str {
+  let shown = strings::Join(quote_lines("  one\n\n\ttwo\nthree"), "|")
+  try testing::assert(shown == "one|two …", shown)
+  testing::assert(strings::Join(quote_lines("only"), "|") == "only", "one line")
+}

@@ -56,7 +56,8 @@ private fn render_lines(text: Str) canvas::Canvas!Str {
 // source with a waiting comment, and what opens the comment box for one.
 struct Annotate {
   marked: fn(Str) [diagram_notes::Part],
-  pick: fn(Str, diagram_notes::Part),
+  // Called with the diagram's source, the part, and the clicked screen cell.
+  pick: fn(Str, diagram_notes::Part, ui::Point),
 }
 
 struct Props {
@@ -179,7 +180,7 @@ impl Diagram {
           match released {
             part => {
               if same_part(pressed, released) {
-                (annotate.pick)(self.props.source, part)
+                (annotate.pick)(self.props.source, part, ui::Point{x: received.x, y: received.y})
               }
             },
             _ => (),
@@ -670,8 +671,8 @@ test fn annotate_mode_tints_the_hovered_part_and_a_click_picks_it() Void!Str {
     marked: fn(source: Str) [diagram_notes::Part] {
       [diagram_notes::Part{target: canvas::Target::participant, index: 1}]
     },
-    pick: fn(source: Str, part: diagram_notes::Part) {
-      picked.push(part_key(part))
+    pick: fn(source: Str, part: diagram_notes::Part, at: ui::Point) {
+      picked.push("{part_key(part)} at {at.x},{at.y}")
     },
   }
   let renderer = cui::mount(
@@ -720,7 +721,7 @@ test fn annotate_mode_tints_the_hovered_part_and_a_click_picks_it() Void!Str {
   terminal.click(2, 1)
   terminal.flush()
   testing::assert(
-    picked.size() == 1 and picked.at(0).or("") == "participant 0",
+    picked.size() == 1 and picked.at(0).or("") == "participant 0 at 2,1",
     "the click picks the participant: {strings::Join(picked.*, ",")}",
   )
 }

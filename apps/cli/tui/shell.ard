@@ -27,6 +27,7 @@ use kit/tui/auth
 use kit/tui/bootstrap
 use kit/tui/chrome
 use kit/tui/command_palette
+use kit/tui/comment_box
 use kit/tui/comment_regions
 use kit/tui/composer
 use kit/tui/controls
@@ -155,6 +156,8 @@ struct SelectionMenu {
   // What a comment on the text names where it was selected, or none where
   // it can't be commented on.
   source: Str?,
+  // The selected cells, where a comment's box opens.
+  bounds: ui::Rect,
 }
 
 // The detached placeholder never starts work, so its effects are inert.
@@ -1314,9 +1317,9 @@ impl Shell {
               marked: fn(source: Str) [diagram_notes::Part] {
                 diagram_notes::marked(self.attached.pending_diagram_notes(), source)
               },
-              pick: fn(source: Str, part: diagram_notes::Part) {
+              pick: fn(source: Str, part: diagram_notes::Part, at: ui::Point) {
                 self.dispatch(fn() {
-                  self.open_diagram_comment(source, part)
+                  self.open_diagram_comment(source, part, at)
                 })
               },
             },
@@ -1401,18 +1404,66 @@ impl Shell {
           self.attached.remove_diagram_note(id)
         })
       }),
+      edit_diagram_note: Maybe::new(fn(id: Int, at: ui::Rect) {
+        self.dispatch(fn() {
+          self.edit_diagram_comment(id, at)
+        })
+      }),
       text_notes: Maybe::new(self.attached.pending_text_notes()),
       remove_text_note: Maybe::new(fn(id: Int) {
         self.dispatch(fn() {
           self.attached.remove_text_note(id)
         })
       }),
+      edit_text_note: Maybe::new(fn(id: Int, at: ui::Rect) {
+        self.dispatch(fn() {
+          self.edit_text_comment(id, at)
+        })
+      }),
+    }
+  }
+
+  // Opens a waiting diagram comment's box at its chip, unless a dialog is
+  // open.
+  fn mut edit_diagram_comment(id: Int, at: ui::Rect) {
+    if self.modal_closed() {
+      match diagram_notes::find(self.attached.pending_diagram_notes(), id) {
+        note => {
+          self.active_modal = diagram_comment::Request{
+            source: note.annotation.source,
+            part: diagram_notes::Part{target: note.annotation.target, index: note.annotation.index},
+            summary: note.summary,
+            anchor: at,
+            editing: id,
+            comment: note.annotation.comment,
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Opens a waiting comment's box at its chip, unless a dialog is open.
+  fn mut edit_text_comment(id: Int, at: ui::Rect) {
+    if self.modal_closed() {
+      match text_notes::find(self.attached.pending_text_notes(), id) {
+        note => {
+          self.active_modal = text_comment::Request{
+            quote: note.annotation.quote,
+            source: note.annotation.source,
+            anchor: at,
+            editing: id,
+            comment: note.annotation.comment,
+          }
+        },
+        _ => (),
+      }
     }
   }
 
   // Opens the comment box for a part of a drawn diagram, unless a dialog is
   // open or the part can't be annotated.
-  fn mut open_diagram_comment(source: Str, part: diagram_notes::Part) {
+  fn mut open_diagram_comment(source: Str, part: diagram_notes::Part, at: ui::Point) {
     if self.modal_closed() {
       match annotation::summary(source, part.target, part.index) {
         ok(summary) => {
@@ -1420,6 +1471,9 @@ impl Shell {
             source: source,
             part: part,
             summary: summary,
+            anchor: point_rect(at),
+            editing: 0,
+            comment: "",
           }
         },
         err(_) => (),
@@ -1996,6 +2050,10 @@ impl Shell {
               selection => self.comment_source(selection.anchor.x, selection.anchor.y),
               _ => Maybe::new<Str>(),
             },
+            bounds: match selected {
+              selection => selection.bounds,
+              _ => point_rect(ui::Point{x: x, y: y}),
+            },
           },
         )
         true
@@ -2016,7 +2074,7 @@ impl Shell {
         pointer: menu.pointer,
         viewport: menu.viewport,
         activate: fn(action: Str) {
-          self.choose_selection_action(action, menu.text, menu.source)
+          self.choose_selection_action(action, menu)
         },
         dismiss: fn() {
           self.close_selection_menu()
@@ -2028,7 +2086,9 @@ impl Shell {
     )
   }
 
-  private fn mut choose_selection_action(action: Str, text: Str, source: Str?) {
+  private fn mut choose_selection_action(action: Str, menu: SelectionMenu) {
+    let text = menu.text
+    let source = menu.source
     match self.context {
       ctx => {
         let _ = ctx.dispatch(fn() {
@@ -2037,7 +2097,13 @@ impl Shell {
             self.copy_selection(ctx, text)
             self.restore_focus(ctx)
           } else if action == "comment" and source.is_some() and self.modal_closed() and (not self.docked()) {
-            self.active_modal = text_comment::Request{quote: text, source: source.expect("a source")}
+            self.active_modal = text_comment::Request{
+              quote: text,
+              source: source.expect("a source"),
+              anchor: menu.bounds,
+              editing: 0,
+              comment: "",
+            }
           }
         })
       },
@@ -2206,47 +2272,89 @@ impl Shell {
     )
   }
 
+  // The viewport a comment's box must fit, in screen cells.
+  fn comment_viewport() ui::Rect {
+    match self.surface.current {
+      surface => surface.layout().screen,
+      _ => point_rect(ui::Point{x: 0, y: 0}),
+    }
+  }
+
   fn mut diagram_comment_modal(request: diagram_comment::Request) cui::View {
-    let dismiss = keymap::simple_command("diagram-comment.dismiss", "Close", fn() Bool {
-      self.dismiss_modal()
-    })
     let attached = self.attached
-    cui::child(
-      diagram_comment::new,
-      diagram_comment::Props{
+    let editing = request.editing
+    comment_box::view(
+      comment_box::Props{
         themes: self.props.themes,
-        request: request,
-        dismiss: dismiss,
+        anchor: request.anchor,
+        viewport: self.comment_viewport(),
+        quote: [request.summary],
+        placeholder: "Comment on this part…",
+        comment: request.comment,
+        editing: editing > 0,
         save: fn(comment: Str) Str {
-          let failure = attached.add_diagram_note(comment, request.source, request.part)
+          let failure = match editing > 0 {
+            true => attached.update_diagram_note(editing, comment),
+            false => attached.add_diagram_note(comment, request.source, request.part),
+          }
           if failure == "" {
             let _ = self.dismiss_modal()
           }
           failure
         },
+        cancel: fn() {
+          let _ = self.dismiss_modal()
+        },
+        delete: match editing > 0 {
+          true => {
+            Maybe::new(fn() {
+              attached.remove_diagram_note(editing)
+              let _ = self.dismiss_modal()
+            })
+          },
+          false => Maybe::new<fn()>(),
+        },
       },
+      "diagram-comment",
     )
   }
 
   fn mut text_comment_modal(request: text_comment::Request) cui::View {
-    let dismiss = keymap::simple_command("text-comment.dismiss", "Close", fn() Bool {
-      self.dismiss_modal()
-    })
     let attached = self.attached
-    cui::child(
-      text_comment::new,
-      text_comment::Props{
+    let editing = request.editing
+    comment_box::view(
+      comment_box::Props{
         themes: self.props.themes,
-        request: request,
-        dismiss: dismiss,
+        anchor: request.anchor,
+        viewport: self.comment_viewport(),
+        quote: comment_box::quote_lines(request.quote),
+        placeholder: "Add a comment…",
+        comment: request.comment,
+        editing: editing > 0,
         save: fn(comment: Str) Str {
-          let failure = attached.add_text_note(comment, request.source, request.quote)
+          let failure = match editing > 0 {
+            true => attached.update_text_note(editing, comment),
+            false => attached.add_text_note(comment, request.source, request.quote),
+          }
           if failure == "" {
             let _ = self.dismiss_modal()
           }
           failure
         },
+        cancel: fn() {
+          let _ = self.dismiss_modal()
+        },
+        delete: match editing > 0 {
+          true => {
+            Maybe::new(fn() {
+              attached.remove_text_note(editing)
+              let _ = self.dismiss_modal()
+            })
+          },
+          false => Maybe::new<fn()>(),
+        },
       },
+      "text-comment",
     )
   }
 
@@ -3199,6 +3307,16 @@ test fn history_recalls_a_message_without_its_comment_blocks() Void!Str {
   testing::assert(recalled_text(comment) == "", "comments alone recall nothing")
 }
 
+// A screen cell as a rect a comment's box opens at.
+private fn point_rect(at: ui::Point) ui::Rect {
+  ui::Rect{
+    x: at.x,
+    y: at.y,
+    width: 1,
+    height: 1,
+  }
+}
+
 private fn selection_text(selection: cooper::Selection) Str {
   selection.copy_text.or(selection.selected_text)
 }
@@ -4091,10 +4209,18 @@ test fn a_click_on_a_part_of_a_diagram_in_annotate_mode_adds_a_comment_chip() Vo
   terminal.flush()
   try testing::assert(
     match subject.active_modal {
-      diagram_comment::Request(request) => request.summary == "node A \"Start\" (box)",
+      diagram_comment::Request(request) => {
+        request.summary == "node A \"Start\" (box)" and request.anchor.x == start_x and request.anchor.y == drawing
+      },
       _ => false,
     },
     "the click opens the comment box on the node",
+  )
+  // The box ends on the row above the clicked part, or starts below it.
+  let quote = find_text(shell_rows(terminal), "▎ node A")
+  try testing::assert(
+    quote.y == drawing - 6 or quote.y == drawing + 2,
+    "the box opens at the part (row {drawing}):\n{strings::Join(shell_rows(terminal), "\n")}",
   )
   terminal.key(typed("Say why"))
   terminal.key(typed_key("return"))
@@ -4151,5 +4277,239 @@ test fn a_sent_message_shows_its_diagram_comments_under_its_text() Void!Str {
       strings::TrimRight(rows.at(first + 3).or(""), " ┃"),
     ],
     ["   Look again.", "", "   ▎ node A \"Start\" (box) · flowchart LR", "   ▎ Say why"],
+  )
+}
+
+// A ready shell showing a reply.
+private fn shell_with_reply(text: Str) &mut Shell {
+  let subject = ready_shell()
+  let reply = &mut transcript::message("reply", "turn-1", transcript::Role::assistant)
+  reply.text = text
+  subject.attached.messages = [reply.*]
+  subject
+}
+
+// Selects word where it first shows and chooses Comment from the selection
+// menu.
+private fn comment_on(terminal: headless::TestApp, word: Str) {
+  let at = find_text(shell_rows(terminal), word)
+  terminal.double_click(at.x + 1, at.y)
+  terminal.flush()
+  terminal.mouse_down(at.x + 1, at.y, event::MouseButton::right)
+  terminal.mouse_up(at.x + 1, at.y, event::MouseButton::right)
+  terminal.flush()
+  let item = find_text(shell_rows(terminal), "Comment ")
+  terminal.click(item.x, item.y)
+  terminal.flush()
+  terminal.flush()
+}
+
+private fn shown(terminal: headless::TestApp) Str {
+  strings::Join(shell_rows(terminal), "|\n") + "|"
+}
+
+test fn the_comment_box_opens_under_the_selected_words() Void!Str {
+  let terminal = headless::new(60, 30)
+  defer terminal.destroy()
+  let subject = shell_with_reply(
+    "first line\n\nsecond\n\nthird\n\nfourth\n\nfifth\n\nsixth\n\nseventh\n\neighth\n\nninth\n\ntenth\n\neleventh",
+  )
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  comment_on(terminal, "second")
+  // It covers what follows the words, at their column, with the field
+  // focused for the comment.
+  expect_shell_rows(
+    shell_rows(terminal),
+    [
+      "  Unnamed session",
+      "────────────────────────────────────────────────────────────",
+      "",
+      " first line",
+      "",
+      " second",
+      " ┌──────────────────────────────────────────────┐",
+      " │ ▎ second                                     │",
+      " │ Add a comment…                               │",
+      " │                                              │",
+      " │                                              │",
+      " │                        Cancel      Comment   │",
+      " └──────────────────────────────────────────────┘",
+      " sixth",
+      "",
+      " seventh",
+      "",
+      " eighth",
+      "",
+      " ninth",
+      "",
+      " tenth",
+      "",
+      " eleventh",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────",
+      " Ask kit to do something…",
+      "────────────────────────────────────────────────────────────",
+      "",
+    ],
+  )
+}
+
+test fn the_comment_box_keeps_in_view_near_the_bottom_and_right_edges() Void!Str {
+  let terminal = headless::new(60, 16)
+  defer terminal.destroy()
+  let subject = shell_with_reply("It retries every 2 seconds with no backoff at all.")
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  comment_on(terminal, "backoff")
+  // Typing goes to the box's field, not the composer.
+  terminal.key(typed("Back off"))
+  terminal.flush()
+  // No room below the words: it ends on the row above them, moved left of
+  // the right edge.
+  try expect_shell_rows(
+    shell_rows(terminal),
+    [
+      "  Unnamed session",
+      "────────────────────────────────────────────────────────────",
+      "            ┌──────────────────────────────────────────────┐",
+      "            │ ▎ backoff                                    │",
+      "            │ Back off                                     │",
+      "            │                                              │",
+      "            │                                              │",
+      "            │                        Cancel      Comment   │",
+      "            └──────────────────────────────────────────────┘",
+      " It retries every 2 seconds with no backoff at all.",
+      "",
+      "",
+      "────────────────────────────────────────────────────────────",
+      " Ask kit to do something…",
+      "────────────────────────────────────────────────────────────",
+      "",
+    ],
+  )
+  // A narrower terminal narrows it and keeps it, and the draft, in view.
+  terminal.resize(36, 14)
+  terminal.flush()
+  terminal.flush()
+  expect_shell_rows(
+    shell_rows(terminal),
+    [
+      "  Unnamed",
+      "────────────────────────────────────",
+      "┌──────────────────────────────────┐",
+      "│ ▎ backoff                        │",
+      "│ Back off                         │",
+      "│                                  │",
+      "│                                  │",
+      "│            Cancel      Comment   │",
+      "└──────────────────────────────────┘",
+      "",
+      "────────────────────────────────────",
+      " Ask kit to do something…",
+      "────────────────────────────────────",
+      "",
+    ],
+  )
+}
+
+test fn escape_or_a_press_outside_closes_the_comment_box() Void!Str {
+  let terminal = headless::new(60, 16)
+  defer terminal.destroy()
+  let subject = shell_with_reply("It retries every 2 seconds.")
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  comment_on(terminal, "retries")
+  terminal.key(typed("Back off"))
+  terminal.key(typed_key("escape"))
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(subject.modal_closed(), "Escape closes the box")
+  // Typing goes back to the composer.
+  terminal.key(typed("hi"))
+  terminal.flush()
+  try testing::assert(
+    find_text(shell_rows(terminal), " hi").y == 13,
+    "the composer has focus:\n{shown(terminal)}",
+  )
+  comment_on(terminal, "retries")
+  try testing::assert(not subject.modal_closed(), "the box opens again")
+  terminal.click(50, 10)
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(subject.modal_closed(), "a press outside closes it")
+  testing::assert(subject.attached.pending_text_notes().size() == 0, "closing saves nothing")
+}
+
+test fn a_comments_chip_reopens_its_box_to_edit_or_delete_it() Void!Str {
+  let terminal = headless::new(60, 16)
+  defer terminal.destroy()
+  let subject = shell_with_reply("It retries every 2 seconds.")
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  comment_on(terminal, "retries")
+  terminal.key(typed("Back off"))
+  terminal.key(typed_key("return"))
+  terminal.flush()
+  terminal.flush()
+  let chip = find_text(shell_rows(terminal), "“retries”")
+  try testing::assert(chip.y == 11, "the comment waits as a chip:\n{shown(terminal)}")
+  terminal.click(chip.x + 2, chip.y)
+  terminal.flush()
+  terminal.flush()
+  // It opens above the chip with the comment, to save or delete.
+  try expect_shell_rows(
+    shell_rows(terminal),
+    [
+      "  Unnamed session",
+      "────────────────────────────────────────────────────────────",
+      "",
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │ ▎ retries                                    │",
+      " │ Back off                                     │",
+      " │                                              │",
+      " │                                              │",
+      " │   Delete                  Cancel      Save   │",
+      " └──────────────────────────────────────────────┘",
+      "  🗨️ “retries” Back off ×",
+      "────────────────────────────────────────────────────────────",
+      " Ask kit to do something…",
+      "────────────────────────────────────────────────────────────",
+      "",
+    ],
+  )
+  let danger = subject.props.themes.current().danger_text
+  let deleting = terminal.frame().cell(5, 9).expect("Delete")
+  let red = match deleting.style.foreground {
+    color => color.red == danger.red and color.green == danger.green and color.blue == danger.blue,
+    _ => false,
+  }
+  try testing::assert(deleting.grapheme == "D" and red, "Delete is in the danger color")
+  terminal.key(typed(" now"))
+  terminal.key(typed_key("return"))
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(subject.modal_closed(), "saving closes the box")
+  try testing::assert(
+    find_text(shell_rows(terminal), "“retries” Back off now ×").y == 11,
+    "the chip shows the edited comment:\n{shown(terminal)}",
+  )
+  terminal.click(chip.x + 2, chip.y)
+  terminal.flush()
+  terminal.flush()
+  let delete = find_text(shell_rows(terminal), "Delete")
+  terminal.click(delete.x + 1, delete.y)
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(subject.modal_closed(), "deleting closes the box")
+  testing::assert(
+    subject.attached.pending_text_notes().size() == 0 and find_text(shell_rows(terminal), "“retries”").y < 0,
+    "Delete removes the comment and its chip:\n{shown(terminal)}",
   )
 }
