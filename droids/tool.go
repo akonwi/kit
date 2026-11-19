@@ -101,6 +101,11 @@ type Tool[Args any] struct {
 	// model can read. The call waits across restarts, so Execute should recheck
 	// what it acts on.
 	Confirm func(ctx context.Context, call ToolContext, args Args) (*Confirmation, error)
+	// Declined optionally writes the result of a call the person did not
+	// approve: they said no, declined, or the question settled without an
+	// answer. Without it, or when its result is invalid, the result says the
+	// call was not run and why.
+	Declined func(ctx context.Context, call ToolContext, args Args, settlement Settlement) ToolResult
 
 	// ask makes a standard question tool: droids asks the question before the
 	// tool runs and Execute reads the settlement from its context.
@@ -148,6 +153,9 @@ type AnyTool interface {
 	declare(ctx context.Context, call ToolContext, raw []byte) (*Question, declaredAsk, error)
 	// execute decodes raw JSON args and runs the tool.
 	execute(ctx context.Context, call ToolContext, raw []byte, update ToolUpdate) (ToolResult, error)
+	// declined returns the tool's own result for a call the person did not
+	// approve, if it writes one.
+	declined(ctx context.Context, call ToolContext, raw []byte, settlement Settlement) (ToolResult, bool)
 }
 
 // NewTool validates and erases a typed Tool into an AnyTool.
@@ -366,6 +374,17 @@ func (b boundTool[Args]) execute(ctx context.Context, call ToolContext, raw []by
 		update = func(ToolResultDelta) {}
 	}
 	return b.t.Execute(ctx, call, args, update)
+}
+
+func (b boundTool[Args]) declined(ctx context.Context, call ToolContext, raw []byte, settlement Settlement) (ToolResult, bool) {
+	if b.t.Declined == nil {
+		return ToolResult{}, false
+	}
+	args, err := b.decode(raw)
+	if err != nil {
+		return ToolResult{}, false
+	}
+	return b.t.Declined(ctx, call, args, settlement), true
 }
 
 func (b boundTool[Args]) declare(ctx context.Context, call ToolContext, raw []byte) (*Question, declaredAsk, error) {

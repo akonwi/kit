@@ -217,6 +217,47 @@ func TestDeniedConfirmationTellsTheModelWithoutRunningTheTool(t *testing.T) {
 	}
 }
 
+func TestADeclinedToolWritesItsOwnResult(t *testing.T) {
+	cases := map[string]struct {
+		answer droids.Answer
+		want   string
+	}{
+		"no":       {droids.Answer{Confirmed: no()}, `kept prod (answered: the user declined)`},
+		"declined": {droids.Answer{Declined: true}, `kept prod (declined: the user declined)`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			providers := newInteractionProviders(callTools(toolCall("call_1", "danger", `{"target":"prod"}`)))
+			var runs atomic.Int32
+			droid := spawnInteractionDroid(t, droids.ConversationID("confirm_declined_"+name), droids.NewMemoryStore(), providers,
+				countingTool("danger", &runs, func(tool *droids.Tool[dangerArgs]) {
+					tool.RequireConfirmation = true
+					tool.Declined = func(_ context.Context, _ droids.ToolContext, args dangerArgs, settlement droids.Settlement) droids.ToolResult {
+						reason := settlement.Reason
+						if reason == "" {
+							reason = "the user declined"
+						}
+						return droids.ToolText("kept " + args.Target + " (" + string(settlement.Status) + ": " + reason + ")")
+					}
+				}))
+			handle, err := droid.Prompt(t.Context(), textInput("go"), droids.PromptOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pending := waitPending(t, droid, 1)
+			if err := droid.Respond(t.Context(), pending[0].ID, tc.answer); err != nil {
+				t.Fatal(err)
+			}
+			if outcome := settle(t, handle); outcome.Status != droids.ExecutionCompleted {
+				t.Fatalf("outcome = %+v", outcome)
+			}
+			if runs.Load() != 0 || providers.results()["call_1"] != tc.want {
+				t.Fatalf("runs = %d, results = %v; want %q", runs.Load(), providers.results(), tc.want)
+			}
+		})
+	}
+}
+
 func TestConfirmDecidesPerCallAndFillsDefaults(t *testing.T) {
 	providers := newInteractionProviders(callTools(
 		toolCall("call_safe", "danger", `{"target":"dev"}`),
@@ -607,5 +648,59 @@ func TestShuttingDownEndsTheWaitForAWaitingTurn(t *testing.T) {
 	outcome, err := handle.Wait(ctx)
 	if !errors.Is(err, droids.ErrClosed) || outcome.Status != droids.ExecutionWaiting {
 		t.Fatalf("Wait after shutdown = %+v, %v; want the waiting state and ErrClosed", outcome, err)
+	}
+}
+
+func TestAnAnsweredCallUnderANewPolicyIsCheckedAgainWithoutAskingAgain(t *testing.T) {
+	for name, reject := range map[string]bool{"allowed": false, "rejected": true} {
+		t.Run(name, func(t *testing.T) {
+			providers := newInteractionProviders(callTools(toolCall("call_1", "danger", `{"target":"prod"}`)))
+			var runs, hooks atomic.Int32
+			var policy atomic.Value
+			policy.Store("policy_one")
+			var rejecting atomic.Bool
+			droid, err := droids.Spawn(t.Context(), droids.ConversationID("policy_"+name), droids.Config{
+				Store: droids.NewMemoryStore(), Model: resolvedTestModel(providers, "test/read"),
+				Tools:                  []droids.AnyTool{countingTool("danger", &runs, func(tool *droids.Tool[dangerArgs]) { tool.RequireConfirmation = true })},
+				BeforeToolCallIdentity: func() string { return policy.Load().(string) },
+				BeforeToolCall: func(_ context.Context, call droids.ToolContext, _ droids.ToolCall) (droids.BeforeToolResult, error) {
+					hooks.Add(1)
+					if call.BeforeHookIdentity != policy.Load().(string) {
+						t.Errorf("hook ran under %q, want the current policy", call.BeforeHookIdentity)
+					}
+					return droids.BeforeToolResult{Reject: rejecting.Load(), Reason: "the new policy refuses"}, nil
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = droid.Close() })
+			handle, err := droid.Prompt(t.Context(), textInput("go"), droids.PromptOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pending := waitPending(t, droid, 1)
+			// The policy changes while the person decides.
+			policy.Store("policy_two")
+			rejecting.Store(reject)
+			if err := droid.Respond(t.Context(), pending[0].ID, droids.Answer{Confirmed: yes()}); err != nil {
+				t.Fatal(err)
+			}
+			if outcome := settle(t, handle); outcome.Status != droids.ExecutionCompleted {
+				t.Fatalf("outcome = %+v", outcome)
+			}
+			want, wantRuns := "ran on prod", int32(1)
+			if reject {
+				want, wantRuns = "the new policy refuses", 0
+			}
+			interactions, err := droid.Interactions(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hooks.Load() != 2 || runs.Load() != wantRuns || providers.results()["call_1"] != want || len(interactions) != 0 {
+				t.Fatalf("hooks = %d, runs = %d, results = %v, pending = %v; want 2 hooks, %d runs, %q, none pending",
+					hooks.Load(), runs.Load(), providers.results(), interactions, wantRuns, want)
+			}
+		})
 	}
 }

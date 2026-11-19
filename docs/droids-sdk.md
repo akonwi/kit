@@ -1129,6 +1129,7 @@ type Tool[Args any] struct {
 
     RequireConfirmation bool
     Confirm             func(ctx context.Context, call ToolContext, args Args) (*Confirmation, error)
+    Declined            func(ctx context.Context, call ToolContext, args Args, settlement Settlement) ToolResult
 }
 
 func NewTool[Args any](tool Tool[Args]) (AnyTool, error)
@@ -1293,9 +1294,16 @@ call. When nothing else can run, the turn is `waiting`.
 
 Approval runs the tool once, with the arguments that were asked about. Any
 other settlement completes the call without running it, with a result the
-model can read, such as `Not run: the user declined.` A waiting turn survives
-restarts: `Spawn` restores it as waiting, and the answer continues it. `Execute`
-may run long after the question was asked, so it should recheck what it acts on.
+model can read, such as `Not run: the user declined.` `Declined`, when set,
+writes that result instead; droids falls back to its own when `Declined`
+returns an invalid result. A waiting turn survives restarts: `Spawn` restores
+it as waiting, and the answer continues it. `Execute` may run long after the
+question was asked, so it should recheck what it acts on.
+
+If the `BeforeToolCallIdentity` changed while the call waited for its answer,
+for example across a restart, the before-tool hook runs again under the
+current identity before the call runs, and the answer stands: the hook may
+still reject the call. The same applies to the standard question tools.
 
 ## Interactions
 

@@ -1324,6 +1324,15 @@ func (rt *sdkRuntime) prepareTool(ctx context.Context, turnID TurnID, call ToolC
 		}
 		if tool.Phase == toolPhaseBeforeHook || tool.Phase == toolPhaseReady {
 			identity, valid := rt.beforeHookIdentity()
+			if valid && identity != tool.BeforeHookIdentity && tool.Settlement != nil {
+				// The policy changed while the call waited for the person,
+				// such as across a restart. The new policy decides again;
+				// the answer stands.
+				if err := rt.readmitTool(ctx, call.ID, identity); err != nil {
+					return false, nil, err
+				}
+				continue
+			}
 			if !valid || identity != tool.BeforeHookIdentity {
 				result, err := rt.completeToolWithoutExecution(ctx, call, toolErrorText("Tool interception policy changed; execution blocked. Do not replay without a new tool call."))
 				return false, &result, err
@@ -1375,11 +1384,7 @@ func (rt *sdkRuntime) prepareTool(ctx context.Context, turnID TurnID, call ToolC
 			settlement := *tool.Settlement
 			approved := settlement.Status == InteractionAnswered && settlement.Answer.Confirmed != nil && *settlement.Answer.Confirmed
 			if tool.Ask == declaredConfirm && !approved {
-				reason := settlement.Reason
-				if settlement.Status == InteractionAnswered {
-					reason = reasonDeclined
-				}
-				result, err := rt.completeToolWithoutExecution(ctx, call, ToolText("Not run: "+reason+"."))
+				result, err := rt.completeToolWithoutExecution(ctx, call, rt.declinedResult(ctx, call, toolContext, settlement))
 				return false, &result, err
 			}
 			if err := rt.updateToolPhase(ctx, call.ID, toolPhaseReady, nil, nil, "tool.confirmed"); err != nil {
@@ -1443,10 +1448,35 @@ var errToolAwaiting = errors.New("droids: tool call awaits an answer")
 // tool's declared question and leaves the call awaiting the answer, or makes
 // it ready to run. A tool that refuses to ask completes the call, whose result
 // it returns.
-func (rt *sdkRuntime) declareOrReady(ctx context.Context, call ToolCall, toolContext ToolContext) (*ToolResultMessage, error) {
+// declinedResult is the result of a call the person did not approve: the
+// tool's own when it writes a valid one, otherwise why it did not run.
+func (rt *sdkRuntime) declinedResult(ctx context.Context, call ToolCall, toolContext ToolContext, settlement Settlement) ToolResult {
 	rt.mu.Lock()
 	definition, exists := rt.toolDefinitionLocked(call.Name)
 	rt.mu.Unlock()
+	if exists {
+		if result, ok := definition.declined(ctx, toolContext, call.Arguments, Settlement{Status: settlement.Status, Answer: cloneAnswer(settlement.Answer), Reason: settlement.Reason}); ok {
+			if _, _, _, err := validatedToolResultMessage(call, result); err == nil {
+				return result
+			}
+		}
+	}
+	reason := settlement.Reason
+	if settlement.Status == InteractionAnswered {
+		reason = reasonDeclined
+	}
+	return ToolText("Not run: " + reason + ".")
+}
+
+func (rt *sdkRuntime) declareOrReady(ctx context.Context, call ToolCall, toolContext ToolContext) (*ToolResultMessage, error) {
+	rt.mu.Lock()
+	definition, exists := rt.toolDefinitionLocked(call.Name)
+	answered := rt.state.Tools[call.ID].Settlement != nil
+	rt.mu.Unlock()
+	if answered {
+		// Readmitted under a new policy: the person already answered.
+		return nil, rt.updateToolPhase(ctx, call.ID, toolPhaseReady, nil, nil, "tool.hook_completed")
+	}
 	if !exists {
 		result, err := rt.completeToolWithoutExecution(ctx, call, toolErrorText(fmt.Sprintf("Tool %q not found", call.Name)))
 		return &result, err
@@ -1673,6 +1703,38 @@ func (rt *sdkRuntime) recordToolDetailsOmitted(ctx context.Context, callID ToolC
 	}
 	event, _ := lifecycleEvent("tool.details_omitted", rt.state.TurnID, tool.AdmissionAttemptID, map[string]any{"tool_call_id": tool.ID})
 	return rt.commitLocked(ctx, nil, []EncodedDurableEvent{event})
+}
+
+// readmitTool returns an answered call to its before-tool phase under the
+// current policy identity, so the before-tool hook runs again before it.
+func (rt *sdkRuntime) readmitTool(ctx context.Context, callID ToolCallID, identity string) error {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	before, err := cloneDurableRuntime(rt.state)
+	if err != nil {
+		return err
+	}
+	tool, exists := rt.state.Tools[callID]
+	if !exists {
+		return fmt.Errorf("droids: tool call %q is not admitted", callID)
+	}
+	tool.Phase, tool.BeforeHookIdentity = toolPhaseBeforeHook, identity
+	rt.state.Tools[callID] = tool
+	payload, err := json.Marshal(tool)
+	if err != nil {
+		rt.state = before
+		return err
+	}
+	mutation := EncodedMutation{
+		Operation: MutationPut, RecordKind: toolRecordKind, RecordID: string(tool.ID),
+		Scope: RecordRuntime, Version: recordVersion, Payload: payload,
+	}
+	event, _ := lifecycleEvent("tool.policy_changed", rt.state.TurnID, tool.AdmissionAttemptID, map[string]any{"tool_call_id": tool.ID, "provider_call_id": tool.Call.ProviderCallID, "phase": tool.Phase})
+	if err := rt.commitLocked(ctx, []EncodedMutation{mutation}, []EncodedDurableEvent{event}); err != nil {
+		rt.state = before
+		return err
+	}
+	return nil
 }
 
 func (rt *sdkRuntime) updateToolPhase(

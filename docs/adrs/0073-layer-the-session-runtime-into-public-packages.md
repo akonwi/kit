@@ -154,7 +154,12 @@ settles each one once. Interactions take two forms:
   the tool runs. The call parks in its durable pre-execution phase until the
   interaction settles, and the tool then runs with the answer. A declared
   interaction survives restarts, and its answer resumes the call, after a
-  restart if necessary.
+  restart if necessary. The application's before-tool policy still applies:
+  if the policy identity that admitted the call changed while it waited, as
+  Kit's plugin policy does with every daemon lifetime, droids runs the
+  before-tool hook again under the current policy before the call runs, and
+  the answer stands. A call whose policy changed at any other point is
+  blocked.
 - A **live** interaction is asked by code that is already running: a tool
   during its execution, such as an MCP server asking for authorization, or the
   application outside any turn. It is listed and settled like a declared one,
