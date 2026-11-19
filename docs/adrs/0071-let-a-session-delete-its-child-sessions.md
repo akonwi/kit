@@ -80,18 +80,22 @@ model can read, which is not an error:
  "message": "The user declined. Nothing was deleted."}
 ```
 
-The approval is asked from one place in the tool. When droids' tool
-confirmation ([ADR 0073](0073-layer-the-session-runtime-into-public-packages.md))
-lands, that place becomes the tool's confirmation hook: the server resolves
-the sessions and writes the approval before the call runs, and the call
-deletes only after approval.
+The tool asks through droids' tool confirmation
+([ADR 0073](0073-layer-the-session-runtime-into-public-packages.md)): before
+the call runs, the server resolves the sessions and writes the approval, and
+the call runs only once the person approves. A call that can't be approved,
+because an ID is invalid, no ID names a child, a session is busy, or the
+sessions don't fit one approval, asks nothing and ends with an error result
+that says why. The declined result above is the tool's own, written through
+droids' declined hook.
 
 ### Deletion
 
-After approval the server reads the stored parent links again. If a session
-has joined the tree since the approval, nothing is deleted. A session that
-has left it, by being deleted or no longer having the caller above it, is
-reported as not deleted.
+After approval the server reads the stored parent links again and deletes
+each requested session that is still the caller's child, with its
+descendants as they are then: approving a child covers its descendants. A
+requested session that has left the tree, by being deleted or no longer
+having the caller above it, is reported as not deleted.
 
 Each session is deleted through the session service's delete, the path a
 client's delete takes: the session manager's permanent delete
@@ -114,8 +118,9 @@ deleted.
   goes.
 - Approval waits for the person, so a deletion holds the caller's turn until
   they answer.
-- Before tool confirmation lands, an approval does not survive a restart: the
-  turn ends and the model may ask again.
+- A pending approval survives a daemon restart and can be answered after it.
+  Plugin approvals don't: the plugins' before-tool checks run again before
+  the deletion, which then plans again from the stored parents.
 - Session-level children only: a child session cannot delete its own forks,
   since it has no session tools.
 

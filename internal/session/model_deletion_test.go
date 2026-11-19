@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/storage"
 )
@@ -54,76 +53,6 @@ func TestDeletionBlockerReportsARunningTurnAndClearsWhenIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(providers.block)
-}
-
-func TestConfirmToolCallAsksThroughTheSessionsConfirmInteraction(t *testing.T) {
-	manager, root := newDeletionTestManager(t, &authorityProviders{})
-	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.Snapshot(t.Context(), created.ID); err != nil {
-		t.Fatal(err)
-	}
-	call := droids.ToolContext{TurnID: "turn_one", ToolCallID: "call_one"}
-	type answer struct {
-		result session.ToolConfirmationResult
-		err    error
-	}
-	answers := make(chan answer, 1)
-	go func() {
-		result, err := manager.ConfirmToolCall(t.Context(), created.ID, call, session.ToolConfirmation{
-			Title: "Delete “Docs”?", Detail: "Docs · /repo\n\nThis can’t be undone.", ConfirmLabel: "Delete", CancelLabel: "Keep",
-		})
-		answers <- answer{result, err}
-	}()
-
-	var pending session.InteractionRequest
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		snapshot, err := manager.Snapshot(t.Context(), created.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(snapshot.PendingInteractions) == 1 {
-			pending = snapshot.PendingInteractions[0]
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the confirmation never became pending")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if pending.Kind != session.InteractionConfirm || pending.Title != "Delete “Docs”?" || pending.Detail != "Docs · /repo\n\nThis can’t be undone." ||
-		pending.ConfirmLabel != "Delete" || pending.CancelLabel != "Keep" || pending.RunID != "turn_one" || pending.ToolCallID != "call_one" {
-		t.Fatalf("pending interaction = %+v", pending)
-	}
-	confirmed := false
-	if err := manager.RespondInteraction(t.Context(), created.ID, session.InteractionResponse{RequestID: pending.ID, Confirmed: &confirmed}); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case got := <-answers:
-		if got.err != nil || got.result != (session.ToolConfirmationResult{Confirmed: false, Resolution: "negative_confirmation"}) {
-			t.Fatalf("ConfirmToolCall = %+v, %v", got.result, got.err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("ConfirmToolCall did not return")
-	}
-}
-
-func TestConfirmToolCallRefusesASessionThatIsNotLoaded(t *testing.T) {
-	manager, root := newDeletionTestManager(t, &authorityProviders{})
-	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.Delete(t.Context(), created.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.ConfirmToolCall(t.Context(), created.ID, droids.ToolContext{TurnID: "turn_one", ToolCallID: "call_one"}, session.ToolConfirmation{Title: "Delete?"}); !errors.Is(err, session.ErrClosed) {
-		t.Fatalf("ConfirmToolCall = %v", err)
-	}
 }
 
 func TestDiscoverChildSessionsListsDirectChildrenWithTheirDescendants(t *testing.T) {

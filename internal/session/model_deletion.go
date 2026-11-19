@@ -6,54 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/subagent"
 )
-
-// ToolConfirmation is a yes-or-no question a model tool asks the user of the
-// session running it before the tool acts.
-type ToolConfirmation struct {
-	Title        string
-	Detail       string
-	ConfirmLabel string
-	CancelLabel  string
-}
-
-// ToolConfirmationResult is the user's answer to a ToolConfirmation.
-// Resolution is the interaction's resolution, such as answered,
-// negative_confirmation, user_cancelled, run_abort, or unavailable.
-type ToolConfirmationResult struct {
-	Confirmed  bool
-	Resolution string
-}
-
-// ConfirmToolCall asks the user of sessionID to approve the model tool call
-// identified by call, through the session's confirm interaction. It waits
-// until the user answers, the call's context ends, or the session closes.
-// Only a loaded session, whose model is running the call, can ask.
-//
-// It is the interim approval path for delete_session (ADR 0071). Droids'
-// tool confirmation (ADR 0073) replaces it: the tool then declares its
-// confirmation, and droids asks before the call runs.
-func (m *Manager) ConfirmToolCall(ctx context.Context, sessionID string, call droids.ToolContext, confirmation ToolConfirmation) (ToolConfirmationResult, error) {
-	m.mu.Lock()
-	loaded := m.runtimes[sessionID]
-	m.mu.Unlock()
-	if loaded == nil {
-		return ToolConfirmationResult{}, fmt.Errorf("%w: session %s is not running", ErrClosed, sessionID)
-	}
-	settlement, err := executeInteraction(ctx, sessionID, loaded.interactions, call, InteractionRequest{
-		Kind: InteractionConfirm, Title: confirmation.Title, Detail: confirmation.Detail,
-		ConfirmLabel: confirmation.ConfirmLabel, CancelLabel: confirmation.CancelLabel,
-	})
-	if err != nil {
-		return ToolConfirmationResult{}, err
-	}
-	response := settlement.response
-	confirmed := !response.Cancelled && response.Confirmed != nil && *response.Confirmed
-	return ToolConfirmationResult{Confirmed: confirmed, Resolution: settlement.reason}, nil
-}
 
 // DeletionBlocker reports why Delete would refuse sessionID as busy now, or
 // nil if nothing is in its way. The answer can change before a later Delete,

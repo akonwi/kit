@@ -15,6 +15,7 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/clienttransport"
 )
 
 // deletionProviders calls delete_session once with deleteArguments when it is
@@ -23,7 +24,9 @@ type deletionProviders struct {
 	daemonEchoProviders
 	mu              sync.Mutex
 	deleteArguments string
-	result          string
+	// toolName is the tool the model calls; delete_session when empty.
+	toolName string
+	result   string
 }
 
 func (p *deletionProviders) Resolve(id string) (droids.Model, error) {
@@ -42,7 +45,7 @@ func (p *deletionProviders) Stream(_ context.Context, _ droids.Model, request dr
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, message := range request.Messages {
-		if result, ok := message.(droids.ToolResultMessage); ok && result.ToolName == "delete_session" {
+		if result, ok := message.(droids.ToolResultMessage); ok && result.ProviderCallID == "delete_call" {
 			for _, part := range result.Content {
 				if text, ok := part.(droids.TextContent); ok {
 					p.result = text.Text
@@ -51,8 +54,12 @@ func (p *deletionProviders) Stream(_ context.Context, _ droids.Model, request dr
 		}
 	}
 	if p.deleteArguments != "" {
+		name := p.toolName
+		if name == "" {
+			name = "delete_session"
+		}
 		response.StopReason = droids.StopReasonToolUse
-		response.Content = []droids.AssistantContent{droids.ToolCall{ID: "delete_call", Name: "delete_session", Arguments: json.RawMessage(p.deleteArguments)}}
+		response.Content = []droids.AssistantContent{droids.ToolCall{ID: "delete_call", Name: name, Arguments: json.RawMessage(p.deleteArguments)}}
 		p.deleteArguments = ""
 	}
 	return &daemonEchoStream{final: response}
@@ -177,5 +184,170 @@ func TestModelDeletesItsChildSessionsAfterTheUserApproves(t *testing.T) {
 	slices.Sort(expected)
 	if !slices.Equal(remaining, expected) {
 		t.Fatalf("remaining sessions = %v", remaining)
+	}
+}
+
+// startDeletionDaemon runs a daemon on paths until the returned stop is
+// called.
+func startDeletionDaemon(t *testing.T, paths apphome.Paths, providers *deletionProviders) (client *clienttransport.Client, stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, RunOptions{Paths: paths, Providers: providers, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	}()
+	client = localTransport(paths)
+	stop = func() {
+		client.CloseIdleConnections()
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("daemon shutdown blocked")
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, _, err := client.Probe(t.Context(), true); err == nil {
+			return client, stop
+		}
+		if time.Now().After(deadline) {
+			stop()
+			t.Fatal("daemon not ready")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestADeletionApprovalSurvivesARestartAndChecksOwnershipAgain(t *testing.T) {
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	providers := &deletionProviders{}
+	client, stop := startDeletionDaemon(t, paths, providers)
+	cwd := t.TempDir()
+	owner, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Name: "Coordinator", Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Prompt(t.Context(), owner.ID, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	docs, err := client.ForkSession(t.Context(), owner.ID, protocol.ForkSessionInput{Name: "Docs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, err := client.ForkSession(t.Context(), owner.ID, protocol.ForkSessionInput{Name: "API"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers.mu.Lock()
+	providers.deleteArguments = `{"sessionIds":["` + docs.Session.ID + `","` + api.Session.ID + `"]}`
+	providers.mu.Unlock()
+	reservation, err := client.StartPrompt(t.Context(), owner.ID, "delete both")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := waitForApproval(t, client, owner.ID)
+	if asked.Title != "Delete 2 sessions?" {
+		t.Fatalf("approval = %#v", asked)
+	}
+	stop()
+
+	client, stop = startDeletionDaemon(t, paths, providers)
+	defer stop()
+	// While the daemon was down, the user deleted the API session.
+	if err := client.DeleteSession(t.Context(), api.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	pending := waitForApproval(t, client, owner.ID)
+	if pending.ID != asked.ID || pending.TurnID != reservation.TurnID {
+		t.Fatalf("after restart: approval = %#v, want %s on turn %s", pending, asked.ID, reservation.TurnID)
+	}
+	confirmed := true
+	if err := client.RespondInteraction(t.Context(), owner.ID, protocol.InteractionResponse{RequestID: pending.ID, Confirmed: &confirmed}); err != nil {
+		t.Fatal(err)
+	}
+	waitForTurnStatus(t, client, owner.ID, reservation.TurnID, protocol.TurnStatusCompleted)
+	providers.mu.Lock()
+	result := providers.result
+	providers.mu.Unlock()
+	want := fmt.Sprintf(`{"deleted":[{"id":%q,"name":"Docs"}],"failed":[{"id":%q,"error":"this session has no child with this ID"}],"resolution":"answered","message":"Deleted 1 session; 1 not deleted."}`, docs.Session.ID, api.Session.ID)
+	if result != want {
+		t.Fatalf("tool result = %s\nwant %s", result, want)
+	}
+}
+
+func waitForApproval(t *testing.T, client *clienttransport.Client, sessionID string) protocol.InteractionRequest {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snapshot, err := client.GetSessionSnapshot(t.Context(), sessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.PendingInteractions) == 1 {
+			return snapshot.PendingInteractions[0]
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pending interactions = %#v", snapshot.PendingInteractions)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func waitForTurnStatus(t *testing.T, client *clienttransport.Client, sessionID, turnID string, status protocol.TurnStatus) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		turn, err := client.GetTurn(t.Context(), sessionID, turnID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if turn.Status == status {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("turn = %#v", turn)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestAModelQuestionAnsweredAfterARestartFinishesItsTurn(t *testing.T) {
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	providers := &deletionProviders{}
+	client, stop := startDeletionDaemon(t, paths, providers)
+	owner, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Name: "Questions", Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers.mu.Lock()
+	providers.toolName, providers.deleteArguments = "confirm_from_user", `{"title":"Proceed?"}`
+	providers.mu.Unlock()
+	reservation, err := client.StartPrompt(t.Context(), owner.ID, "ask me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := waitForApproval(t, client, owner.ID)
+	stop()
+
+	client, stop = startDeletionDaemon(t, paths, providers)
+	defer stop()
+	pending := waitForApproval(t, client, owner.ID)
+	if pending.ID != asked.ID {
+		t.Fatalf("after restart: %#v, want %s", pending, asked.ID)
+	}
+	confirmed := true
+	if err := client.RespondInteraction(t.Context(), owner.ID, protocol.InteractionResponse{RequestID: pending.ID, Confirmed: &confirmed}); err != nil {
+		t.Fatal(err)
+	}
+	waitForTurnStatus(t, client, owner.ID, reservation.TurnID, protocol.TurnStatusCompleted)
+	providers.mu.Lock()
+	result := providers.result
+	providers.mu.Unlock()
+	if result != `{"confirmed":true}` {
+		t.Fatalf("tool result = %s", result)
 	}
 }

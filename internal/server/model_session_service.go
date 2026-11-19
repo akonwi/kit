@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akonwi/kit/droids"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/sessiontool"
 )
@@ -19,7 +18,6 @@ type modelSessionManager interface {
 	StartPrompt(context.Context, string, string) (kitsession.RunReservation, error)
 	Delete(context.Context, string) error
 	DeletionBlocker(context.Context, string) error
-	ConfirmToolCall(context.Context, string, droids.ToolContext, kitsession.ToolConfirmation) (kitsession.ToolConfirmationResult, error)
 }
 
 type modelSessionService struct {
@@ -103,22 +101,6 @@ func (s modelSessionService) DeletionBlocker(ctx context.Context, sessionID stri
 		return errors.New("session deletion service is unavailable")
 	}
 	return s.manager.DeletionBlocker(ctx, sessionID)
-}
-
-// ConfirmToolCall asks the owner session's user through its confirm
-// interaction.
-func (s modelSessionService) ConfirmToolCall(ctx context.Context, owner string, call droids.ToolContext, confirmation sessiontool.Confirmation) (sessiontool.Approval, error) {
-	if s.manager == nil {
-		return sessiontool.Approval{}, errors.New("session deletion service is unavailable")
-	}
-	result, err := s.manager.ConfirmToolCall(ctx, owner, call, kitsession.ToolConfirmation{
-		Title: confirmation.Title, Detail: confirmation.Detail,
-		ConfirmLabel: confirmation.ConfirmLabel, CancelLabel: confirmation.CancelLabel,
-	})
-	if err != nil {
-		return sessiontool.Approval{}, err
-	}
-	return sessiontool.Approval{Confirmed: result.Confirmed, Resolution: result.Resolution}, nil
 }
 
 // DeleteModelSession permanently deletes one session that has no children

@@ -42,30 +42,12 @@ type SessionSummary struct {
 	LastActivity    time.Time
 }
 
-// Confirmation is the yes-or-no question asked before a deletion.
-type Confirmation struct {
-	Title        string
-	Detail       string
-	ConfirmLabel string
-	CancelLabel  string
-}
-
-// Approval is the user's answer to a Confirmation. Resolution names how the
-// question ended, such as answered, negative_confirmation, user_cancelled,
-// run_abort, or unavailable.
-type Approval struct {
-	Confirmed  bool
-	Resolution string
-}
-
 // DeletionService owns the server state the deletion tool reads and changes.
 type DeletionService interface {
 	// ModelSessions lists the persistent sessions.
 	ModelSessions(context.Context) ([]SessionSummary, error)
 	// DeletionBlocker reports why the session can't be deleted now, or nil.
 	DeletionBlocker(context.Context, string) error
-	// ConfirmToolCall asks the owner session's user to approve the call.
-	ConfirmToolCall(context.Context, string, droids.ToolContext, Confirmation) (Approval, error)
 	// DeleteModelSession permanently deletes one session, refusing one that
 	// has child sessions, including one created while it runs.
 	DeleteModelSession(context.Context, string) error
@@ -94,7 +76,8 @@ type DeleteResponse struct {
 	Deleted  []DeletedSession `json:"deleted,omitempty"`
 	Failed   []FailedDeletion `json:"failed,omitempty"`
 	Declined bool             `json:"declined,omitempty"`
-	// Resolution is how the approval ended, once one was asked.
+	// Resolution is how the approval ended: answered, negative_confirmation,
+	// user_cancelled, run_abort, or unavailable.
 	Resolution string `json:"resolution,omitempty"`
 	Message    string `json:"message,omitempty"`
 	Error      string `json:"error,omitempty"`
@@ -128,28 +111,43 @@ func (s *ToolService) deleteTool(ownerSessionID string) (droids.AnyTool, error) 
 			"required": []string{"sessionIds"}, "additionalProperties": false,
 		},
 		Mode: droids.ModeSequential,
-		Execute: func(ctx context.Context, call droids.ToolContext, args deleteArguments, _ droids.ToolUpdate) (droids.ToolResult, error) {
-			return deleteResult(s.executeDelete(ctx, ownerSessionID, call, args)), nil
+		// The droid asks before the call runs, so the approval survives a
+		// restart; Execute plans again from the stored sessions.
+		Confirm: func(ctx context.Context, _ droids.ToolContext, args deleteArguments) (*droids.Confirmation, error) {
+			return s.confirmDeletion(ctx, ownerSessionID, args)
+		},
+		Declined: func(ctx context.Context, _ droids.ToolContext, args deleteArguments, settlement droids.Settlement) droids.ToolResult {
+			return deleteResult(s.declinedDeletion(ctx, ownerSessionID, args, settlement))
+		},
+		Execute: func(ctx context.Context, _ droids.ToolContext, args deleteArguments, _ droids.ToolUpdate) (droids.ToolResult, error) {
+			return deleteResult(s.executeDelete(ctx, ownerSessionID, args)), nil
 		},
 	})
 }
 
-func (s *ToolService) executeDelete(ctx context.Context, owner string, call droids.ToolContext, args deleteArguments) DeleteResponse {
+// confirmDeletion writes the approval for a call, or refuses the call
+// without asking: the IDs are invalid, none names a child, the sessions don't
+// fit one approval, or one of them is busy.
+func (s *ToolService) confirmDeletion(ctx context.Context, owner string, args deleteArguments) (*droids.Confirmation, error) {
 	ids, err := requestedSessionIDs(args.SessionIDs)
 	if err != nil {
-		return DeleteResponse{Error: err.Error()}
+		return nil, err
 	}
 	sessions, err := s.Deletion.ModelSessions(ctx)
 	if err != nil {
-		return DeleteResponse{Error: err.Error()}
+		return nil, err
 	}
 	ids, missing := splitNonChildren(owner, ids, sessions)
 	plan, err := planDeletion(owner, ids, sessions)
 	if err != nil {
-		return DeleteResponse{Error: "nothing was deleted: " + err.Error()}
+		return nil, errors.New("nothing was deleted: " + err.Error())
 	}
 	if len(plan) == 0 {
-		return DeleteResponse{Failed: missing, Error: "nothing was deleted"}
+		named := make([]string, 0, len(missing))
+		for _, failed := range missing {
+			named = append(named, failed.ID)
+		}
+		return nil, fmt.Errorf("nothing was deleted: %s: %s", noChildReason, strings.Join(named, ", "))
 	}
 	var blocked []string
 	for _, target := range plan {
@@ -158,22 +156,64 @@ func (s *ToolService) executeDelete(ctx context.Context, owner string, call droi
 		}
 	}
 	if len(blocked) > 0 {
-		return DeleteResponse{Error: "nothing was deleted: " + strings.Join(blocked, "; ")}
+		return nil, errors.New("nothing was deleted: " + strings.Join(blocked, "; "))
 	}
-
-	approval, err := s.approveDeletion(ctx, owner, call, plan)
+	confirmation, err := deletionConfirmation(plan, s.now())
 	if err != nil {
-		return DeleteResponse{Error: "nothing was deleted: " + err.Error()}
+		return nil, errors.New("nothing was deleted: " + err.Error())
 	}
-	if !approval.Confirmed {
-		message := "The user declined. Nothing was deleted."
-		if approval.Resolution != "negative_confirmation" && approval.Resolution != "user_cancelled" {
-			message = "The approval ended without an answer (" + approval.Resolution + "). Nothing was deleted."
+	return &confirmation, nil
+}
+
+// declinedDeletion is the result of a call the user did not approve.
+func (s *ToolService) declinedDeletion(ctx context.Context, owner string, args deleteArguments, settlement droids.Settlement) DeleteResponse {
+	resolution := approvalResolution(settlement)
+	message := "The user declined. Nothing was deleted."
+	if resolution != "negative_confirmation" && resolution != "user_cancelled" {
+		message = "The approval ended without an answer (" + resolution + "). Nothing was deleted."
+	}
+	response := DeleteResponse{Declined: true, Resolution: resolution, Message: message}
+	if ids, err := requestedSessionIDs(args.SessionIDs); err == nil {
+		if sessions, err := s.Deletion.ModelSessions(ctx); err == nil {
+			_, response.Failed = splitNonChildren(owner, ids, sessions)
 		}
-		return DeleteResponse{Declined: true, Failed: missing, Resolution: approval.Resolution, Message: message}
 	}
-	response := s.deleteApproved(ctx, owner, ids, plan, missing)
-	response.Resolution = approval.Resolution
+	return response
+}
+
+// approvalResolution names how an approval that was not given ended.
+func approvalResolution(settlement droids.Settlement) string {
+	switch settlement.Status {
+	case droids.InteractionAnswered:
+		return "negative_confirmation"
+	case droids.InteractionDeclined:
+		return "user_cancelled"
+	case droids.InteractionCancelled:
+		return "run_abort"
+	default:
+		return "unavailable"
+	}
+}
+
+// executeDelete deletes an approved call's sessions. The approval may be
+// from before a restart, so it plans again from the stored parents: only the
+// owner's current children and their current descendants are deleted.
+func (s *ToolService) executeDelete(ctx context.Context, owner string, args deleteArguments) DeleteResponse {
+	ids, err := requestedSessionIDs(args.SessionIDs)
+	if err != nil {
+		return DeleteResponse{Error: err.Error()}
+	}
+	sessions, err := s.Deletion.ModelSessions(ctx)
+	if err != nil {
+		return DeleteResponse{Resolution: "answered", Error: "nothing was deleted: " + err.Error()}
+	}
+	ids, missing := splitNonChildren(owner, ids, sessions)
+	plan, err := planDeletion(owner, ids, sessions)
+	if err != nil {
+		return DeleteResponse{Failed: missing, Resolution: "answered", Error: "nothing was deleted: " + err.Error()}
+	}
+	response := s.deletePlan(ctx, plan, missing)
+	response.Resolution = "answered"
 	return response
 }
 
@@ -201,62 +241,15 @@ func splitNonChildren(owner string, ids []string, sessions []SessionSummary) (ch
 	return children, others
 }
 
-// approveDeletion is the one place the deletion asks for approval. The tool
-// moves onto droids tool confirmation (ADR 0073) by making this the call's
-// confirmation hook.
-func (s *ToolService) approveDeletion(ctx context.Context, owner string, call droids.ToolContext, plan deletionPlan) (Approval, error) {
-	confirmation, err := deletionConfirmation(plan, s.now())
-	if err != nil {
-		return Approval{}, err
-	}
-	return s.Deletion.ConfirmToolCall(ctx, owner, call, confirmation)
-}
-
-// deleteApproved deletes the approved plan, descendants before their
-// ancestors. It checks ownership again against the stored parents and
-// deletes only sessions the user approved.
-func (s *ToolService) deleteApproved(ctx context.Context, owner string, ids []string, approved deletionPlan, missing []FailedDeletion) DeleteResponse {
-	sessions, err := s.Deletion.ModelSessions(ctx)
-	if err != nil {
-		return DeleteResponse{Error: "nothing was deleted: " + err.Error()}
-	}
-	byID := make(map[string]SessionSummary, len(sessions))
-	for _, session := range sessions {
-		byID[session.ID] = session
-	}
-	approvedIDs := make(map[string]bool, len(approved))
-	for _, target := range approved {
-		approvedIDs[target.ID] = true
-	}
-	var present []string
-	for _, id := range ids {
-		if session, ok := byID[id]; ok && session.Persistent && session.ParentSessionID == owner {
-			present = append(present, id)
-		}
-	}
-	current, err := planDeletion(owner, present, sessions)
-	if err != nil && len(present) > 0 {
-		return DeleteResponse{Failed: missing, Error: "nothing was deleted: " + err.Error()}
-	}
-	currentIDs := make(map[string]bool, len(current))
-	for _, target := range current {
-		if !approvedIDs[target.ID] {
-			return DeleteResponse{Failed: missing, Error: fmt.Sprintf("nothing was deleted: %s (%s) was created after the approval", displayName(target.Name), target.ID)}
-		}
-		currentIDs[target.ID] = true
-	}
-
+// deletePlan deletes plan, descendants before their ancestors, and keeps
+// the ancestors of any session it could not delete.
+func (s *ToolService) deletePlan(ctx context.Context, plan deletionPlan, missing []FailedDeletion) DeleteResponse {
 	var response DeleteResponse
 	failed := map[string]string{}
-	for _, target := range approved {
-		if !currentIDs[target.ID] {
-			failed[target.ID] = "it no longer exists or is no longer a child of this session"
-		}
-	}
-	for index := len(current) - 1; index >= 0; index-- {
-		target := current[index]
+	for index := len(plan) - 1; index >= 0; index-- {
+		target := plan[index]
 		reason := ""
-		for _, child := range current[index+1:] {
+		for _, child := range plan[index+1:] {
 			if child.Depth <= target.Depth {
 				break
 			}
@@ -280,7 +273,7 @@ func (s *ToolService) deleteApproved(ctx context.Context, owner string, ids []st
 		}
 		response.Deleted = append(response.Deleted, DeletedSession{ID: target.ID, Name: target.Name})
 	}
-	for _, target := range approved {
+	for _, target := range plan {
 		if reason, ok := failed[target.ID]; ok {
 			response.Failed = append(response.Failed, FailedDeletion{ID: target.ID, Name: target.Name, Error: reason})
 		}
@@ -403,7 +396,7 @@ func planDeletion(owner string, ids []string, sessions []SessionSummary) (deleti
 
 // deletionConfirmation writes the approval for plan: one line per session,
 // indented below its parent.
-func deletionConfirmation(plan deletionPlan, now time.Time) (Confirmation, error) {
+func deletionConfirmation(plan deletionPlan, now time.Time) (droids.Confirmation, error) {
 	title := "Delete " + sessionCount(len(plan)) + "?"
 	if len(plan) == 1 {
 		title = "Delete “" + displayName(plan[0].Name) + "”?"
@@ -424,9 +417,9 @@ func deletionConfirmation(plan deletionPlan, now time.Time) (Confirmation, error
 	}
 	detail.WriteString("\nThis can’t be undone.")
 	if detail.Len() > maxApprovalDetailBytes || len(title) > 512 {
-		return Confirmation{}, errors.New("these sessions don't fit in one approval; delete fewer at a time")
+		return droids.Confirmation{}, errors.New("these sessions don't fit in one approval; delete fewer at a time")
 	}
-	return Confirmation{Title: title, Detail: detail.String(), ConfirmLabel: "Delete", CancelLabel: "Keep"}, nil
+	return droids.Confirmation{Title: title, Detail: detail.String(), ConfirmLabel: "Delete", CancelLabel: "Keep"}, nil
 }
 
 func lastActive(at, now time.Time) string {

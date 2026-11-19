@@ -20,11 +20,7 @@ type fakeDeletion struct {
 	afterApproval []SessionSummary
 	blocked       map[string]error
 	deleteErrors  map[string]error
-	approval      Approval
-	approvalErr   error
 
-	asked   []Confirmation
-	call    droids.ToolContext
 	deleted []string
 }
 
@@ -32,17 +28,6 @@ func (f *fakeDeletion) ModelSessions(context.Context) ([]SessionSummary, error) 
 	return append([]SessionSummary(nil), f.sessions...), nil
 }
 func (f *fakeDeletion) DeletionBlocker(_ context.Context, id string) error { return f.blocked[id] }
-func (f *fakeDeletion) ConfirmToolCall(_ context.Context, owner string, call droids.ToolContext, confirmation Confirmation) (Approval, error) {
-	if owner != "session_owner" {
-		return Approval{}, errors.New("asked the wrong session")
-	}
-	f.asked = append(f.asked, confirmation)
-	f.call = call
-	if f.afterApproval != nil {
-		f.sessions = f.afterApproval
-	}
-	return f.approval, f.approvalErr
-}
 func (f *fakeDeletion) DeleteModelSession(_ context.Context, id string) error {
 	if err := f.deleteErrors[id]; err != nil {
 		return err
@@ -66,11 +51,42 @@ func deletionTree() []SessionSummary {
 	}
 }
 
-func runDelete(t *testing.T, deletion *fakeDeletion, ids ...string) (DeleteResponse, droids.ToolResult) {
+var (
+	approved = droids.Settlement{Status: droids.InteractionAnswered, Answer: droids.Answer{Confirmed: ptr(true)}}
+	refused  = droids.Settlement{Status: droids.InteractionAnswered, Answer: droids.Answer{Confirmed: ptr(false)}}
+)
+
+func ptr[T any](value T) *T { return &value }
+
+// deletion is what one call did, in the order the droid runs a tool that
+// asks first: Confirm, then Declined or Execute once the approval settles.
+type deletion struct {
+	asked    *droids.Confirmation
+	refusal  string
+	response DeleteResponse
+	result   droids.ToolResult
+}
+
+func runDelete(t *testing.T, fake *fakeDeletion, settlement droids.Settlement, ids ...string) deletion {
 	t.Helper()
-	tool := &ToolService{Deletion: deletion, Now: func() time.Time { return deletionNow }}
-	call := droids.ToolContext{TurnID: "turn_one", ToolCallID: "call_one"}
-	result := deleteResult(tool.executeDelete(t.Context(), "session_owner", call, deleteArguments{SessionIDs: ids}))
+	tool := &ToolService{Deletion: fake, Now: func() time.Time { return deletionNow }}
+	args := deleteArguments{SessionIDs: ids}
+	confirmation, err := tool.confirmDeletion(t.Context(), "session_owner", args)
+	if err != nil {
+		return deletion{refusal: err.Error()}
+	}
+	if confirmation == nil {
+		t.Fatal("the call ran without asking")
+	}
+	if fake.afterApproval != nil {
+		fake.sessions = fake.afterApproval
+	}
+	var result droids.ToolResult
+	if settlement.Status == droids.InteractionAnswered && *settlement.Answer.Confirmed {
+		result = deleteResult(tool.executeDelete(t.Context(), "session_owner", args))
+	} else {
+		result = deleteResult(tool.declinedDeletion(t.Context(), "session_owner", args, settlement))
+	}
 	var response DeleteResponse
 	text := result.Content[0].(droids.TextContent).Text
 	if err := json.Unmarshal([]byte(text), &response); err != nil {
@@ -79,13 +95,12 @@ func runDelete(t *testing.T, deletion *fakeDeletion, ids ...string) (DeleteRespo
 	if len(result.Details) == 0 {
 		t.Fatal("result has no details")
 	}
-	return response, result
+	return deletion{asked: confirmation, response: response, result: result}
 }
 
 func TestDeleteAsksOnceWithEverySessionItWouldDelete(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Confirmed: true, Resolution: "answered"}}
-	runDelete(t, deletion, "session_docs", "session_api")
-	want := []Confirmation{{
+	got := runDelete(t, &fakeDeletion{sessions: deletionTree()}, approved, "session_docs", "session_api")
+	want := droids.Confirmation{
 		Title: "Delete 4 sessions?",
 		Detail: "Docs · /work/docs · active 2 hours ago\n" +
 			"↳ Docs fork · /work/docs · active 3 days ago\n" +
@@ -93,65 +108,65 @@ func TestDeleteAsksOnceWithEverySessionItWouldDelete(t *testing.T) {
 			"API · /work/api · active just now\n" +
 			"\nThis can’t be undone.",
 		ConfirmLabel: "Delete", CancelLabel: "Keep",
-	}}
-	if !reflect.DeepEqual(deletion.asked, want) {
-		t.Fatalf("asked = %#v\nwant %#v", deletion.asked, want)
 	}
-	if deletion.call != (droids.ToolContext{TurnID: "turn_one", ToolCallID: "call_one"}) {
-		t.Fatalf("call = %+v", deletion.call)
+	if got.asked == nil || *got.asked != want {
+		t.Fatalf("asked = %#v\nwant %#v", got.asked, want)
 	}
 }
 
 func TestDeleteNamesASingleSessionInTheApprovalTitle(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Confirmed: false, Resolution: "negative_confirmation"}}
-	runDelete(t, deletion, "session_api")
-	if len(deletion.asked) != 1 || deletion.asked[0].Title != "Delete “API”?" || deletion.asked[0].Detail != "API · /work/api · active just now\n\nThis can’t be undone." {
-		t.Fatalf("asked = %#v", deletion.asked)
+	got := runDelete(t, &fakeDeletion{sessions: deletionTree()}, refused, "session_api")
+	if got.asked == nil || got.asked.Title != "Delete “API”?" || got.asked.Detail != "API · /work/api · active just now\n\nThis can’t be undone." {
+		t.Fatalf("asked = %#v", got.asked)
 	}
 }
 
 func TestDeleteRemovesDescendantsBeforeTheirAncestors(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Confirmed: true, Resolution: "answered"}}
-	response, result := runDelete(t, deletion, "session_docs", "session_api")
+	fake := &fakeDeletion{sessions: deletionTree()}
+	got := runDelete(t, fake, approved, "session_docs", "session_api")
 	wantDeleted := []string{"session_api", "session_docs_fork_fork", "session_docs_fork", "session_docs"}
-	if !reflect.DeepEqual(deletion.deleted, wantDeleted) {
-		t.Fatalf("deleted = %v, want %v", deletion.deleted, wantDeleted)
+	if !reflect.DeepEqual(fake.deleted, wantDeleted) {
+		t.Fatalf("deleted = %v, want %v", fake.deleted, wantDeleted)
 	}
 	want := DeleteResponse{
 		Deleted:    []DeletedSession{{ID: "session_api", Name: "API"}, {ID: "session_docs_fork_fork"}, {ID: "session_docs_fork", Name: "Docs fork"}, {ID: "session_docs", Name: "Docs"}},
 		Resolution: "answered", Message: "Deleted 4 sessions.",
 	}
-	if result.IsError || !reflect.DeepEqual(response, want) {
-		t.Fatalf("response = %#v (error %v)", response, result.IsError)
+	if got.result.IsError || !reflect.DeepEqual(got.response, want) {
+		t.Fatalf("response = %#v (error %v)", got.response, got.result.IsError)
 	}
 }
 
 func TestDeleteReportsADeclineAsAReadableResult(t *testing.T) {
 	for _, tc := range []struct {
+		settlement droids.Settlement
 		resolution string
 		message    string
 	}{
-		{"negative_confirmation", "The user declined. Nothing was deleted."},
-		{"user_cancelled", "The user declined. Nothing was deleted."},
-		{"run_abort", "The approval ended without an answer (run_abort). Nothing was deleted."},
-		{"unavailable", "The approval ended without an answer (unavailable). Nothing was deleted."},
+		{refused, "negative_confirmation", "The user declined. Nothing was deleted."},
+		{droids.Settlement{Status: droids.InteractionDeclined, Reason: "the user declined"}, "user_cancelled", "The user declined. Nothing was deleted."},
+		{droids.Settlement{Status: droids.InteractionCancelled, Reason: "the turn ended"}, "run_abort", "The approval ended without an answer (run_abort). Nothing was deleted."},
+		{droids.Settlement{Status: droids.InteractionUnavailable, Reason: "unavailable"}, "unavailable", "The approval ended without an answer (unavailable). Nothing was deleted."},
 	} {
 		t.Run(tc.resolution, func(t *testing.T) {
-			deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Resolution: tc.resolution}}
-			response, result := runDelete(t, deletion, "session_docs")
-			want := DeleteResponse{Declined: true, Resolution: tc.resolution, Message: tc.message}
-			if result.IsError || !reflect.DeepEqual(response, want) || len(deletion.deleted) != 0 {
-				t.Fatalf("response = %#v, error = %v, deleted = %v", response, result.IsError, deletion.deleted)
+			fake := &fakeDeletion{sessions: deletionTree()}
+			got := runDelete(t, fake, tc.settlement, "session_docs", "session_gone")
+			want := DeleteResponse{
+				Declined: true, Resolution: tc.resolution, Message: tc.message,
+				Failed: []FailedDeletion{{ID: "session_gone", Error: "this session has no child with this ID"}},
+			}
+			if got.result.IsError || !reflect.DeepEqual(got.response, want) || len(fake.deleted) != 0 {
+				t.Fatalf("response = %#v, error = %v, deleted = %v", got.response, got.result.IsError, fake.deleted)
 			}
 		})
 	}
 }
 
 func TestDeleteReportsEveryIDThatIsNotAChildAlike(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Confirmed: true, Resolution: "answered"}}
-	response, result := runDelete(t, deletion, "session_owner", "session_docs_fork", "session_other", "session_other_child", "session_missing", "session_api")
-	if len(deletion.asked) != 1 || deletion.asked[0].Title != "Delete “API”?" {
-		t.Fatalf("asked = %#v", deletion.asked)
+	fake := &fakeDeletion{sessions: deletionTree()}
+	got := runDelete(t, fake, approved, "session_owner", "session_docs_fork", "session_other", "session_other_child", "session_missing", "session_api")
+	if got.asked == nil || got.asked.Title != "Delete “API”?" {
+		t.Fatalf("asked = %#v", got.asked)
 	}
 	reason := "this session has no child with this ID"
 	want := DeleteResponse{
@@ -162,65 +177,58 @@ func TestDeleteReportsEveryIDThatIsNotAChildAlike(t *testing.T) {
 		},
 		Resolution: "answered", Message: "Deleted 1 session; 5 not deleted.",
 	}
-	if result.IsError || !reflect.DeepEqual(response, want) || !reflect.DeepEqual(deletion.deleted, []string{"session_api"}) {
-		t.Fatalf("response = %#v, deleted = %v", response, deletion.deleted)
+	if got.result.IsError || !reflect.DeepEqual(got.response, want) || !reflect.DeepEqual(fake.deleted, []string{"session_api"}) {
+		t.Fatalf("response = %#v, deleted = %v", got.response, fake.deleted)
 	}
 }
 
 func TestDeleteReportsMissingSessionsAndDeletesTheRest(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Confirmed: true, Resolution: "answered"}}
-	response, result := runDelete(t, deletion, "session_gone", "session_api")
-	if len(deletion.asked) != 1 || deletion.asked[0].Title != "Delete “API”?" {
-		t.Fatalf("asked = %#v", deletion.asked)
+	got := runDelete(t, &fakeDeletion{sessions: deletionTree()}, approved, "session_gone", "session_api")
+	if got.asked == nil || got.asked.Title != "Delete “API”?" {
+		t.Fatalf("asked = %#v", got.asked)
 	}
 	want := DeleteResponse{
 		Deleted:    []DeletedSession{{ID: "session_api", Name: "API"}},
 		Failed:     []FailedDeletion{{ID: "session_gone", Error: "this session has no child with this ID"}},
 		Resolution: "answered", Message: "Deleted 1 session; 1 not deleted.",
 	}
-	if result.IsError || !reflect.DeepEqual(response, want) {
-		t.Fatalf("response = %#v", response)
+	if got.result.IsError || !reflect.DeepEqual(got.response, want) {
+		t.Fatalf("response = %#v", got.response)
 	}
 }
 
-func TestDeleteFailsWithoutAskingWhenEverySessionIsMissing(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Confirmed: true}}
-	response, result := runDelete(t, deletion, "session_gone", "session_lost")
-	want := DeleteResponse{
-		Failed: []FailedDeletion{{ID: "session_gone", Error: "this session has no child with this ID"}, {ID: "session_lost", Error: "this session has no child with this ID"}},
-		Error:  "nothing was deleted",
-	}
-	if !result.IsError || !reflect.DeepEqual(response, want) || len(deletion.asked) != 0 {
-		t.Fatalf("response = %#v, asked = %v", response, deletion.asked)
+func TestDeleteRefusesWithoutAskingWhenEverySessionIsMissing(t *testing.T) {
+	got := runDelete(t, &fakeDeletion{sessions: deletionTree()}, approved, "session_gone", "session_lost")
+	if got.refusal != "nothing was deleted: this session has no child with this ID: session_gone, session_lost" {
+		t.Fatalf("got %#v", got)
 	}
 }
 
 func TestDeleteRefusesAnOwnerThatHasAParent(t *testing.T) {
 	sessions := deletionTree()
 	sessions[0].ParentSessionID = "session_other"
-	deletion := &fakeDeletion{sessions: sessions, approval: Approval{Confirmed: true}}
-	response, result := runDelete(t, deletion, "session_docs")
-	if !result.IsError || response.Error != "nothing was deleted: only a top-level persistent session can delete its child sessions" || len(deletion.asked) != 0 {
-		t.Fatalf("response = %#v, asked = %v", response, deletion.asked)
+	got := runDelete(t, &fakeDeletion{sessions: sessions}, approved, "session_docs")
+	if got.refusal != "nothing was deleted: only a top-level persistent session can delete its child sessions" {
+		t.Fatalf("got %#v", got)
 	}
 }
 
 func TestDeleteRefusesWithoutAskingWhenAnyDescendantIsBusy(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Confirmed: true}, blocked: map[string]error{
+	fake := &fakeDeletion{sessions: deletionTree(), blocked: map[string]error{
 		"session_docs_fork": errors.New("session cannot be deleted while work is active: it is running a turn"),
 	}}
-	response, result := runDelete(t, deletion, "session_docs", "session_api")
+	got := runDelete(t, fake, approved, "session_docs", "session_api")
 	want := "nothing was deleted: Docs fork (session_docs_fork): session cannot be deleted while work is active: it is running a turn"
-	if !result.IsError || response.Error != want || len(deletion.asked) != 0 || len(deletion.deleted) != 0 {
-		t.Fatalf("response = %#v, asked = %v, deleted = %v", response, deletion.asked, deletion.deleted)
+	if got.refusal != want || len(fake.deleted) != 0 {
+		t.Fatalf("got %#v, deleted = %v", got, fake.deleted)
 	}
 }
 
 func TestDeleteKeepsAncestorsOfASessionItCouldNotDelete(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approval: Approval{Confirmed: true, Resolution: "answered"}, deleteErrors: map[string]error{
+	fake := &fakeDeletion{sessions: deletionTree(), deleteErrors: map[string]error{
 		"session_docs_fork_fork": errors.New("disk full"),
 	}}
-	response, result := runDelete(t, deletion, "session_docs", "session_api")
+	got := runDelete(t, fake, approved, "session_docs", "session_api")
 	want := DeleteResponse{
 		Deleted: []DeletedSession{{ID: "session_api", Name: "API"}},
 		Failed: []FailedDeletion{
@@ -230,43 +238,37 @@ func TestDeleteKeepsAncestorsOfASessionItCouldNotDelete(t *testing.T) {
 		},
 		Resolution: "answered", Message: "Deleted 1 session; 3 not deleted.",
 	}
-	if result.IsError || !reflect.DeepEqual(response, want) || !reflect.DeepEqual(deletion.deleted, []string{"session_api"}) {
-		t.Fatalf("response = %#v, deleted = %v", response, deletion.deleted)
+	if got.result.IsError || !reflect.DeepEqual(got.response, want) || !reflect.DeepEqual(fake.deleted, []string{"session_api"}) {
+		t.Fatalf("response = %#v, deleted = %v", got.response, fake.deleted)
 	}
 }
 
 func TestDeleteRechecksOwnershipAfterApproval(t *testing.T) {
+	// Approving a child covers its descendants as they are when it runs.
 	after := deletionTree()
 	after = append(after, SessionSummary{ID: "session_docs_new_fork", Name: "New fork", CWD: "/work/docs", ParentSessionID: "session_docs", Persistent: true})
-	deletion := &fakeDeletion{sessions: deletionTree(), afterApproval: after, approval: Approval{Confirmed: true, Resolution: "answered"}}
-	response, result := runDelete(t, deletion, "session_docs")
-	if !result.IsError || response.Error != "nothing was deleted: New fork (session_docs_new_fork) was created after the approval" || len(deletion.deleted) != 0 {
-		t.Fatalf("response = %#v, deleted = %v", response, deletion.deleted)
+	fake := &fakeDeletion{sessions: deletionTree(), afterApproval: after}
+	got := runDelete(t, fake, approved, "session_docs")
+	wantDeleted := []string{"session_docs_new_fork", "session_docs_fork_fork", "session_docs_fork", "session_docs"}
+	if got.result.IsError || !reflect.DeepEqual(fake.deleted, wantDeleted) {
+		t.Fatalf("response = %#v, deleted = %v, want %v", got.response, fake.deleted, wantDeleted)
 	}
 
+	// A session that stopped being a child is not deleted.
 	moved := deletionTree()
 	moved[4].ParentSessionID = ""
-	deletion = &fakeDeletion{sessions: deletionTree(), afterApproval: moved, approval: Approval{Confirmed: true, Resolution: "answered"}}
-	response, result = runDelete(t, deletion, "session_api")
+	fake = &fakeDeletion{sessions: deletionTree(), afterApproval: moved}
+	got = runDelete(t, fake, approved, "session_api")
 	want := DeleteResponse{
-		Failed:     []FailedDeletion{{ID: "session_api", Name: "API", Error: "it no longer exists or is no longer a child of this session"}},
+		Failed:     []FailedDeletion{{ID: "session_api", Error: "this session has no child with this ID"}},
 		Resolution: "answered", Error: "nothing was deleted",
 	}
-	if !result.IsError || !reflect.DeepEqual(response, want) || len(deletion.deleted) != 0 {
-		t.Fatalf("response = %#v, deleted = %v", response, deletion.deleted)
-	}
-}
-
-func TestDeleteReportsAnApprovalThatCouldNotBeAsked(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree(), approvalErr: errors.New("session has too many pending interactions")}
-	response, result := runDelete(t, deletion, "session_api")
-	if !result.IsError || response.Error != "nothing was deleted: session has too many pending interactions" || len(deletion.deleted) != 0 {
-		t.Fatalf("response = %#v", response)
+	if !got.result.IsError || !reflect.DeepEqual(got.response, want) || len(fake.deleted) != 0 {
+		t.Fatalf("response = %#v, deleted = %v", got.response, fake.deleted)
 	}
 }
 
 func TestDeleteValidatesRequestedIDs(t *testing.T) {
-	deletion := &fakeDeletion{sessions: deletionTree()}
 	tooMany := make([]string, maxDeleteRequestIDs+1)
 	for i := range tooMany {
 		tooMany[i] = "session_api"
@@ -281,13 +283,9 @@ func TestDeleteValidatesRequestedIDs(t *testing.T) {
 		{[]string{"session_api", strings.Repeat("x", 10000)}, "sessionIds must contain only session IDs"},
 		{[]string{"session_API"}, "sessionIds must contain only session IDs"},
 	} {
-		response, result := runDelete(t, deletion, tc.ids...)
-		if !result.IsError || response.Error != tc.want {
-			t.Fatalf("ids %v: response = %#v", tc.ids, response)
+		if got := runDelete(t, &fakeDeletion{sessions: deletionTree()}, approved, tc.ids...); got.refusal != tc.want {
+			t.Fatalf("ids %v: got %#v", tc.ids, got)
 		}
-	}
-	if len(deletion.asked) != 0 {
-		t.Fatalf("asked = %v", deletion.asked)
 	}
 }
 
@@ -296,10 +294,9 @@ func TestDeleteRefusesMoreSessionsThanOneApprovalCovers(t *testing.T) {
 	for i := 0; i < maxDeletedSessions; i++ {
 		sessions = append(sessions, SessionSummary{ID: "session_fork_" + strings.Repeat("x", i+1), ParentSessionID: "session_root", Persistent: true})
 	}
-	deletion := &fakeDeletion{sessions: sessions}
-	response, _ := runDelete(t, deletion, "session_root")
-	if response.Error != "nothing was deleted: one call can delete at most 50 sessions, descendants included" || len(deletion.asked) != 0 {
-		t.Fatalf("response = %#v", response)
+	got := runDelete(t, &fakeDeletion{sessions: sessions}, approved, "session_root")
+	if got.refusal != "nothing was deleted: one call can delete at most 50 sessions, descendants included" {
+		t.Fatalf("got %#v", got)
 	}
 }
 
@@ -322,11 +319,9 @@ func TestToolsIncludeDeleteOnlyWithADeletionService(t *testing.T) {
 }
 
 func TestDeleteAnswersAnUnrelatedSessionAsIfItDidNotExist(t *testing.T) {
-	unrelated, unrelatedResult := runDelete(t, &fakeDeletion{sessions: deletionTree()}, "session_other")
-	missing, missingResult := runDelete(t, &fakeDeletion{sessions: deletionTree()}, "session_gone")
-	unrelated.Failed[0].ID, unrelatedResult.Content = "session_gone", nil
-	missingResult.Content = nil
-	if !reflect.DeepEqual(unrelated, missing) || unrelatedResult.IsError != missingResult.IsError {
-		t.Fatalf("unrelated = %#v\nmissing = %#v", unrelated, missing)
+	unrelated := runDelete(t, &fakeDeletion{sessions: deletionTree()}, approved, "session_other")
+	missing := runDelete(t, &fakeDeletion{sessions: deletionTree()}, approved, "session_gone")
+	if strings.ReplaceAll(unrelated.refusal, "session_other", "session_gone") != missing.refusal || missing.refusal == "" {
+		t.Fatalf("unrelated = %q\nmissing = %q", unrelated.refusal, missing.refusal)
 	}
 }

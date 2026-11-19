@@ -38,10 +38,6 @@ func (m *fakeModelSessionManager) List(context.Context, string) ([]kitsession.Se
 	return nil, nil
 }
 func (m *fakeModelSessionManager) DeletionBlocker(context.Context, string) error { return nil }
-func (m *fakeModelSessionManager) ConfirmToolCall(context.Context, string, droids.ToolContext, kitsession.ToolConfirmation) (kitsession.ToolConfirmationResult, error) {
-	return kitsession.ToolConfirmationResult{}, nil
-}
-
 func TestModelSessionServiceUsesConfiguredDefaultAndStartsPrompt(t *testing.T) {
 	providers := defaultProviders{}
 	manager := &fakeModelSessionManager{owner: kitsession.SessionRecord{ID: "session_owner", Persistent: true}}
