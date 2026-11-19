@@ -244,6 +244,20 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	if err != nil {
 		return Snapshot{}, err
 	}
+	// A turn the droid's queue started belongs to a run once Kit follows it;
+	// until then the session would look idle with the turn already in its
+	// history.
+	for {
+		caughtUp, followed := loaded.queueTurns.caughtUp()
+		if caughtUp {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return Snapshot{}, ctx.Err()
+		case <-followed:
+		}
+	}
 	loaded.mu.Lock()
 	defer loaded.mu.Unlock()
 	for {

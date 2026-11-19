@@ -469,6 +469,30 @@ type queueTurnFeed struct {
 	pending  []droids.TurnID
 	draining bool
 	follow   func() bool
+	// caughtUpSignal is closed, and replaced, each time the follower
+	// finishes the pending turns.
+	caughtUpSignal chan struct{}
+}
+
+// caughtUp reports whether Kit has followed every turn the droid started,
+// and otherwise returns a channel closed once it may have.
+func (f *queueTurnFeed) caughtUp() (bool, <-chan struct{}) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.pending) == 0 && !f.draining {
+		return true, nil
+	}
+	if f.caughtUpSignal == nil {
+		f.caughtUpSignal = make(chan struct{})
+	}
+	return false, f.caughtUpSignal
+}
+
+func (f *queueTurnFeed) signalCaughtUpLocked() {
+	if f.caughtUpSignal != nil {
+		close(f.caughtUpSignal)
+		f.caughtUpSignal = nil
+	}
 }
 
 // started records a turn the droid started. It is the droid's TurnStarted
@@ -496,6 +520,7 @@ func (f *queueTurnFeed) startLocked() {
 		f.draining = true
 	} else {
 		f.pending = nil
+		f.signalCaughtUpLocked()
 	}
 }
 
@@ -505,6 +530,7 @@ func (f *queueTurnFeed) next() (droids.TurnID, bool) {
 	defer f.mu.Unlock()
 	if len(f.pending) == 0 {
 		f.draining = false
+		f.signalCaughtUpLocked()
 		return "", false
 	}
 	id := f.pending[0]
