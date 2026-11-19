@@ -1019,6 +1019,14 @@ func (m *Manager) WaitEvents(ctx context.Context, sessionID, streamID string, af
 func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []NewEvent {
 	base := NewEvent{SessionID: sessionID, TurnID: turnID, RunID: runID}
 	switch typed := event.(type) {
+	case droids.InteractionRequested:
+		request := projectDroidInteraction(sessionID, typed.Interaction)
+		request.RunID = runID
+		base.Kind, base.Interaction = EventInteractionRequested, &request
+		return []NewEvent{base}
+	case droids.InteractionSettled:
+		base.Kind, base.InteractionID, base.InteractionResolution = EventInteractionResolved, string(typed.ID), droidInteractionResolution(typed.Settlement)
+		return []NewEvent{base}
 	case droids.MessageStart:
 		switch message := typed.Message.(type) {
 		case droids.UserMessage:

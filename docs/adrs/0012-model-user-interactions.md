@@ -64,7 +64,9 @@ guided    { cancelled: boolean, answers: object, answeredCount: integer,
 ```
 
 Cancelling confirmation preserves the established model-facing
-`{ confirmed: false }` shape. Internally, Kit retains whether the resolution was
+`{ confirmed: false }` shape. Any result the user did not answer also carries a
+short `reason` the model can read, such as that the user sent a message
+instead of answering. Internally, Kit retains whether the resolution was
 an explicit negative answer, user cancellation, run abort, unavailable
 interaction, or shutdown. Other cancelled interactions return their explicit
 cancelled shape. Cancelling guided questions discards partial answers.

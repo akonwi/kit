@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -304,6 +305,26 @@ func (b *interactionBroker) unlockAuthority() {
 		b.authority.Unlock()
 	}
 }
+
+// remember records that the droid settled interaction id, so a late
+// response reports it as settled.
+func (b *interactionBroker) remember(id string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.rememberSettledLocked(id)
+}
+
+// notPending reports why id cannot be answered: it was settled recently, or it
+// was never pending.
+func (b *interactionBroker) notPending(id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if slices.Contains(b.settled, id) {
+		return ErrInteractionSettled
+	}
+	return ErrInteractionNotFound
+}
+
 func (b *interactionBroker) rememberSettledLocked(id string) {
 	b.settled = append(b.settled, id)
 	if len(b.settled) > 64 {
@@ -598,132 +619,25 @@ func (m *Manager) RespondInteraction(ctx context.Context, sessionID string, resp
 	if err != nil {
 		return err
 	}
-	return loaded.interactions.respond(response)
+	if err := loaded.interactions.respond(response); !errors.Is(err, ErrInteractionNotFound) {
+		return err
+	}
+	return m.respondDroidInteraction(ctx, loaded, sessionID, response)
 }
 
-func interactionTools(sessionID string, broker *interactionBroker) []droids.AnyTool {
+// interactionTools returns the tools with which the model asks the user. The
+// droid asks their questions before they run, so the questions survive
+// restarts.
+func interactionTools() []droids.AnyTool {
 	return []droids.AnyTool{
-		droids.MustTool(confirmInteractionTool(sessionID, broker)),
-		droids.MustTool(inputInteractionTool(sessionID, broker)),
-		droids.MustTool(selectInteractionTool(sessionID, broker)),
-		droids.MustTool(guidedInteractionTool(sessionID, broker)),
+		droids.ConfirmTool(ConfirmInteractionToolName),
+		droids.InputTool(InputInteractionToolName),
+		droids.SelectTool(SelectInteractionToolName),
+		droids.GuidedTool(GuidedInteractionToolName),
 	}
 }
 
 const interactionPromptGuidance = "\n\nWhen user input is required, use confirm_from_user for one boolean decision, input_from_user for one short freeform value, select_from_user for one bounded choice, and guided_questions for multiple missing inputs. Do not ask these as ordinary chat questions when a structured interaction tool fits."
-
-type basicInteractionArgs struct {
-	Title  string `json:"title"`
-	Detail string `json:"detail,omitempty"`
-}
-type selectInteractionArgs struct {
-	Title   string                   `json:"title"`
-	Detail  string                   `json:"detail,omitempty"`
-	Options []modelInteractionOption `json:"options"`
-}
-type modelInteractionOption struct {
-	Label  string `json:"label"`
-	Value  string `json:"value"`
-	Detail string `json:"detail,omitempty"`
-}
-type guidedInteractionArgs struct {
-	Title     string                     `json:"title"`
-	Detail    string                     `json:"detail,omitempty"`
-	Questions []modelInteractionQuestion `json:"questions"`
-}
-type modelInteractionQuestion struct {
-	ID       string                   `json:"id"`
-	Prompt   string                   `json:"prompt"`
-	Detail   string                   `json:"detail,omitempty"`
-	Kind     InteractionQuestionKind  `json:"kind"`
-	Required *bool                    `json:"required,omitempty"`
-	Options  []modelInteractionOption `json:"options,omitempty"`
-}
-
-func basicInteractionSchema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string", "minLength": 1, "maxLength": maxInteractionTitleBytes}, "detail": map[string]any{"type": "string", "maxLength": maxInteractionDetailBytes}}, "required": []string{"title"}, "additionalProperties": false}
-}
-
-func confirmInteractionTool(sessionID string, broker *interactionBroker) droids.Tool[basicInteractionArgs] {
-	return droids.Tool[basicInteractionArgs]{Name: ConfirmInteractionToolName, Description: "Request one boolean decision from the user.", Parameters: basicInteractionSchema(), Mode: droids.ModeSequential, Execute: func(ctx context.Context, call droids.ToolContext, args basicInteractionArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
-		settlement, err := executeInteraction(ctx, sessionID, broker, call, InteractionRequest{Kind: InteractionConfirm, Title: args.Title, Detail: args.Detail})
-		if err != nil {
-			return droids.ToolResult{}, err
-		}
-		confirmed := !settlement.response.Cancelled && settlement.response.Confirmed != nil && *settlement.response.Confirmed
-		return interactionToolResult(map[string]any{"confirmed": confirmed}, settlement.reason)
-	}}
-}
-
-func inputInteractionTool(sessionID string, broker *interactionBroker) droids.Tool[basicInteractionArgs] {
-	return droids.Tool[basicInteractionArgs]{Name: InputInteractionToolName, Description: "Request one short freeform value from the user.", Parameters: basicInteractionSchema(), Mode: droids.ModeSequential, Execute: func(ctx context.Context, call droids.ToolContext, args basicInteractionArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
-		settlement, err := executeInteraction(ctx, sessionID, broker, call, InteractionRequest{Kind: InteractionInput, Title: args.Title, Detail: args.Detail})
-		if err != nil {
-			return droids.ToolResult{}, err
-		}
-		return interactionToolResult(map[string]any{"value": settlement.response.Value, "cancelled": settlement.response.Cancelled}, settlement.reason)
-	}}
-}
-
-func selectInteractionTool(sessionID string, broker *interactionBroker) droids.Tool[selectInteractionArgs] {
-	params := basicInteractionSchema()
-	props := params["properties"].(map[string]any)
-	props["options"] = modelOptionsSchema()
-	params["required"] = []string{"title", "options"}
-	return droids.Tool[selectInteractionArgs]{Name: SelectInteractionToolName, Description: "Request one choice from a bounded list.", Parameters: params, Mode: droids.ModeSequential, Execute: func(ctx context.Context, call droids.ToolContext, args selectInteractionArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
-		options, err := makeInteractionOptions(args.Options)
-		if err != nil {
-			return droids.ToolResult{}, err
-		}
-		request := InteractionRequest{Kind: InteractionSelect, Title: args.Title, Detail: args.Detail, Options: options}
-		settlement, err := executeInteraction(ctx, sessionID, broker, call, request)
-		if err != nil {
-			return droids.ToolResult{}, err
-		}
-		var value, label any
-		if !settlement.response.Cancelled {
-			option := findInteractionOption(options, settlement.response.SelectedOptionID)
-			if option != nil {
-				value, label = option.Value, option.Label
-			}
-		}
-		return interactionToolResult(map[string]any{"value": value, "label": label, "cancelled": settlement.response.Cancelled}, settlement.reason)
-	}}
-}
-
-func guidedInteractionTool(sessionID string, broker *interactionBroker) droids.Tool[guidedInteractionArgs] {
-	params := basicInteractionSchema()
-	props := params["properties"].(map[string]any)
-	props["questions"] = guidedQuestionsSchema()
-	params["required"] = []string{"title", "questions"}
-	return droids.Tool[guidedInteractionArgs]{Name: GuidedInteractionToolName, Description: "Request a structured questionnaire whose questions are presented one at a time.", Parameters: params, Mode: droids.ModeSequential, Execute: func(ctx context.Context, call droids.ToolContext, args guidedInteractionArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
-		questions, err := makeInteractionQuestions(args.Questions)
-		if err != nil {
-			return droids.ToolResult{}, err
-		}
-		settlement, err := executeInteraction(ctx, sessionID, broker, call, InteractionRequest{Kind: InteractionGuided, Title: args.Title, Detail: args.Detail, Questions: questions})
-		if err != nil {
-			return droids.ToolResult{}, err
-		}
-		answers := map[string]any{}
-		answered := 0
-		if !settlement.response.Cancelled {
-			for _, question := range questions {
-				answer, ok := settlement.response.Answers[question.ID]
-				if !ok || answer.Skipped {
-					continue
-				}
-				answered++
-				answers[question.ID] = modelGuidedAnswer(question, answer)
-			}
-		}
-		result := map[string]any{"cancelled": settlement.response.Cancelled, "answers": answers, "answeredCount": answered, "totalQuestions": len(questions)}
-		if !settlement.response.Cancelled {
-			result["completed"] = true
-		}
-		return interactionToolResult(result, settlement.reason)
-	}}
-}
 
 func executeInteraction(ctx context.Context, sessionID string, broker *interactionBroker, call droids.ToolContext, request InteractionRequest) (interactionSettlement, error) {
 	id, err := newInteractionID("interaction_")
@@ -732,84 +646,6 @@ func executeInteraction(ctx context.Context, sessionID string, broker *interacti
 	}
 	request.ID, request.SessionID, request.RunID, request.ToolCallID, request.CreatedAt = id, sessionID, string(call.TurnID), string(call.ToolCallID), time.Now().UTC()
 	return broker.request(ctx, request)
-}
-
-func interactionToolResult(value any, reason string) (droids.ToolResult, error) {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return droids.ToolResult{}, err
-	}
-	details, err := droids.EncodeDetails(map[string]any{"resolution": reason})
-	if err != nil {
-		return droids.ToolResult{}, err
-	}
-	result := droids.ToolText(string(raw))
-	result.Details = details
-	return result, nil
-}
-
-func makeInteractionOptions(options []modelInteractionOption) ([]InteractionOption, error) {
-	if len(options) == 0 || len(options) > maxInteractionOptions {
-		return nil, fmt.Errorf("%w: options count is invalid", ErrInvalidInput)
-	}
-	result := make([]InteractionOption, 0, len(options))
-	for _, option := range options {
-		id, err := newInteractionID("option_")
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, InteractionOption{ID: id, Label: option.Label, Value: option.Value, Detail: option.Detail})
-	}
-	return result, nil
-}
-
-func makeInteractionQuestions(input []modelInteractionQuestion) ([]InteractionQuestion, error) {
-	if len(input) == 0 || len(input) > maxGuidedQuestions {
-		return nil, fmt.Errorf("%w: questions count is invalid", ErrInvalidInput)
-	}
-	result := make([]InteractionQuestion, 0, len(input))
-	for _, item := range input {
-		required := true
-		if item.Required != nil {
-			required = *item.Required
-		}
-		options := []InteractionOption(nil)
-		var err error
-		if len(item.Options) > 0 {
-			options, err = makeInteractionOptions(item.Options)
-			if err != nil {
-				return nil, err
-			}
-		}
-		result = append(result, InteractionQuestion{ID: item.ID, Prompt: item.Prompt, Detail: item.Detail, Kind: item.Kind, Required: required, Options: options})
-	}
-	return result, nil
-}
-
-func modelGuidedAnswer(question InteractionQuestion, answer InteractionAnswer) any {
-	if answer.Text != nil {
-		return *answer.Text
-	}
-	if answer.Boolean != nil {
-		return *answer.Boolean
-	}
-	values := make([]string, 0, len(answer.OptionIDs))
-	for _, id := range answer.OptionIDs {
-		if option := findInteractionOption(question.Options, id); option != nil {
-			values = append(values, option.Value)
-		}
-	}
-	if question.Kind == InteractionQuestionSelect && len(values) == 1 {
-		return values[0]
-	}
-	return values
-}
-
-func modelOptionsSchema() map[string]any {
-	return map[string]any{"type": "array", "minItems": 1, "maxItems": maxInteractionOptions, "items": map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string", "minLength": 1, "maxLength": maxInteractionTitleBytes}, "value": map[string]any{"type": "string", "minLength": 1, "maxLength": maxInteractionAnswerBytes}, "detail": map[string]any{"type": "string", "maxLength": maxInteractionDetailBytes}}, "required": []string{"label", "value"}, "additionalProperties": false}}
-}
-func guidedQuestionsSchema() map[string]any {
-	return map[string]any{"type": "array", "minItems": 1, "maxItems": maxGuidedQuestions, "items": map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "minLength": 1, "maxLength": 128}, "prompt": map[string]any{"type": "string", "minLength": 1, "maxLength": maxInteractionTitleBytes}, "detail": map[string]any{"type": "string", "maxLength": maxInteractionDetailBytes}, "kind": map[string]any{"type": "string", "enum": []string{"text", "select", "multiselect", "boolean"}}, "required": map[string]any{"type": "boolean"}, "options": modelOptionsSchema()}, "required": []string{"id", "prompt", "kind"}, "additionalProperties": false}}
 }
 
 func (p *pendingInteraction) active() bool {

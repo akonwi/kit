@@ -20,7 +20,7 @@ var ErrAuthorizationCancelled = errors.New("the user cancelled authorization")
 // tools and lets its MCP namespaces ask the session's user to authorize.
 func attachInteractions(bundle *RuntimeBundle, sessionID string, broker *interactionBroker) {
 	bundle.Prompt.Prompt += interactionPromptGuidance
-	bundle.Tools = append(bundle.Tools, interactionTools(sessionID, broker)...)
+	bundle.Tools = append(bundle.Tools, interactionTools()...)
 	if bundle.MCP != nil {
 		// Subagents borrow these namespaces but run in other conversations,
 		// which no user is watching, so only the session's own can ask.

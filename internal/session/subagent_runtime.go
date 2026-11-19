@@ -236,7 +236,7 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 		_ = store.Close()
 		return nil, err
 	}
-	if state.Execution != nil && (state.Execution.Status == droids.ExecutionInterrupted || state.Execution.Status == droids.ExecutionPaused) {
+	if state.Execution != nil && (state.Execution.Status == droids.ExecutionInterrupted || state.Execution.Status == droids.ExecutionPaused || state.Execution.Status == droids.ExecutionWaiting) {
 		// The harness has already classified the prior task. Explicitly discard its
 		// recoverable droid turn; never resume it automatically before a queued follow-up.
 		if err := droid.Abort(ctx); err != nil {

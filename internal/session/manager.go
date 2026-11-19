@@ -2231,7 +2231,7 @@ func promptResultFromOutcome(sessionID, turnID string, outcome droids.Outcome, w
 func continueDroidToTerminal(droid *droids.Droid, turnID droids.TurnID, status droids.ExecutionStatus) (droids.QuiescentState, error) {
 	state := droids.QuiescentState{TurnID: turnID, Execution: &droids.ExecutionSnapshot{TurnID: turnID, Status: status}}
 	var continuationErr error
-	for status == droids.ExecutionPaused || status == droids.ExecutionInterrupted {
+	for status == droids.ExecutionPaused || status == droids.ExecutionInterrupted || status == droids.ExecutionWaiting {
 		if err := droid.Resume(context.Background()); err != nil {
 			continuationErr = errors.Join(continuationErr, err)
 			if errors.Is(err, droids.ErrUnsafeContinuation) {
@@ -2282,6 +2282,9 @@ func (m *Manager) drainRunEvents(subscription droids.Subscription, loaded *runti
 		loaded.mu.Lock()
 		var appendErr error
 		if envelope.TurnID == droids.TurnID(turnID) {
+			if settled, ok := envelope.Event.(droids.InteractionSettled); ok {
+				loaded.interactions.remember(string(settled.ID))
+			}
 			appendErr = loaded.events.append(projectDroidEvent(sessionID, turnID, runID, envelope.Event))
 			if lifecycle, ok := envelope.Event.(droids.LifecycleEvent); ok && lifecycle.Kind == "turn.settled" {
 				settled = true
@@ -2608,7 +2611,9 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		_ = loaded.close(context.Background(), "unavailable")
 		return nil, err
 	}
-	if quiescent.Execution != nil && (quiescent.Execution.Status == droids.ExecutionPaused || quiescent.Execution.Status == droids.ExecutionInterrupted) {
+	// A waiting turn is followed as a run, as an interrupted one is resumed:
+	// its answer continues it.
+	if quiescent.Execution != nil && (quiescent.Execution.Status == droids.ExecutionPaused || quiescent.Execution.Status == droids.ExecutionInterrupted || quiescent.Execution.Status == droids.ExecutionWaiting) {
 		turnID := string(quiescent.TurnID)
 		run := &liveRun{record: RunProjection{ID: turnID, SessionID: record.ID, TurnID: turnID, Status: RunStatusRunning}, done: make(chan struct{}), autonomous: quiescent.Execution.BoundaryReaction}
 		loaded.activeRun = turnID
