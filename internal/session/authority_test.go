@@ -1253,3 +1253,44 @@ func TestSnapshotDuringARunAfterAForkNotifiedTheIdleSession(t *testing.T) {
 	}
 	close(block)
 }
+
+// A snapshot waits for the queue follower, but never past its caller's
+// context, and completes once the follower catches up.
+func TestSnapshotWaitingForTheQueueFollowerEndsWithItsContext(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := session.HoldQueueTurnFollower(t, manager, record.ID)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := manager.Snapshot(ctx, record.ID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("snapshot while the follower is busy = %v, want the context's deadline", err)
+	}
+
+	waited := make(chan error, 1)
+	go func() {
+		_, err := manager.Snapshot(t.Context(), record.ID)
+		waited <- err
+	}()
+	release()
+	select {
+	case err := <-waited:
+		if err != nil {
+			t.Fatalf("snapshot after the follower caught up = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the snapshot did not complete after the follower caught up")
+	}
+}
