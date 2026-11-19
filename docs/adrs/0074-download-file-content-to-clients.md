@@ -59,7 +59,9 @@ descriptor with standard HTTP semantics:
   the expected revision, before any content is sent.
 - `Range` and `If-Range` answer `206 Partial Content`, so a client can resume
   an interrupted download of the same revision. A stale `If-Range` gets the
-  whole file with `200`. An unsatisfiable range gets `416`.
+  whole file with `200`. An unsatisfiable range gets `416`. Clients send
+  `If-Range` with every `Range` request, so a resumed download never joins
+  bytes from two revisions.
 - `HEAD` returns the same headers with no body. It is the cheap way to check
   a file's current revision.
 - `Last-Modified` isn't sent: one-second precision would make
@@ -82,10 +84,15 @@ Every success, `304`, and `412` carries:
 | `Content-Type` | `application/octet-stream` |
 | `Cache-Control` | `private, no-cache` |
 | `X-Content-Type-Options` | `nosniff` |
-| `Content-Security-Policy` | `default-src 'none'; sandbox` |
-| `Content-Disposition` | `attachment` with the file's base name |
+| `Content-Security-Policy` | `sandbox; default-src 'none'` |
+| `Content-Disposition` | `attachment`, with the file's base name as an RFC 6266 `filename` and an RFC 5987 `filename*` |
 
 The content isn't compressed, so ranges are byte offsets into the file.
+
+The routes serve arbitrary bytes, including HTML and SVG, from the same
+origin as the browser client (ADR 0059). The last four headers stop a
+browser that opens a download URL directly from rendering or running the
+content with that origin's authority, as they do for attachments.
 
 ### Consistency
 
@@ -130,7 +137,23 @@ closing the request, which ends the read.
 
 The server sets no size cap. The client decides how much to download and
 cancels or doesn't start past its own budget. It learns the size from
-`HEAD`, from `Content-Length`, or from a directory entry.
+`HEAD`, from `Content-Length`, or from a directory entry. A cap isn't needed
+to protect the server:
+
+- A body with a known size ends at the size at open, however the file
+  grows.
+- Memory per download is bounded. A download holds one of a few download
+  slots and ends when the client cancels or stalls past the write deadline.
+- A file that misreports its size, such as `/proc/kcore`, or a zero-size
+  file that never reaches end of file, runs only as long as a client reads
+  it. Clients learn the reported size before the body and stop at their
+  budget.
+- The same caller can already read any such file with a shell command in
+  the session.
+
+A client that loses its connection, including to the write deadline,
+resumes with `Range` and `If-Range` from the bytes it has. If the file
+changed in the meantime it receives the new revision whole, with `200`.
 
 ### Errors and authorization
 
@@ -144,7 +167,10 @@ conditional responses, and the catalog declares them as such.
 
 The routes require the same Host, Origin, credential, instance, and
 session-protocol checks as every session route. They grant no authority
-beyond `readWorkspaceFile` and `readHostFile`.
+beyond `readWorkspaceFile` and `readHostFile`. As ADR 0050 decides, any
+authenticated caller may read any regular file the server's OS user can
+read. Downloads keep that boundary and change only how much of a file one
+request returns.
 
 ### Contract
 

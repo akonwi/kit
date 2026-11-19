@@ -20,8 +20,8 @@ This is an exploration, not a decision. It was checked against Kit at `31175399`
   buffer for every line. A line-limited read of a 0.5–4 MB file took
   1.0–2.0 s of server CPU and allocated about 4.4 GB. With `bytes.IndexByte`
   it took about 2 ms and 21 MB. Workspace and host reads share this function.
-  The fix is separate from streaming. The user chose not to bundle it with
-  this work.
+  The fix landed separately, in `6e38fa09`
+  (`fix(workspace): read line-limited previews in linear time`).
 - **Attachments already stream raw bytes.** `readAttachment` is a
   `httpapi.HandleRaw` route. It sends identity and the SHA-256 in `X-Kit-*`
   and `ETag` headers and copies the body with `io.Copy`. The catalog records
@@ -121,4 +121,5 @@ stat operation considered earlier.
 | Size cap | None on the server. Clients cancel at their own budget. |
 | First client | macOS |
 | Compatibility | Additive. Existing operations stay. No protocol bump. |
-| readPreview fix | Not now |
+| readPreview fix | Done first, separately (`6e38fa09`) |
+| Hard ceiling for files that misreport their size | None. The ADR records why. |
