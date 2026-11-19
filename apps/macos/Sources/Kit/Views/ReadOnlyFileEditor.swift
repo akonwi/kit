@@ -47,6 +47,7 @@ private struct FileEditorDocument: View {
     @State private var ardHighlighter = ArdHighlightProvider()
     @State private var revealer = LineRevealCoordinator()
     @State private var finder = FileFindPainter()
+    @State private var scrollers = KitScrollerCoordinator(theme: MicaTheme(dark: false))
 
     static func clamped(_ state: SourceEditorState, source: String) -> SourceEditorState {
         var result = state
@@ -65,8 +66,9 @@ private struct FileEditorDocument: View {
                 get: { Self.clamped(editorState, source: source) }, set: { editorState = $0 }),
             // One provider for the document's life; nil keeps the editor's own.
             highlightProviders: ArdHighlightProvider.colors(path) ? [ardHighlighter] : nil,
-            coordinators: [revealer, finder]
+            coordinators: [revealer, finder, scrollers]
         )
+        .onChange(of: theme, initial: true) { scrollers.theme = theme }
         .accessibilityLabel("Read-only file: \(path)")
         .onChange(of: FindSignal(find), initial: true) {
             finder.update(find: find, source: source, theme: theme)

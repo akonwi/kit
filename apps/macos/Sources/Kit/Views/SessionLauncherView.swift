@@ -91,7 +91,7 @@ private struct LauncherSignIn: View {
     let done: () -> Void
 
     var body: some View {
-        ScrollView {
+        KitScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if let server { LauncherServerButton(choice: server) }
                 VStack(alignment: .leading, spacing: 20) {
@@ -193,7 +193,7 @@ struct SessionLauncherContent: View {
 
     private var launcher: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            KitScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     actions
                     VStack(alignment: .leading, spacing: 20) {

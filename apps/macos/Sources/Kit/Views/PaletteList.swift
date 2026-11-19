@@ -121,7 +121,7 @@ struct PaletteListScreen: View {
         } else {
             let columns = PaletteColumns(catalog)
             ScrollViewReader { proxy in
-                ScrollView {
+                KitScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(rows) { row in
                             PaletteRow(row: row, columns: columns, selected: selectedID == row.id,

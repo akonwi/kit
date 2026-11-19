@@ -35,7 +35,7 @@ struct DiffTargetPicker: View {
             .padding(.horizontal, 10).frame(height: 32)
             Rule()
             ScrollViewReader { proxy in
-                ScrollView {
+                KitScrollView {
                     LazyVStack(spacing: 0) {
                         if targets.isEmpty {
                             Text(model.catalog == nil ? "Loading diff targets…" : "No matching targets")

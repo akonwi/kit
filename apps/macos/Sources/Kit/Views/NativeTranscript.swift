@@ -81,6 +81,7 @@ struct NativeTranscript: NSViewRepresentable {
         attachments = input.attachmentClient.map { TranscriptAttachmentStore(client: $0, session: input.attachmentSession) }
         super.init()
         scroll.hasVerticalScroller = true
+        scroll.useKitScrollers(input.theme)
         scroll.drawsBackground = true
         scroll.backgroundColor = NSColor(input.theme.surface)
         table.headerView = nil
@@ -403,6 +404,7 @@ struct NativeTranscript: NSViewRepresentable {
         input = next
         typography = next.typography
         scroll.backgroundColor = NSColor(next.theme.surface)
+        scroll.useKitScrollers(next.theme)
         table.backgroundColor = NSColor(next.theme.surface)
         linkHover.color = NSColor(next.theme.accent)
         linkHover.linkActions = Self.linkActions(next)

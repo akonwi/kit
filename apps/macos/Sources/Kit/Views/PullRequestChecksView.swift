@@ -168,7 +168,7 @@ struct PullRequestChecksList: View {
                 }
                 .padding(.horizontal, 10).frame(height: 32)
                 Rule()
-                ScrollView {
+                KitScrollView {
                     PullRequestChecksRows(rows: presentation.rows).padding(4)
                 }
                 .frame(height: min(Self.maxListHeight, CGFloat(presentation.rows.count) * Self.rowHeight + 8))

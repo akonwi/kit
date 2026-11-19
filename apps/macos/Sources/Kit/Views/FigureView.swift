@@ -601,7 +601,7 @@ private struct CompareFigure: View {
     var body: some View {
         // Cells never wrap: a table wider than the card scrolls sideways,
         // as a Markdown table does.
-        ScrollView(.horizontal) { table.fixedSize() }
+        KitScrollView(.horizontal) { table.fixedSize() }
     }
 
     private var table: some View {

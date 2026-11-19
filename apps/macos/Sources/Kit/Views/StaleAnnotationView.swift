@@ -17,7 +17,7 @@ struct StaleAnnotationView: View {
                 Text(context).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted).textSelection(.enabled)
             }
             if let full {
-                ScrollView {
+                KitScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         Text(full.body).textSelection(.enabled)
                         Text(full.source).font(.kit(size: 12, design: .monospaced)).textSelection(.enabled)

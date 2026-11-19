@@ -80,7 +80,7 @@ private struct SubagentPickerFooter: View {
         VStack(spacing: 0) {
             if !diagnostics.isEmpty {
                 Rule()
-                ScrollView {
+                KitScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(diagnostics.enumerated()), id: \.offset) { _, message in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {

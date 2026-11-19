@@ -57,6 +57,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             controller.textView.overscrollAmount = 0
         }
         context.coordinator.install(controller)
+        controller.scrollView.useKitScrollers(theme)
         if let scroll = position.scrollPosition {
             controller.scrollView.contentView.scroll(to: scroll)
         }
@@ -71,6 +72,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
         context.coordinator.updateFind()
         let configuration = FileEditorTheme.configuration(theme, wrapLines: wrapLines)
         if controller.configuration != configuration { controller.configuration = configuration }
+        controller.scrollView.useKitScrollers(theme)
         context.coordinator.schedule()
     }
     static func dismantleNSViewController(_ controller: TextViewController, coordinator: Coordinator) {

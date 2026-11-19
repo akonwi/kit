@@ -21,7 +21,7 @@ struct TranscriptAnnotations: View {
                                 Text(context).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted).textSelection(.enabled)
                             }
                             Text(annotation.body).font(.kit(size: 14)).textSelection(.enabled)
-                            ScrollView(.vertical) {
+                            KitScrollView(.vertical) {
                                 Text(annotation.source).font(.kit(size: 12, design: .monospaced))
                                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -8,7 +8,7 @@ struct MCPStatusView: View {
     var body: some View {
         PaletteSheet(title: "MCP servers", detail: servers.isEmpty ? nil : "\(servers.count) configured",
                      height: PaletteMetrics.height) {
-            ScrollView {
+            KitScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     if servers.isEmpty {
                         Text("No MCP servers are configured.")

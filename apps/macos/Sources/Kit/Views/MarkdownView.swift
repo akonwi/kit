@@ -331,7 +331,7 @@ struct MarkdownDocumentView: View {
             } else {
                 let rows = parsed?.rows ?? []
                 ScrollViewReader { proxy in
-                    ScrollView {
+                    KitScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(entries(rows)) { entry in entryView(entry) }
                         }
@@ -643,7 +643,7 @@ private struct MarkdownTable: View {
     var body: some View {
         ViewThatFits(in: .horizontal) {
             grid
-            ScrollView(.horizontal) { grid }
+            KitScrollView(.horizontal) { grid }
         }
         .background(theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -803,7 +803,7 @@ struct CodeBlock: View {
             DiffFence(language: language, source: source)
         } else {
             FenceCard(label: language.isEmpty ? "CODE" : language.uppercased(), copy: source) {
-                ScrollView(.horizontal) {
+                KitScrollView(.horizontal) {
                     HighlightedCodeText(language: language, source: source).padding(14).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }

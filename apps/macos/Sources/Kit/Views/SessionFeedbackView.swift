@@ -272,7 +272,7 @@ struct SessionFeedbackCard: View {
             .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         return Group {
             if isExpanded && fullHeight > ToastMetrics.detailHeight {
-                ScrollView { text.fixedSize(horizontal: false, vertical: true) }
+                KitScrollView { text.fixedSize(horizontal: false, vertical: true) }
                     .frame(height: ToastMetrics.detailHeight)
             } else {
                 text.lineLimit(isExpanded ? nil : 2)

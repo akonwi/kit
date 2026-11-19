@@ -32,7 +32,7 @@ struct PluginMessageRow: View {
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
             .accessibilityHint("Show the full message")
             if expanded {
-                ScrollView(.vertical) {
+                KitScrollView(.vertical) {
                     MarkdownView(source: message.text)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }

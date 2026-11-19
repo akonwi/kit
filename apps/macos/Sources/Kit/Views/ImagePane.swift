@@ -246,6 +246,7 @@ private struct ZoomModeButton: View {
 /// The image in a magnifying scroll view: centred when smaller than the
 /// pane, panned by scrolling or dragging, zoomed by pinching.
 struct ImageCanvas: NSViewRepresentable {
+    @Environment(\.mica) private var theme
     let image: CGImage
     /// The image's size at 100%, in points. An image drawn at a higher
     /// resolution stays sharp up to the zoom that resolution allows.
@@ -285,6 +286,7 @@ struct ImageCanvas: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        scroll.useKitScrollers(theme)
         guard let document = scroll.documentView as? ImageDocumentView else { return }
         document.image = image
         document.checker = (NSColor(checker.0), NSColor(checker.1))

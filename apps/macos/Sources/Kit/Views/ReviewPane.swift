@@ -202,7 +202,7 @@ struct ReviewPane: View {
 
     private var document: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            KitScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     ForEach(model.files, id: \.path) { file in
                         let collapsed = model.collapsed.contains(file.path)

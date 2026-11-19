@@ -21,7 +21,7 @@ struct ToolCallDetail: View {
     private var value: ToolPresentation { presentation ?? ToolPresentation(tool, servers: context.servers) }
 
     var body: some View {
-        ScrollView(.vertical) {
+        KitScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 8) {
                 content
                 TranscriptAttachments(attachments: (tool.attachments ?? []).filter { tool.name != "show_image" || !$0.isImage })

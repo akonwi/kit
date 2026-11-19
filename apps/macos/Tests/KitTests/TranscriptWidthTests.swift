@@ -205,9 +205,11 @@ import Testing
             }
             return rows
         }
-        // The user message's card, 18 pt down, spans the row.
+        // The user message's card, 18 pt down, spans the row. The scroller's
+        // knob, beside it in the gutter, isn't part of the column.
         let card = fullWidth ? 32.0...1408.0 : 330.0...1110.0
-        let overlay = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface))
+        let gutter = 1440 - NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+        let overlay = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface, end: gutter))
         #expect(abs(overlay.lowerBound - card.lowerBound) <= 1 && abs(overlay.upperBound - card.upperBound) <= 1, "card \(overlay)")
         let before = cells()
         try #require(!before.isEmpty)
@@ -216,11 +218,11 @@ import Testing
         // whatever point it reaches the main thread: the column holds from
         // the layout that places the scroller, and after.
         adapter.scroll.scrollerStyle = .legacy
-        let legacy = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface))
+        let legacy = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface, end: gutter))
         #expect(adapter.scroll.contentSize.width < 1440)
         #expect(abs(legacy.lowerBound - card.lowerBound) <= 1 && abs(legacy.upperBound - card.upperBound) <= 1, "card \(legacy)")
         try await Task.sleep(for: .milliseconds(100))
-        let settled = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface))
+        let settled = try #require(Self.ink(adapter.scroll, y: 24, background: theme.surface, end: gutter))
         #expect(abs(settled.lowerBound - card.lowerBound) <= 1 && abs(settled.upperBound - card.upperBound) <= 1, "card \(settled)")
         // The rows in view kept the configuration they had: none was rebuilt.
         let after = cells()
@@ -375,8 +377,9 @@ import Testing
     }
 
     /// The horizontal extent, in points from the leading edge, of what is
-    /// painted on the line `y` points from the top of `view`.
-    static func ink(_ view: NSView, y: CGFloat, background: Color) -> ClosedRange<CGFloat>? {
+    /// painted on the line `y` points from the top of `view`, short of `end`
+    /// points when given.
+    static func ink(_ view: NSView, y: CGFloat, background: Color, end: CGFloat? = nil) -> ClosedRange<CGFloat>? {
         view.layoutSubtreeIfNeeded()
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: bitmap)
@@ -384,8 +387,8 @@ import Testing
         guard let surface = NSColor(background).usingColorSpace(.sRGB) else { return nil }
         let row = Int(y * scale)
         func painted(_ x: Int) -> Bool { differs(bitmap.colorAt(x: x, y: row), from: surface) }
-        guard let first = (0..<bitmap.pixelsWide).first(where: painted),
-              let last = (0..<bitmap.pixelsWide).last(where: painted) else { return nil }
+        let xs = 0..<min(bitmap.pixelsWide, end.map { Int($0 * scale) } ?? bitmap.pixelsWide)
+        guard let first = xs.first(where: painted), let last = xs.last(where: painted) else { return nil }
         return CGFloat(first) / scale...CGFloat(last + 1) / scale
     }
 }

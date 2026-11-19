@@ -91,7 +91,7 @@ struct ComposerModelPicker: View {
 
     private var list: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            KitScrollView {
                 LazyVStack(spacing: 0) {
                     if models.isEmpty {
                         Button("Reload models", action: reload)

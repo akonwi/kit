@@ -62,7 +62,7 @@ struct FileMentionPicker: View {
             }.padding(16)
             if let indexNotice { Text(indexNotice).font(.kit(size: 11)).foregroundStyle(theme.muted).padding(.horizontal, 16).padding(.bottom, 8) }
             ScrollViewReader { proxy in
-            ScrollView {
+            KitScrollView {
                 LazyVStack(spacing: 0) {
                     if let typedPath {
                         Button { state.openTypedPath(typedPath) } label: {

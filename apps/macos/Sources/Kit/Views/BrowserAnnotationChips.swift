@@ -96,7 +96,7 @@ struct BrowserAnnotationFacts: View {
     static let maximumHeight: CGFloat = 180
 
     var body: some View {
-        ScrollView(.vertical) {
+        KitScrollView(.vertical) {
             Text(lines.joined(separator: "\n"))
                 .font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
                 .textSelection(.enabled)

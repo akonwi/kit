@@ -15,7 +15,7 @@ struct PluginFooterDetails: View {
     }
 
     var body: some View {
-        ScrollView {
+        KitScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Footer content").font(.kit(size: 13, weight: .medium))
                 if let location = Self.location(session) {

@@ -11,7 +11,7 @@ struct DiffFence: View {
     var body: some View {
         let diff = UnifiedDiff(fence: source)
         FenceCard(label: language.uppercased(), copy: source) {
-            ScrollView(.horizontal) {
+            KitScrollView(.horizontal) {
                 UnifiedDiffView(diff: diff, fontSize: 12)
                     // A leading file name brings its own 6pt above it.
                     .padding(.top, diff.lines.first.map { if case .header = $0 { 8 } else { 14 } } ?? 14)

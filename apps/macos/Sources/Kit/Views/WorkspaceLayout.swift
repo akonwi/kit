@@ -685,7 +685,7 @@ struct ScratchpadPane: View {
                 Rule()
             }
             if pad.reviewing {
-                ScrollView([.vertical, .horizontal]) {
+                KitScrollView([.vertical, .horizontal]) {
                     HStack {
                         Text(pad.reviewText).font(.kit(size: 12, design: .monospaced))
                             .textSelection(.enabled).fixedSize(horizontal: true, vertical: false)

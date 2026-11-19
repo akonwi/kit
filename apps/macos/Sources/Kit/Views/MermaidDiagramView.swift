@@ -174,7 +174,7 @@ struct MermaidBlock: View {
         switch diagram.drawing {
         case .success(let drawing):
             if compact {
-                ScrollView(.horizontal) { MermaidPicture(diagram: diagram, drawing: drawing) }
+                KitScrollView(.horizontal) { MermaidPicture(diagram: diagram, drawing: drawing) }
                     .compactFence()
             } else {
                 FenceCard(label: "MERMAID", copy: diagram.source,
@@ -182,7 +182,7 @@ struct MermaidBlock: View {
                           accessory: annotations.map { _ in
                               AnyView(DiagramAnnotateButton(annotator: annotator, margin: FenceCard<EmptyView>.copyMargin))
                           }) {
-                    ScrollView(.horizontal) {
+                    KitScrollView(.horizontal) {
                         MermaidPicture(diagram: diagram, drawing: drawing)
                             .overlay(alignment: .topLeading) { annotationLayer(drawing) }
                             .padding(14).frame(maxWidth: .infinity, alignment: .leading)

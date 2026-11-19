@@ -8,7 +8,7 @@ struct SessionDetailsView: View {
     var body: some View {
         PaletteSheet(title: "Session details", detail: state.selected?.title, height: PaletteMetrics.height) {
             if let session = state.selected {
-                ScrollView {
+                KitScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         section("Configuration", rows: configuration(session))
                         if let usage = session.usage {

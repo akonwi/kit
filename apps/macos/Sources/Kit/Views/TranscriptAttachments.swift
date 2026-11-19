@@ -69,7 +69,7 @@ private struct TranscriptAttachmentCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else if let text = content?.text {
-                ScrollView {
+                KitScrollView {
                     Text(text).font(.kit(size: 11, design: .monospaced)).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(height: min(160, CGFloat(text.split(separator: "\n", omittingEmptySubsequences: false).count) * 16 + 4))

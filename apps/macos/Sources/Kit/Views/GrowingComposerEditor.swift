@@ -62,6 +62,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
     func updateNSView(_ scroll: ComposerScrollView, context: Context) {
         let view = scroll.editor
         context.coordinator.parent = self
+        scroll.useKitScrollers(theme)
         view.pickerAnchor = pickerAnchor
         pickerAnchor?.changed = { [weak coordinator = context.coordinator, weak view] in
             guard let view else { return }; coordinator?.renderMentions(view)

@@ -325,7 +325,7 @@ struct ReleaseNotesBrowser: View {
     }
 
     private var list: some View {
-        ScrollView {
+        KitScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(releases) { release in
                     let isShown = release.tag == shown.tag
@@ -356,7 +356,7 @@ struct ReleaseNotesBrowser: View {
     private func notes(_ release: KitRelease) -> some View {
         let notes = ReleaseNotes(markdown: release.notes)
         let newest = release.tag == releases[0].tag
-        return ScrollView {
+        return KitScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 MarkdownView(source: notes.summary, size: 13, compactHeadings: true)
                     .frame(maxWidth: .infinity, alignment: .leading)

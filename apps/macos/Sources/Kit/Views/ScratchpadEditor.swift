@@ -9,14 +9,16 @@ struct ScratchpadEditor: View {
     @Binding var text: String
     var documentVersion = 0
     @Binding var editorState: SourceEditorState
+    @State private var scrollers = KitScrollerCoordinator(theme: MicaTheme(dark: false))
 
     var body: some View {
         SourceEditor(
             $text, language: .markdown,
             configuration: FileEditorTheme.configuration(theme, isEditable: true, wrapLines: true),
             state: $editorState,
-            coordinators: [painter]
+            coordinators: [painter, scrollers]
         )
+        .onChange(of: theme, initial: true) { scrollers.theme = theme }
         .id(documentVersion)
         .onAppear { updateMarks() }
         .onChange(of: marks) { updateMarks() }

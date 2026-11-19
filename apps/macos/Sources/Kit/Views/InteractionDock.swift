@@ -46,7 +46,7 @@ struct InteractionDock: View {
         VStack(spacing: 0) {
             header
             Rule()
-            ScrollView {
+            KitScrollView {
                 ZStack(alignment: .top) {
                     content
                         .id(page)

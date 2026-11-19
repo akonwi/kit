@@ -167,7 +167,7 @@ struct SessionPickerContent: View {
                     }
                 }.foregroundStyle(theme.muted).padding(.top, 24).padding(.bottom, 10)
                 ScrollViewReader { proxy in
-                    ScrollView {
+                    KitScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                                 SessionPickerRowView(row: row, rails: SessionTreeRails(depth: row.depth, next: rows.indices.contains(index + 1) ? rows[index + 1].depth : nil),

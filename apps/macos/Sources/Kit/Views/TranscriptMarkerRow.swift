@@ -40,7 +40,7 @@ struct TranscriptMarkerRow: View {
             .accessibilityAction { toggle(open) }
             if open {
                 Rule()
-                ScrollView(.vertical) {
+                KitScrollView(.vertical) {
                     MarkdownView(source: summary, size: 12, compactHeadings: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, ToolCallDetail.inset).padding(.trailing, 16)

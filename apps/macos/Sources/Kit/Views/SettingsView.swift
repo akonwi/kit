@@ -27,7 +27,7 @@ struct SettingsView: View {
                 Spacer()
             }.padding(12).padding(.top, 16).frame(width: 170).background(WindowBackdrop(color: theme.raised))
             Rectangle().fill(theme.border).frame(width: 1)
-            ScrollView {
+            KitScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     if selection == "appearance" {
                         VStack(alignment: .leading, spacing: 6) {

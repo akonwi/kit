@@ -37,7 +37,7 @@ struct BashExecutionView: View {
             }.padding(12)
             if !execution.output.isEmpty {
                 Rule()
-                ScrollView([.horizontal, .vertical]) {
+                KitScrollView([.horizontal, .vertical]) {
                     Text(outputText)
                         .font(.kit(size: 12, design: .monospaced))
                         .foregroundStyle(theme.text)
