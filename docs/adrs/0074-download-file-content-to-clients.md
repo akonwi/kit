@@ -101,8 +101,8 @@ downloads again to refresh it.
 
 `200`, `206`, and `HEAD` responses carry all of the following, except that
 an unknown-length response has no `ETag` and uses `Cache-Control: no-store`.
-`304`, `412`, and `416` carry `ETag`, the `X-Kit-*` headers, and
-`Cache-Control`.
+`304`, `412`, and `416` carry the `X-Kit-*` headers, `Cache-Control`, and
+the `ETag` when the file has one.
 
 | Header | Value |
 | --- | --- |
@@ -147,7 +147,7 @@ A download is not a snapshot. If the file changes after the headers are sent:
   `Content-Length`. The client sees a failed transfer.
 - **Written in place:** the body may mix old and new bytes.
 
-After every download, whole or resumed, a client that needs to know whether
+After every download of a known-length file, whole or resumed, a client that needs to know whether
 its bytes are current sends `HEAD` and compares the `ETag` with the one it
 downloaded. If they differ, or `HEAD` fails with `stale_workspace` or
 `not_found`, the client keeps what it has, marks it as changed while loading,
@@ -202,8 +202,8 @@ to protect the server:
 - The same caller can already read any such file with a shell command in the
   session.
 
-A client that loses its connection, including to the write deadline, resumes
-with `Range` and `If-Range` from the bytes it has. If the file changed in the
+A client that loses its connection to a known-length download, including to
+the write deadline, resumes with `Range` and `If-Range` from the bytes it has. If the file changed in the
 meantime, it gets the new revision whole, with `200`.
 
 ### Errors and authorization
