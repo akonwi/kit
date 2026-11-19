@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. Extends the workspace file contract of
+Accepted. Extends the workspace file contract of
 [ADR 0019](0019-expose-session-workspace-files.md) and the host file reads of
 [ADR 0050](0050-view-files-outside-the-working-directory.md). Research:
 [`docs/research/stream-file-content.md`](../research/stream-file-content.md).
