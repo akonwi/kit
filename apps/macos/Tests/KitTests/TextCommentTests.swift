@@ -190,6 +190,50 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
         #expect(TextCommentMark.id(in: mark.url) == id)
     }
 
+    @Test func onlyTheSelectedOccurrenceIsMarked() throws {
+        let text = "Retry, then retry again, then give up."
+        let locator = try #require(TextCommentLocator(text: text, range: NSRange(location: 12, length: 5), quote: "retry"))
+        #expect(locator == TextCommentLocator(context: text, occurrence: 0))
+        let second = try #require(TextCommentLocator(text: "retry, retry", range: NSRange(location: 7, length: 5), quote: "retry"))
+        #expect(second.occurrence == 1)
+        let mark = TextCommentMark(id: UUID(), quote: "retry", locator: second)
+        let marked = TextCommentMarking.marked(AttributedString("retry, retry"), [mark], theme: MicaTheme(dark: true))
+        #expect(marked.runs.map { String(marked[$0.range].characters) } == ["retry, ", "retry"])
+        #expect(marked.runs.map(\.link) == [nil, mark.url])
+        // Other text with the same words is left alone.
+        let other = TextCommentMarking.marked(AttributedString("retry, retry later"), [mark], theme: MicaTheme(dark: true))
+        #expect(other.runs.map(\.link) == [nil])
+    }
+
+    @Test func aCommentKeepsWhereItsWordsWereSelected() throws {
+        let fixture = try RegionWindow()
+        defer { fixture.window.close() }
+        fixture.reply.string = "alpha beta alpha"
+        fixture.reply.setSelectedRange(NSRange(location: 11, length: 5))
+        #expect(fixture.window.makeFirstResponder(fixture.reply))
+        let selection = try #require(fixture.coordinator.selection(in: fixture.window))
+        #expect(fixture.coordinator.locator(of: selection) == TextCommentLocator(context: "alpha beta alpha", occurrence: 1))
+    }
+
+    @Test func toolShellAndScratchpadWordsAreMarkedInTheirOwnScope() throws {
+        let draft = TextCommentDraft()
+        _ = draft.add(comment: "Flaky.", source: "Tool output · go test", quote: "FAIL", scope: TextCommentSource.toolScope("t1"))
+        _ = draft.add(comment: "Slow.", source: "Shell output · make", quote: "12s", scope: TextCommentSource.shellScope("b1"))
+        _ = draft.add(comment: "Drop.", source: "Scratchpad", quote: "todo", scope: TextCommentSource.scratchpadScope)
+        #expect(draft.marks(in: "tool:t1").map(\.quote) == ["FAIL"])
+        #expect(draft.marks(in: "shell:b1").map(\.quote) == ["12s"])
+        #expect(draft.marks(in: "scratchpad").map(\.quote) == ["todo"])
+    }
+
+    @Test func theScratchpadMarksItsSelectedWordsAndKeepsThemThroughEdits() {
+        let locator = TextCommentLocator(context: "todo: a\ntodo: b", occurrence: 1)
+        let mark = TextCommentMark(id: UUID(), quote: "todo", locator: locator)
+        #expect(ScratchpadCommentPainter.ranges(of: [mark], in: "todo: a\ntodo: b") == [NSRange(location: 8, length: 4)])
+        // Once edited, the words are marked where they appear only once.
+        #expect(ScratchpadCommentPainter.ranges(of: [mark], in: "done: a\ntodo: b!") == [NSRange(location: 8, length: 4)])
+        #expect(ScratchpadCommentPainter.ranges(of: [mark], in: "todo: a\ntodo: b!").isEmpty)
+    }
+
     @Test func aMarkHoversWithItsComment() throws {
         let draft = TextCommentDraft()
         let id = try #require(draft.add(comment: "Back off exponentially.", source: "Assistant reply", quote: "every 2 seconds",

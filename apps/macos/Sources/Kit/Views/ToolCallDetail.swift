@@ -6,6 +6,7 @@ import SwiftUI
 struct ToolCallDetail: View {
     @Environment(\.mica) private var theme
     @Environment(\.transcriptToolContext) private var context
+    @Environment(\.textComments) private var comments
     let tool: ToolActivity
     let workspace: WorkspaceState
     var presentation: ToolPresentation? = nil
@@ -87,7 +88,10 @@ struct ToolCallDetail: View {
     }
 
     private func mono(_ text: String, color: Color? = nil) -> some View {
-        Text(text).font(.kit(size: 11, design: .monospaced)).lineSpacing(4)
+        // Words a waiting comment is on are marked, as in a reply.
+        let marks = comments?.marks(in: TextCommentSource.toolScope(tool.id)) ?? []
+        return Text(marks.isEmpty ? AttributedString(text) : TextCommentMarking.marked(AttributedString(text), marks, theme: theme))
+            .font(.kit(size: 11, design: .monospaced)).lineSpacing(4)
             .foregroundStyle(color ?? theme.text).textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

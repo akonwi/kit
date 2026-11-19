@@ -16,6 +16,13 @@ struct TextCommentSource: Equatable {
     /// The scope the words are marked in, such as a transcript message's
     /// ID; nil where they aren't marked.
     var scope: String? = nil
+
+    /// The scope of a tool call's output.
+    static func toolScope(_ id: String) -> String { "tool:" + id }
+    /// The scope of a shell run's output.
+    static func shellScope(_ id: String) -> String { "shell:" + id }
+    /// The scope of the scratchpad.
+    static let scratchpadScope = "scratchpad"
 }
 
 /// Marks the view it's behind as a source of text comments, or, with
@@ -102,30 +109,40 @@ final class CommentSourceView: NSView {
 extension EnvironmentValues {
     /// The words waiting comments are on, to mark where they're shown.
     @Entry var textCommentMarks: [TextCommentMark] = []
+    /// The session's waiting comments on selected text, where words can be
+    /// commented on and marked.
+    @Entry var textComments: TextCommentDraft? = nil
 }
 
 /// Waiting comments' words in rendered text: an accent wash and underline,
 /// and a link that reopens the comment.
 enum TextCommentMarking {
-    @MainActor static func marked(_ text: AttributedString, _ marks: [TextCommentMark], theme: MicaTheme) -> AttributedString {
+    /// text with marks applied. A mark with a locator applies only where
+    /// text, or shown, the text as it's drawn, is what its words were
+    /// selected in.
+    @MainActor static func marked(_ text: AttributedString, _ marks: [TextCommentMark], theme: MicaTheme,
+                                  shown: String? = nil) -> AttributedString {
         var result = text
         let plain = String(text.characters)
         for mark in marks {
-            for piece in mark.pieces {
-                var from = plain.startIndex
-                while let found = plain.range(of: piece, range: from..<plain.endIndex) {
-                    from = found.upperBound
-                    let start = plain.distance(from: plain.startIndex, to: found.lowerBound)
-                    let length = plain.distance(from: found.lowerBound, to: found.upperBound)
-                    let lower = result.characters.index(result.startIndex, offsetBy: start)
-                    let range = lower..<result.characters.index(lower, offsetBy: length)
-                    // A link's own text keeps its link.
-                    guard result[range].runs.allSatisfy({ $0.link == nil }) else { continue }
-                    result[range].backgroundColor = theme.accent.opacity(theme.dark ? 0.24 : 0.16)
-                    result[range].underlineStyle = Text.LineStyle(pattern: .solid, color: theme.accent)
-                    result[range].foregroundColor = theme.text
-                    result[range].link = mark.url
-                }
+            var ranges = mark.ranges(in: plain)
+            if ranges.isEmpty, let shown, let locator = mark.locator, locator.context == shown {
+                ranges = TextCommentMark(id: mark.id, quote: mark.quote,
+                                         locator: TextCommentLocator(context: plain, occurrence: locator.occurrence))
+                    .ranges(in: plain)
+            }
+            for found in ranges {
+                guard let swiftRange = Range(found, in: plain) else { continue }
+                let start = plain.distance(from: plain.startIndex, to: swiftRange.lowerBound)
+                let length = plain.distance(from: swiftRange.lowerBound, to: swiftRange.upperBound)
+                let lower = result.characters.index(result.startIndex, offsetBy: start)
+                let range = lower..<result.characters.index(lower, offsetBy: length)
+                // A link's own text keeps its link.
+                guard result[range].runs.allSatisfy({ $0.link == nil }) else { continue }
+                result[range].backgroundColor = theme.accent.opacity(theme.dark ? 0.24 : 0.16)
+                result[range].underlineStyle = Text.LineStyle(pattern: .solid, color: theme.accent)
+                result[range].foregroundColor = theme.text
+                result[range].link = mark.url
             }
         }
         return result
@@ -148,7 +165,7 @@ enum TextCommentMarking {
 extension TextCommentDraft {
     /// Opens the comment box beside rect, a selection on screen: a new
     /// comment on quote from source, or, with editing, that waiting comment.
-    func present(quote: String, source: TextCommentSource, editing: UUID? = nil,
+    func present(quote: String, source: TextCommentSource, locator: TextCommentLocator? = nil, editing: UUID? = nil,
                  at rect: NSRect, in window: NSWindow, theme: MicaTheme) {
         let existing = editing.flatMap(item)
         let editor = TextCommentEditor(comment: existing?.annotation.comment ?? "", editing: editing)
@@ -157,7 +174,7 @@ extension TextCommentDraft {
         let box = TextCommentBox(editor: editor, quote: existing?.annotation.quote ?? quote, submit: { [weak self] in
             guard let self else { return }
             if let editing { self.update(editing, comment: editor.comment) }
-            else { self.add(comment: editor.comment, source: source.label, quote: quote, scope: source.scope) }
+            else { self.add(comment: editor.comment, source: source.label, quote: quote, scope: source.scope, locator: locator) }
             popover.dismiss()
         }, cancel: { popover.dismiss() }, delete: editing.map { id in { [weak self] in
             self?.remove(id); popover.dismiss()

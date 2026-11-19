@@ -202,6 +202,7 @@ struct NativeTranscript: NSViewRepresentable {
                 workspace.openDiagram(source, beside: pane)
             })
             .environment(\.diagramAnnotations, DiagramAnnotationContext(draft: input.workspace.diagramAnnotations))
+            .environment(\.textComments, input.workspace.textComments)
             .environment(\.transcriptSessionLink, input.sessionLink)
             .environment(\.transcriptToolContext, input.toolContext)
             .environment(\.openURL, .reopeningTextComments(.transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink),

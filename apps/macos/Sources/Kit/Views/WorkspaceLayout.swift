@@ -706,6 +706,7 @@ struct ScratchpadPane: View {
                 @Bindable var workspace = workspace
                 ScratchpadEditor(text: $workspace.scratchpad, documentVersion: pad.documentVersion,
                     editorState: $workspace.scratchpadPosition)
+                    .environment(\.textComments, workspace.textComments)
                     .workspaceFocusTarget(.scratchpad)
             }
             if pad.status != .saved {

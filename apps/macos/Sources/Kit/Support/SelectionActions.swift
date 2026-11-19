@@ -102,9 +102,20 @@ struct SelectionActions: NSViewRepresentable {
             case .lines(let begin)?:
                 begin()
             case .text(let source)?:
-                comments.present(quote: selection.text, source: source, at: selection.rect, in: window, theme: theme)
+                comments.present(quote: selection.text, source: source, locator: locator(of: selection),
+                                 at: selection.rect, in: window, theme: theme)
             case nil: break
             }
+        }
+
+        /// Which of the places the selected words appear in their text
+        /// view was selected, so only that one is marked.
+        func locator(of selection: Selection) -> TextCommentLocator? {
+            guard let range = selection.range else { return nil }
+            let text = selection.viaAccessibility
+                ? selection.source.accessibilityAttributeValue(.value) as? String
+                : (selection.source as? NSTextInputClient)?.attributedString?().string
+            return text.flatMap { TextCommentLocator(text: $0, range: range, quote: selection.text) }
         }
 
         /// The context menu for a click on a selection that can be

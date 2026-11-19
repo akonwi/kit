@@ -122,7 +122,7 @@ private struct ToolCallRow: View {
             if shown {
                 Rule()
                 ToolCallDetail(tool: tool, workspace: workspace, presentation: presentation)
-                    .background(CommentSourceRegion(source: .init(label: commentSource)))
+                    .background(CommentSourceRegion(source: .init(label: commentSource, scope: TextCommentSource.toolScope(tool.id))))
             }
         }
         .background {

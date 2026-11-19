@@ -591,7 +591,10 @@ private struct MarkdownInline: View {
             case nil: break
             }
         }
-        if !commentMarks.isEmpty { text = TextCommentMarking.marked(text, commentMarks, theme: theme) }
+        if !commentMarks.isEmpty {
+            let shown = String(SessionMentions.presented(value, link: sessionLink, theme: theme).characters)
+            text = TextCommentMarking.marked(text, commentMarks, theme: theme, shown: shown)
+        }
         return SessionMentions.presented(text, link: sessionLink, theme: theme)
     }
 }

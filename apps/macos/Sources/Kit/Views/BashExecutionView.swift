@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BashExecutionView: View {
     @Environment(\.mica) private var theme
+    @Environment(\.textComments) private var comments
     let execution: BashExecution
     @State private var hovered = false
     /// Outcome text beside the command. The spinner alone conveys a running
@@ -11,6 +12,13 @@ struct BashExecutionView: View {
         guard execution.status != "completed" || execution.timedOut || (execution.exitCode ?? 0) != 0 else { return nil }
         return execution.statusLabel
     }
+    /// The output, with words a waiting comment is on marked.
+    private var outputText: AttributedString {
+        let marks = comments?.marks(in: TextCommentSource.shellScope(execution.id)) ?? []
+        let text = AttributedString(execution.output)
+        return marks.isEmpty ? text : TextCommentMarking.marked(text, marks, theme: theme)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 10) {
@@ -30,13 +38,14 @@ struct BashExecutionView: View {
             if !execution.output.isEmpty {
                 Rule()
                 ScrollView([.horizontal, .vertical]) {
-                    Text(execution.output)
+                    Text(outputText)
                         .font(.kit(size: 12, design: .monospaced))
                         .foregroundStyle(theme.text)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                 }.frame(height: min(240, CGFloat(execution.output.split(separator: "\n", omittingEmptySubsequences: false).count) * 18 + 24))
-                    .background(CommentSourceRegion(source: .init(label: "Shell output · " + execution.command)))
+                    .background(CommentSourceRegion(source: .init(label: "Shell output · " + execution.command,
+                                                                  scope: TextCommentSource.shellScope(execution.id))))
                     .defaultScrollAnchor(.topLeading, for: .alignment)
             }
             if let error = execution.error { Text(error).foregroundStyle(theme.danger).padding(12) }
