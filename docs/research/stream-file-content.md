@@ -89,6 +89,18 @@ Other relevant facts:
 - **TUI.** `file_pane` reads through `session.ReadWorkspaceFile`, draws only
   visible rows, and prints "Preview truncated (line limit)".
 
+## The macOS editor with large files
+
+A partial, abandoned test opened a generated Go file in the file pane's
+editor configuration (`TextViewController`, 1200×800 window, Debug build).
+A 1 MB file (30,784 lines) took 10–12 s to first paint, with or without
+highlighting. After that, jumping to the middle or end took about 50 ms. A
+5 MB file hadn't painted after about 25 minutes when the test environment
+failed. The numbers come from an unoptimized build and weren't repeated, but
+opening appears to grow faster than file size. The macOS adoption should
+measure and fix opening a large file in the editor before it relies on
+whole-file downloads.
+
 ## Shapes considered
 
 | Shape | Strength | Weakness |
