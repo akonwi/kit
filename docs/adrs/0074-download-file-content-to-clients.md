@@ -39,7 +39,9 @@ kind of file:
   including relative paths and `~user`, are `invalid_path`. The access
   policy is that of `readHostFile`.
 
-A request is validated only as the kind it names. A path that fails one
+A parameter counts as present even when it's empty, so `workspaceId=` is
+a workspace request with an invalid ID. A repeated `workspaceId` or `path`
+is `invalid_request`. A request is validated only as the kind it names. A path that fails one
 kind's validation is never retried as the other kind. An absolute path inside
 the working directory, sent without `workspaceId`, is a host file. A client
 that wants the workspace revision, for example to anchor annotations, sends
@@ -63,13 +65,14 @@ Each file is an ordinary HTTP resource, served from the opened descriptor.
   and annotations already use. Host files get a `hostfile_` revision derived
   the same way, from the cleaned absolute path, size, nanosecond mtime,
   device, inode, and ctime. The revision is derived from metadata, not
-  content, so it is as strong as the guarantee ADR 0019 states. On
-  filesystems that record ctime in nanoseconds, such as APFS and ext4, every
-  write changes it. On filesystems with coarse timestamps, an in-place write
-  within the same tick can keep the revision unchanged.
-- **`Content-Length`** is the size reported by the opened descriptor. The
-  body is that many bytes, read from offset zero. A file that grows during
-  the download is served to its length at open.
+  content, so it is as strong as the guarantee ADR 0019 states. Filesystems such as APFS and ext4 ordinarily update ctime at high
+  resolution on every write, so a change almost always changes the
+  revision. Two writes that share a timestamp, more likely on filesystems
+  with coarse timestamps, can leave it unchanged.
+- **`Content-Length`** is the size reported by the opened descriptor: the
+  intended length of the transfer, read from offset zero. A file that grows
+  during the download is served to its length at open. A file truncated
+  during the download ends the body early (see Consistency).
 - **`If-None-Match`** answers `304 Not Modified` when the client's cached
   revision is current.
 - **`If-Match`** answers `412 Precondition Failed`, before any content, when
@@ -85,22 +88,30 @@ Each file is an ordinary HTTP resource, served from the opened descriptor.
   `If-Modified-Since` miss changes, so clients revalidate with the ETag only.
 
 A file that reports a size of zero, such as many files under `/proc`, is
-served as an unknown-length transfer until end of file. It has no
-`Content-Length`, and ranges aren't supported (`Accept-Ranges: none`).
+served as an unknown-length transfer until end of file. Such files are often
+generated when read, and their content changes while their metadata doesn't,
+so a metadata revision can't validate them. Their responses therefore carry
+no `ETag` and `Cache-Control: no-store`, and they support no ranges
+(`Accept-Ranges: none`). `If-None-Match` and `If-Range` are ignored, so every
+request gets the current content with `200`, and `If-Match` fails with `412`.
+`HEAD` can't tell a client whether its copy is current, so the client
+downloads again to refresh it.
 
 ### Headers
 
-`200`, `206`, and `HEAD` responses carry all of the following. `304`, `412`,
-and `416` carry `ETag`, the `X-Kit-*` headers, and `Cache-Control`.
+`200`, `206`, and `HEAD` responses carry all of the following, except that
+an unknown-length response has no `ETag` and uses `Cache-Control: no-store`.
+`304`, `412`, and `416` carry `ETag`, the `X-Kit-*` headers, and
+`Cache-Control`.
 
 | Header | Value |
 | --- | --- |
-| `ETag` | `"file_…"` or `"hostfile_…"` |
+| `ETag` | `"file_…"` or `"hostfile_…"`, absent for unknown-length files |
 | `X-Kit-Session-ID` | the session |
 | `X-Kit-Workspace-ID` | workspace files only: the workspace the file was resolved in |
 | `X-Kit-File-Path` | the canonical workspace path, or the cleaned absolute host path with `~` expanded, percent-encoded as UTF-8 |
 | `X-Kit-File-Modified-At` | RFC 3339 time with nanoseconds |
-| `Cache-Control` | `private, no-cache` |
+| `Cache-Control` | `private, no-cache`, or `no-store` for unknown-length files |
 | `Accept-Ranges` | `bytes`, or `none` for a file that reports a size of zero |
 | `Content-Type` | `application/octet-stream` |
 | `X-Content-Type-Options` | `nosniff` |
@@ -169,9 +180,11 @@ The server copies the body in bounded blocks, so its memory per download
 doesn't depend on the file's size. Backpressure is TCP's. Every write gets a
 fresh 10-second deadline (the stream write timeout of ADR 0035), so a client
 that stops reading loses its download rather than holding a slot. The copy
-stops when the request's context ends. A read that blocks in the filesystem
-is not interrupted by cancellation on every filesystem. It finishes when the
-read returns.
+stops when the request's context ends. Cancellation can't interrupt a read
+that is blocked in the filesystem, such as on a stalled network mount. That
+download keeps its slot and descriptor until the read returns. Kit accepts
+this risk to availability: it can exhaust the download slots but not the
+read slots. Shutting the daemon down closes every download's descriptor.
 
 The server sets no size cap. The client decides how much to download, and
 cancels or doesn't start past its own budget. It learns the size from
@@ -181,7 +194,7 @@ to protect the server:
 - A body with a known size ends at the size at open, however much the file
   grows.
 - Memory per download is bounded. A download holds one of a few download
-  slots and ends when the client cancels or stops reading.
+  slots, and its copy ends when the client cancels or stops reading.
 - A file that misreports its size, such as `/proc/kcore`, or a zero-size
   file that never reaches end of file, runs only as long as a client reads
   it. Clients learn the reported size before the body and stop at their
@@ -259,8 +272,9 @@ falls back to the bounded read.
 - Clients own size budgets, text decoding, binary detection, and the
   presentation of a copy that changed while it loaded.
 - Go's `http.ServeContent` doesn't provide the zero-size, single-range,
-  `416`, and header behavior above. The server implements these on a
-  fixed-length section of the descriptor.
+  `416`, and header behavior above. The server serves a known-length file
+  from a fixed-length section of the descriptor, and an unknown-length file
+  by copying until end of file.
 - The macOS app adopts the route first. The web client needs a virtualized
   line list before it can show files well past today's preview bounds. The
   TUI and iOS app can keep the bounded read until a need appears.
