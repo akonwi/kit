@@ -128,7 +128,8 @@ func TestAChoiceWaitsForAnotherClientWhenTheClientHasNoForms(t *testing.T) {
 	p.initialize(map[string]any{})
 	sessionID := p.newSession()
 	id := p.request("session/prompt", map[string]any{"sessionId": sessionID, "prompt": []any{map[string]any{"type": "text", "text": "choose"}}})
-	p.until(func(received message) bool { return strings.Contains(received.raw, `"status":"in_progress"`) })
+	// The question is asked before its tool runs, so the call stays pending.
+	p.until(func(received message) bool { return strings.Contains(received.raw, `"status":"pending"`) })
 	waitFor(t, func() bool { return strings.Contains(p.stderr.String(), "interaction left for another Kit client") })
 	p.notify("session/cancel", map[string]any{"sessionId": sessionID})
 	response, _ := p.await(id)
