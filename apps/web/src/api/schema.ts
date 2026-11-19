@@ -593,6 +593,22 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{sessionID}/files/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["downloadFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head: operations["checkFile"];
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{sessionID}/forks": {
         parameters: {
             query?: never;
@@ -1896,6 +1912,8 @@ export type components = {
             truncationReason?: string;
             workspace: components["schemas"]["WorkspaceRef"];
         };
+        /** Format: byte */
+        DownloadedFile: string;
         EventsCredentialExpiredError: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -9783,6 +9801,559 @@ export interface operations {
                         error: components["schemas"]["WorkspaceBinaryFileError"];
                     };
                 };
+            };
+            /** @description Misdirected Request */
+            421: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InvalidHostError"];
+                    };
+                };
+            };
+            /** @description Upgrade Required */
+            426: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["ProtocolMismatchError"];
+                    };
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspaceCapacityExceededError"] | components["schemas"]["WorkspaceRateLimitedError"];
+                    };
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InternalError"];
+                    };
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnavailableError"];
+                    };
+                };
+            };
+        };
+    };
+    downloadFile: {
+        parameters: {
+            query: {
+                path: string;
+                workspaceId?: string;
+            };
+            header: {
+                "If-Match"?: string;
+                "If-None-Match"?: string;
+                "If-Range"?: string;
+                Range?: string;
+                "X-Kit-Instance-ID": string;
+                "X-Kit-Protocol-Version": 51;
+            };
+            path: {
+                sessionID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control": string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At": string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path": string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID": string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": components["schemas"]["DownloadedFile"];
+                };
+            };
+            /** @description Success */
+            206: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control": string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At": string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path": string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID": string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": components["schemas"]["DownloadedFile"];
+                };
+            };
+            /** @description The client's copy, named by If-None-Match, is current. */
+            304: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control"?: string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At"?: string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path"?: string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID"?: string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InvalidRequestError"] | components["schemas"]["WorkspaceInvalidPathError"] | components["schemas"]["WorkspaceNotFileError"] | components["schemas"]["WorkspaceSymlinkTraversalError"];
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnauthorizedError"] | components["schemas"]["WorkspaceCredentialExpiredError"];
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspacePermissionDeniedError"] | components["schemas"]["WorkspaceOutsideWorkspaceError"] | components["schemas"]["ForbiddenError"];
+                    };
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["NotFoundError"];
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
+                    };
+                };
+            };
+            /** @description The file no longer has the revision If-Match names. */
+            412: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control"?: string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At"?: string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path"?: string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID"?: string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspaceLimitExceededError"];
+                    };
+                };
+            };
+            /** @description The Range starts past the end of the file. */
+            416: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control"?: string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At"?: string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path"?: string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID"?: string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Misdirected Request */
+            421: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InvalidHostError"];
+                    };
+                };
+            };
+            /** @description Upgrade Required */
+            426: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["ProtocolMismatchError"];
+                    };
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspaceCapacityExceededError"] | components["schemas"]["WorkspaceRateLimitedError"];
+                    };
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InternalError"];
+                    };
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnavailableError"];
+                    };
+                };
+            };
+        };
+    };
+    checkFile: {
+        parameters: {
+            query: {
+                path: string;
+                workspaceId?: string;
+            };
+            header: {
+                "If-Match"?: string;
+                "If-None-Match"?: string;
+                "If-Range"?: string;
+                Range?: string;
+                "X-Kit-Instance-ID": string;
+                "X-Kit-Protocol-Version": 51;
+            };
+            path: {
+                sessionID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control": string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At": string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path": string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID": string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The client's copy, named by If-None-Match, is current. */
+            304: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control"?: string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At"?: string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path"?: string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID"?: string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["InvalidRequestError"] | components["schemas"]["WorkspaceInvalidPathError"] | components["schemas"]["WorkspaceNotFileError"] | components["schemas"]["WorkspaceSymlinkTraversalError"];
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnauthorizedError"] | components["schemas"]["WorkspaceCredentialExpiredError"];
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspacePermissionDeniedError"] | components["schemas"]["WorkspaceOutsideWorkspaceError"] | components["schemas"]["ForbiddenError"];
+                    };
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["NotFoundError"];
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
+                    };
+                };
+            };
+            /** @description The file no longer has the revision If-Match names. */
+            412: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control"?: string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At"?: string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path"?: string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID"?: string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["WorkspaceLimitExceededError"];
+                    };
+                };
+            };
+            /** @description The Range starts past the end of the file. */
+            416: {
+                headers: {
+                    /** @description bytes, or none for a file that reports a size of zero. */
+                    "Accept-Ranges"?: string;
+                    /** @description private, no-cache; or no-store for a file that reports a size of zero. */
+                    "Cache-Control"?: string;
+                    /** @description attachment, with the file's base name. */
+                    "Content-Disposition"?: string;
+                    /** @description The byte range a 206 or 416 response describes. */
+                    "Content-Range"?: string;
+                    /** @description sandbox; default-src 'none'. */
+                    "Content-Security-Policy"?: string;
+                    /** @description The file's revision as a strong validator; absent for a file that reports a size of zero. */
+                    ETag?: string;
+                    /** @description nosniff. */
+                    "X-Content-Type-Options"?: string;
+                    /** @description The file's modification time, RFC 3339 with nanoseconds. */
+                    "X-Kit-File-Modified-At"?: string;
+                    /** @description The canonical workspace path, or the cleaned absolute host path, percent-encoded as UTF-8. */
+                    "X-Kit-File-Path"?: string;
+                    /** @description The session. */
+                    "X-Kit-Session-ID"?: string;
+                    /** @description Workspace files only: the workspace the file was resolved in. */
+                    "X-Kit-Workspace-ID"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Misdirected Request */
             421: {

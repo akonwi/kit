@@ -373,3 +373,43 @@ func TestSchemaForTestingEmitsTranscriptContentUnion(t *testing.T) {
 		t.Fatalf("mapping = %#v", mapping)
 	}
 }
+
+func TestDownloadPublishesHeadersAndEmptyResponses(t *testing.T) {
+	document, err := Emit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Paths map[string]map[string]struct {
+			Responses map[string]struct {
+				Content map[string]any            `json:"content"`
+				Headers map[string]map[string]any `json:"headers"`
+			} `json:"responses"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(document, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	item := decoded.Paths["/v1/sessions/{sessionID}/files/content"]
+	get, head := item["get"], item["head"]
+	for _, status := range []string{"200", "206"} {
+		response := get.Responses[status]
+		if _, ok := response.Content["application/octet-stream"]; !ok || len(response.Content) != 1 {
+			t.Fatalf("GET %s content = %#v, want application/octet-stream only", status, response.Content)
+		}
+		if response.Headers["X-Kit-File-Path"]["required"] != true || response.Headers["ETag"]["required"] != false {
+			t.Fatalf("GET %s headers = %#v", status, response.Headers)
+		}
+	}
+	if response := head.Responses["200"]; response.Content != nil || response.Headers["X-Kit-Session-ID"]["required"] != true {
+		t.Fatalf("HEAD 200 = %#v, want headers and no content", response)
+	}
+	for _, operation := range []string{"get", "head"} {
+		for _, status := range []string{"304", "412", "416"} {
+			response := item[operation].Responses[status]
+			if response.Content != nil || response.Headers["ETag"] == nil || response.Headers["X-Kit-File-Path"]["required"] != false {
+				t.Fatalf("%s %s = %#v, want optional headers and no content", operation, status, response)
+			}
+		}
+	}
+}

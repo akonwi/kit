@@ -199,9 +199,20 @@ func operationResponses(descriptor httpapi.Descriptor, components map[string]any
 		success = map[string]any{"description": "Server-sent event stream; each record's data is one payload object",
 			"content": map[string]any{"text/event-stream": map[string]any{"schema": schemaRef(descriptor.Output)}}}
 	}
+	headers := responseHeaders(descriptor.ResponseHeaders)
+	if headers != nil {
+		success["headers"] = headers
+	}
 	responses := map[string]any{fmt.Sprint(descriptor.Success): success}
 	for _, status := range descriptor.AdditionalSuccess {
 		responses[fmt.Sprint(status)] = success
+	}
+	for _, empty := range descriptor.EmptyResponses {
+		response := map[string]any{"description": empty.Description}
+		if headers != nil {
+			response["headers"] = responseHeaders(optional(descriptor.ResponseHeaders))
+		}
+		responses[fmt.Sprint(empty.Status)] = response
 	}
 	for _, response := range descriptor.Errors {
 		schema, err := errorEnvelopeSchema(descriptor.Tag, response, components)
@@ -211,6 +222,30 @@ func operationResponses(descriptor httpapi.Descriptor, components map[string]any
 		responses[fmt.Sprint(response.Status)] = map[string]any{"description": http.StatusText(response.Status), "content": jsonContent(schema)}
 	}
 	return responses, nil
+}
+
+// responseHeaders projects declared headers onto OpenAPI header objects, or
+// returns nil when there are none.
+func responseHeaders(declared []httpapi.ResponseHeader) map[string]any {
+	if len(declared) == 0 {
+		return nil
+	}
+	headers := map[string]any{}
+	for _, header := range declared {
+		headers[header.Name] = map[string]any{"description": header.Description, "required": header.Required, "schema": map[string]any{"type": "string"}}
+	}
+	return headers
+}
+
+// optional returns the headers with none required, as an empty response
+// carries only some of a success response's headers.
+func optional(declared []httpapi.ResponseHeader) []httpapi.ResponseHeader {
+	result := make([]httpapi.ResponseHeader, len(declared))
+	for i, header := range declared {
+		header.Required = false
+		result[i] = header
+	}
+	return result
 }
 
 func jsonContent(schema any) map[string]any { return mediaContent("application/json", schema) }

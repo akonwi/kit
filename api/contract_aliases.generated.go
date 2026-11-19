@@ -82,9 +82,13 @@ type (
 	DiffTargetMetadata                = contract.DiffTargetMetadata
 	DiffTruncation                    = contract.DiffTruncation
 	DirectoryPage                     = contract.DirectoryPage
+	DownloadConditions                = contract.DownloadConditions
+	DownloadFileInput                 = contract.DownloadFileInput
+	DownloadedFileInfo                = contract.DownloadedFileInfo
 	FileContent                       = contract.FileContent
 	FileDiffHighlight                 = contract.FileDiffHighlight
 	FileDiffPage                      = contract.FileDiffPage
+	FileDownloadResponse              = contract.FileDownloadResponse
 	FileIndexEntry                    = contract.FileIndexEntry
 	FirstTurnError                    = contract.FirstTurnError
 	FirstTurnErrorCode                = contract.FirstTurnErrorCode

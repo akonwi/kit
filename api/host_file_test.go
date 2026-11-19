@@ -3,6 +3,7 @@ package kit
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"testing"
 
@@ -62,5 +63,38 @@ func TestWorkspaceOperationsProjectDeclaredFailures(t *testing.T) {
 		if !errors.As(err, &server) || server.Code != test.want.Code || server.Message != test.want.Message {
 			t.Fatalf("HTTP %d error = %#v, want %+v", test.status, err, test.want)
 		}
+	}
+}
+
+type downloadTransport struct {
+	sessionTransport
+	err error
+}
+
+func (t downloadTransport) DownloadFile(context.Context, string, protocol.DownloadFileInput, protocol.DownloadConditions) (protocol.FileDownloadResponse, io.ReadCloser, error) {
+	return protocol.FileDownloadResponse{}, nil, t.err
+}
+
+func (t downloadTransport) CheckFile(context.Context, string, protocol.DownloadFileInput) (protocol.DownloadedFileInfo, error) {
+	return protocol.DownloadedFileInfo{}, t.err
+}
+
+func TestDownloadFileProjectsAnOlderServerAndWorkspaceErrors(t *testing.T) {
+	session := newSession(nil, downloadTransport{err: httpapi.ErrOperationNotServed}, "session_test", protocol.SessionSnapshot{})
+	input := protocol.DownloadFileInput{Path: "/etc/hosts"}
+	_, _, err := session.DownloadFile(t.Context(), input, protocol.DownloadConditions{})
+	var unsupported *UnsupportedError
+	if !errors.As(err, &unsupported) || unsupported.Capability != "downloadFile" {
+		t.Fatalf("older server download = %v", err)
+	}
+	if _, err := session.CheckFile(t.Context(), input); !errors.As(err, &unsupported) || unsupported.Capability != "downloadFile" {
+		t.Fatalf("older server check = %v", err)
+	}
+	stale := httpapi.DecodeOperationError(httpapi.DownloadFile, http.StatusConflict,
+		[]byte(`{"error":{"code":"stale_workspace","message":"the session workspace changed","details":{"currentWorkspaceId":"workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","currentWorkspaceState":"ready"}}}`))
+	session = newSession(nil, downloadTransport{err: stale}, "session_test", protocol.SessionSnapshot{})
+	var workspaceErr *protocol.WorkspaceError
+	if _, _, err := session.DownloadFile(t.Context(), input, protocol.DownloadConditions{}); !errors.As(err, &workspaceErr) || workspaceErr.Code != protocol.WorkspaceErrorStaleWorkspace {
+		t.Fatalf("stale workspace = %#v", err)
 	}
 }

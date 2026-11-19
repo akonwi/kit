@@ -53,6 +53,8 @@ type sessionTransport interface {
 	ListWorkspaceDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
 	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
 	ReadHostFile(context.Context, string, protocol.ReadHostFileInput) (protocol.HostFileRead, error)
+	DownloadFile(context.Context, string, protocol.DownloadFileInput, protocol.DownloadConditions) (protocol.FileDownloadResponse, io.ReadCloser, error)
+	CheckFile(context.Context, string, protocol.DownloadFileInput) (protocol.DownloadedFileInfo, error)
 	ListDiffTargets(context.Context, string, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
 	ObserveDiff(context.Context, string, protocol.ObserveDiffInput) (protocol.DiffPage, error)
 	ObserveWorkingTree(context.Context, string, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
@@ -494,6 +496,47 @@ func (c *Session) ReadHostFile(ctx context.Context, input protocol.ReadHostFileI
 	return sessionProjectedResult(c, ctx, projectHostFileError, func(operation context.Context) (protocol.HostFileRead, error) {
 		return c.transport.ReadHostFile(operation, c.id, input)
 	})
+}
+
+// DownloadFile opens the complete content of a workspace or host file
+// (ADR 0074). An input that names a workspace downloads the workspace file
+// at its canonical path; one that doesn't downloads the host file at an
+// absolute, "~", or "~/…" path. Conditions revalidate a cached copy or
+// resume an interrupted download. The body is nil when the response is not
+// modified; otherwise the caller closes it.
+//
+// A server that predates the operation fails with an UnsupportedError, and
+// the caller reads a bounded preview instead.
+func (c *Session) DownloadFile(ctx context.Context, input protocol.DownloadFileInput, conditions protocol.DownloadConditions) (protocol.FileDownloadResponse, io.ReadCloser, error) {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.FileDownloadResponse{}, nil, err
+	}
+	response, content, err := c.transport.DownloadFile(operation, c.id, input, conditions)
+	if err != nil {
+		cancel()
+		return protocol.FileDownloadResponse{}, nil, projectDownloadError(err)
+	}
+	if content == nil {
+		cancel()
+		return response, nil, nil
+	}
+	return response, &sessionReadCloser{ReadCloser: content, cancel: cancel}, nil
+}
+
+// CheckFile returns a file's current download metadata without its content:
+// the cheap way to learn whether a downloaded copy is current.
+func (c *Session) CheckFile(ctx context.Context, input protocol.DownloadFileInput) (protocol.DownloadedFileInfo, error) {
+	return sessionProjectedResult(c, ctx, projectDownloadError, func(operation context.Context) (protocol.DownloadedFileInfo, error) {
+		return c.transport.CheckFile(operation, c.id, input)
+	})
+}
+
+func projectDownloadError(err error) error {
+	if errors.Is(err, httpapi.ErrOperationNotServed) {
+		return &UnsupportedError{Capability: "downloadFile"}
+	}
+	return projectWorkspaceError(err)
 }
 
 func projectHostFileError(err error) error {

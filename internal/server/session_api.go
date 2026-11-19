@@ -130,6 +130,9 @@ type sessionService interface {
 	// ReadHostFile reads a file on this machine; the caller calls the
 	// returned func once the read is written.
 	ReadHostFile(context.Context, string, protocol.ReadHostFileInput) (protocol.HostFileRead, func(), error)
+	// OpenFileDownload opens a file to download; the caller closes it, and
+	// calls recheck immediately before sending headers (ADR 0074).
+	OpenFileDownload(ctx context.Context, sessionID string, input protocol.DownloadFileInput) (download *kitworkspace.Download, recheck func(context.Context) error, err error)
 	ListDiffTargets(context.Context, string, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
 	ObserveDiff(context.Context, string, protocol.ObserveDiffInput) (protocol.DiffPage, error)
 	ObserveWorkingTree(context.Context, string, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
@@ -2299,6 +2302,7 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
+	registerFileDownloadRoutes(mux, service, streamShutdown)
 	// Raw, so an image stays admitted until its response is written.
 	httpapi.HandleRaw(mux, httpapi.ReadHostFile, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.ReadHostFileInput

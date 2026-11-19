@@ -83,6 +83,10 @@ type Service struct {
 	images chan struct{}
 	// home returns the server user's home directory for "~" paths.
 	home func() (string, error)
+	// downloads counts each session's open download bodies, and
+	// daemonDownloads all of them (ADR 0074).
+	downloads       map[string]int
+	daemonDownloads int
 }
 
 func NewService() *Service {
@@ -433,49 +437,13 @@ func (s *Service) Read(ctx context.Context, sessionID, cwd string, input protoco
 	if err != nil {
 		return protocol.WorkspaceFileRead{}, err
 	}
-	root, err := os.OpenRoot(cwd)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, classify(err, NotFile)
-	}
-	defer root.Close()
 	nameChecks := 0
-	parentRoot, finalName, closeParent, err := openParentPath(root, input.Path, &nameChecks)
+	root, file, before, closeRoots, err := openWorkspaceFile(cwd, input.Path, &nameChecks)
 	if err != nil {
 		return protocol.WorkspaceFileRead{}, err
 	}
-	defer closeParent()
-	finalInfo, err := parentRoot.Lstat(finalName)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, classify(err, NotFile)
-	}
-	finalSymlink := finalInfo.Mode()&os.ModeSymlink != 0
-	openName := finalName
-	openRoot := parentRoot
-	if finalSymlink {
-		openName, err = resolveWorkspaceSymlink(root, input.Path)
-		if err != nil {
-			return protocol.WorkspaceFileRead{}, err
-		}
-		openRoot = root
-	}
-	if !finalInfo.Mode().IsRegular() && !finalSymlink {
-		return protocol.WorkspaceFileRead{}, &Error{Code: NotFile, Message: "workspace path is not a regular file"}
-	}
-	file, err := openRoot.OpenFile(openName, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil && finalSymlink {
-		return protocol.WorkspaceFileRead{}, classifyFinalSymlink(err)
-	}
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, classify(err, NotFile)
-	}
+	defer closeRoots()
 	defer file.Close()
-	before, err := file.Stat()
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, classify(err, NotFile)
-	}
-	if !before.Mode().IsRegular() {
-		return protocol.WorkspaceFileRead{}, &Error{Code: NotFile, Message: "workspace path is not a regular file"}
-	}
 	revision := fileRevision(ref.WorkspaceID, before)
 	if input.ExpectedFileRevision != "" && input.ExpectedFileRevision != revision {
 		return protocol.WorkspaceFileRead{}, &Error{Code: StaleFile, Message: "workspace file changed", Details: map[string]string{"currentFileRevision": revision}}
@@ -524,6 +492,68 @@ func (s *Service) Read(ctx context.Context, sessionID, cwd string, input protoco
 		return protocol.WorkspaceFileRead{}, err
 	}
 	return protocol.WorkspaceFileRead{SessionID: sessionID, Workspace: current, Path: input.Path, Revision: revision, Size: before.Size(), ModifiedAt: before.ModTime().UTC().Format(time.RFC3339Nano), Encoding: "utf-8", Content: string(data), ReturnedBytes: len(data), ReturnedLines: lineCount(data), Truncated: reason != "", TruncationReason: reason}, nil
+}
+
+// openWorkspaceFile opens the regular file that a canonical workspace path
+// names under cwd, following ADR 0019's containment and symbolic link rules.
+// It returns the workspace root, which stays open for later resolution, the
+// file, and its metadata at open. closeRoots closes the roots it opened; the
+// caller closes the file.
+func openWorkspaceFile(cwd, name string, nameChecks *int) (root *os.Root, file *os.File, info fs.FileInfo, closeRoots func(), err error) {
+	root, err = os.OpenRoot(cwd)
+	if err != nil {
+		return nil, nil, nil, nil, classify(err, NotFile)
+	}
+	closers := []func(){func() { _ = root.Close() }}
+	closeRoots = func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			closers[i]()
+		}
+	}
+	fail := func(err error) (*os.Root, *os.File, fs.FileInfo, func(), error) {
+		if file != nil {
+			_ = file.Close()
+		}
+		closeRoots()
+		return nil, nil, nil, nil, err
+	}
+	parentRoot, finalName, closeParent, err := openParentPath(root, name, nameChecks)
+	if err != nil {
+		return fail(err)
+	}
+	closers = append(closers, closeParent)
+	finalInfo, err := parentRoot.Lstat(finalName)
+	if err != nil {
+		return fail(classify(err, NotFile))
+	}
+	finalSymlink := finalInfo.Mode()&os.ModeSymlink != 0
+	openName := finalName
+	openRoot := parentRoot
+	if finalSymlink {
+		openName, err = resolveWorkspaceSymlink(root, name)
+		if err != nil {
+			return fail(err)
+		}
+		openRoot = root
+	}
+	if !finalInfo.Mode().IsRegular() && !finalSymlink {
+		return fail(&Error{Code: NotFile, Message: "workspace path is not a regular file"})
+	}
+	file, err = openRoot.OpenFile(openName, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOCTTY, 0)
+	if err != nil && finalSymlink {
+		return fail(classifyFinalSymlink(err))
+	}
+	if err != nil {
+		return fail(classify(err, NotFile))
+	}
+	info, err = file.Stat()
+	if err != nil {
+		return fail(classify(err, NotFile))
+	}
+	if !info.Mode().IsRegular() {
+		return fail(&Error{Code: NotFile, Message: "workspace path is not a regular file"})
+	}
+	return root, file, info, closeRoots, nil
 }
 
 // LineRangeInput requests complete inclusive lines from a pinned workspace file.

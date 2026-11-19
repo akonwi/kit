@@ -15,7 +15,7 @@ func Catalog() []Descriptor {
 		ListProviders.Describe(), StartProviderLogin.Describe(), GetProviderLogin.Describe(), SubmitProviderLoginAuthorization.Describe(),
 		CancelProviderLogin.Describe(), SetProviderAPIKey.Describe(), DeleteProviderCredentials.Describe(),
 		GetServerSettings.Describe(), UpdateServerSettings.Describe(),
-		GetWorkspace.Describe(), ListWorkspaceDirectory.Describe(), ReadWorkspaceFile.Describe(), ReadHostFile.Describe(), GetSessionFileIndex.Describe(),
+		GetWorkspace.Describe(), ListWorkspaceDirectory.Describe(), ReadWorkspaceFile.Describe(), ReadHostFile.Describe(), DownloadFile.Describe(), CheckFile.Describe(), GetSessionFileIndex.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(), StreamSessionPullRequest.Describe(),
 		RevealView.Describe(), StreamViewReveals.Describe(),
 		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(), AttachClientPlugin.Describe(), DetachClientPlugin.Describe(), CompleteClientPluginCall.Describe(),
