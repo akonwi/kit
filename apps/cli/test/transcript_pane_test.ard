@@ -7,6 +7,7 @@ use cooper/testing as headless
 use cooper/ui
 use go:kit/ffi/sessionbridge
 use kit/tui/attachments
+use kit/tui/comment_regions
 use kit/tui/image_preview
 use kit/tui/theme
 use kit/tui/transcript
@@ -40,6 +41,8 @@ struct Model {
   requested: [Str],
   // Whether the conversation has a turn in progress.
   turn_active: Bool,
+  // Where selected text can be commented on, when the host lets it be.
+  regions: (&mut comment_regions::Regions)?,
 }
 
 // Every message is shown; there is no earlier history.
@@ -142,6 +145,10 @@ impl cui::Component for Host {
           toggle_output: fn(key: Str) {
             self.model.open_output.set(key, not self.model.open_output.get(key).or(false))
           },
+        },
+        comments: match self.model.regions {
+          regions => Maybe::new(transcript_pane::Comments{regions: regions, name: ""}),
+          _ => Maybe::new<transcript_pane::Comments>(),
         },
         load_older: fn() {
           // Like the attachment, an owner already loading ignores requests.
@@ -2777,4 +2784,35 @@ test fn a_provider_rejection_shows_kits_description_and_the_providers_reason() V
     reason.grapheme == "r" and danger,
     "the provider's reason reads as part of the error",
   )
+}
+
+test fn text_selected_in_a_row_is_named_by_what_the_row_shows() Void!Str {
+  let terminal = headless::new(70, 16)
+  defer terminal.destroy()
+  let messages = &mut List::new<transcript::Message>()
+  messages.push(message(transcript::Role::user, "fix the retry", false))
+  messages.push(message(transcript::Role::assistant, "done here", false))
+  messages.push(bash_row("bash_1", "ls", "completed", 0, "a.txt"))
+  for row in tool_run("t1", [transcript::ToolState::completed]) {
+    messages.push(row)
+  }
+  let model = bash_model(messages.*)
+  model.open_work = ["work:t1:t1-call-0": true]
+  model.open_output = ["t1:t1-call-0": true]
+  let regions = comment_regions::new()
+  model.regions = Maybe::new(regions)
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let text = terminal.frame().text()
+  let named = fn(needle: Str) Str {
+    let at = position(text, needle)
+    regions.at(at.at(0).or(0), at.at(1).or(0)).or("none")
+  }
+  try testing::assert(named("fix the retry") == "Your message", "user: {named("fix the retry")}\n{text}")
+  try testing::assert(named("done here") == "Assistant reply", "reply: {named("done here")}")
+  try testing::assert(named("a.txt") == "Shell output · ls", "shell: {named("a.txt")}")
+  try testing::assert(named("two") == "Tool output · Read file src/0.go:1–2", "tool: {named("two")}")
+  // The chip and its tool rows aren't output.
+  testing::assert(named("tool call") == "none", "chip: {named("tool call")}")
 }

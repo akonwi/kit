@@ -7,6 +7,7 @@ use go:kit/ffi/sessionbridge
 use go:kit/ffi/toolpresentation
 use kit/tui/annotations
 use kit/tui/attachments
+use kit/tui/comment_regions
 use kit/tui/controls
 use kit/tui/image_preview
 use kit/tui/layout
@@ -169,6 +170,15 @@ fn work_is_open(work: Work, run: transcript::Work, live: Bool) Bool {
 // Output lines a bash row shows before summarizing the rest.
 let bash_visible_lines = 20
 
+// Where text selected in the transcript can be commented on (ADR 0070).
+struct Comments {
+  regions: &mut comment_regions::Regions,
+  // What every source in it is called, such as a subagent's conversation;
+  // empty names each by its kind: "Your message", "Assistant reply",
+  // "Tool output · …", "Shell output · …".
+  name: Str,
+}
+
 struct Props {
   themes: theme::Context,
   messages: [transcript::Message],
@@ -179,6 +189,8 @@ struct Props {
   plugins: Plugins,
   notes: Notes,
   work: Work,
+  // Where selected text can be commented on; none where it can't.
+  comments: Comments?,
   // Requests the next earlier page. Repeated requests while one is in flight
   // are ignored by the owner.
   load_older: fn(),
@@ -352,6 +364,7 @@ impl Pane {
     let plugins = self.props.plugins
     let notes = self.props.notes
     let work = self.props.work
+    let comments = self.props.comments
     let colors = themes.current()
     self.tail_key = ""
     self.tail_is_reply = false
@@ -410,7 +423,7 @@ impl Pane {
           render_item: fn(entry: Entry) cui::View {
             match entry.status {
               true => self.history_row(),
-              false => transcript_row(themes, images, bash, plugins, notes, work, entry),
+              false => transcript_row(themes, images, bash, plugins, notes, work, comments, entry),
             }
           },
           estimated_height: 4,
@@ -543,6 +556,7 @@ private fn transcript_row(
   plugins: Plugins,
   notes: Notes,
   work: Work,
+  comments: Comments?,
   entry: Entry,
 ) cui::View {
   let bottom = match entry.last {
@@ -550,11 +564,16 @@ private fn transcript_row(
     false => 0,
   }
   let view = match entry.work {
-    run => work_view(themes, images, work, run, entry.last),
+    run => work_view(themes, images, work, run, entry.last, comments: comments),
     _ => entry_view(themes, images, bash, plugins, notes, entry.key, entry.message).or(layout::blank()),
+  }
+  let label = match entry.work.is_some() {
+    true => "",
+    false => comment_label(entry.message),
   }
   cui::box(
     [view],
+    ref: comment_frame(comments, entry.key, label),
     styles: ui::style(
       flex_direction: ui::FlexDirection::column,
       padding: ui::Edges{
@@ -565,6 +584,42 @@ private fn transcript_row(
       },
     ),
   )
+}
+
+// What a comment on text selected in a message names it, or "" where none
+// can be made.
+private fn comment_label(message: transcript::Message) Str {
+  match message.role {
+    transcript::Role::user => "Your message",
+    transcript::Role::assistant => "Assistant reply",
+    transcript::Role::bash => {
+      match message.bash {
+        run => "Shell output · {run.Command}",
+        _ => "",
+      }
+    },
+    _ => "",
+  }
+}
+
+// The ref that registers a box holding text named label as commentable
+// under key, or none where it isn't.
+private fn comment_frame(comments: Comments?, key: Str, label: Str) (&mut cui::BoxRef)? {
+  match comments {
+    shown => {
+      match label == "" {
+        true => Maybe::new<&mut cui::BoxRef>(),
+        false => {
+          let name = match shown.name == "" {
+            true => label,
+            false => shown.name,
+          }
+          Maybe::new(shown.regions.put(key, name))
+        },
+      }
+    },
+    _ => Maybe::new<&mut cui::BoxRef>(),
+  }
 }
 
 // Whether a message has visible transcript content.
@@ -1340,14 +1395,21 @@ private fn bash_outcome(colors: theme::Theme, run: sessionbridge::Bash) Outcome 
 // While closed, a spinner shows the run working.
 // A run of tool calls: its chip or activity, then the images its show_image
 // calls presented, which show whether or not the chip is open.
-fn work_view(themes: theme::Context, images: Images, work: Work, run: transcript::Work, last: Bool) cui::View {
+fn work_view(
+  themes: theme::Context,
+  images: Images,
+  work: Work,
+  run: transcript::Work,
+  last: Bool,
+  comments: Comments?,
+) cui::View {
   let live = work_is_live(work, run, last)
   let shown = shown_images(run)
   match shown.size() == 0 {
-    true => work_activity(themes, work, run, live),
+    true => work_activity(themes, work, run, live, comments: comments),
     false => {
       let views = &mut List::new<cui::View>()
-      views.push(work_activity(themes, work, run, live))
+      views.push(work_activity(themes, work, run, live, comments: comments))
       for image in shown {
         views.push(
           cui::child(
@@ -1457,7 +1519,13 @@ impl cui::Component for ShownImage {
   }
 }
 
-fn work_activity(themes: theme::Context, work: Work, run: transcript::Work, live: Bool) cui::View {
+fn work_activity(
+  themes: theme::Context,
+  work: Work,
+  run: transcript::Work,
+  live: Bool,
+  comments: Comments?,
+) cui::View {
   let colors = themes.current()
   let open = work_is_open(work, run, live)
   let muted = ui::text_style(foreground: colors.muted)
@@ -1540,6 +1608,12 @@ fn work_activity(themes: theme::Context, work: Work, run: transcript::Work, live
               ),
             )
             if work.outputs.get(row).or(false) {
+              let call = step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name))
+              let presented = tool_row::presentation(call, result, work.servers)
+              let named = match presented.Summary == "" {
+                true => presented.Title,
+                false => "{presented.Title} {presented.Summary}",
+              }
               views.push(
                 cui::box(
                   [
@@ -1553,6 +1627,7 @@ fn work_activity(themes: theme::Context, work: Work, run: transcript::Work, live
                     ),
                   ],
                   key: "output",
+                  ref: comment_frame(comments, row, "Tool output · {named}"),
                   styles: ui::style(
                     flex_direction: ui::FlexDirection::column,
                     padding: ui::Edges{

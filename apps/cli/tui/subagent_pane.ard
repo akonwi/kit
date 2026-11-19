@@ -56,6 +56,8 @@ struct Props {
   choose_thinking: fn(),
   cancel: fn(),
   dismiss: fn(),
+  // Where text selected in its transcript can be commented on.
+  comments: transcript_pane::Comments?,
 }
 
 struct Pane {
@@ -739,6 +741,7 @@ impl Pane {
               servers: self.props.servers,
               open_file: self.props.open_file,
             },
+            comments: self.props.comments,
             load_older: fn() {
               self.request(fn() {
                 self.load_older()

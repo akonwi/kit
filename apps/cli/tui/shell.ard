@@ -27,6 +27,7 @@ use kit/tui/auth
 use kit/tui/bootstrap
 use kit/tui/chrome
 use kit/tui/command_palette
+use kit/tui/comment_regions
 use kit/tui/composer
 use kit/tui/controls
 use kit/tui/diagram_comment
@@ -151,6 +152,9 @@ struct SelectionMenu {
   text: Str,
   pointer: ui::Point,
   viewport: ui::Rect,
+  // What a comment on the text names where it was selected, or none where
+  // it can't be commented on.
+  source: Str?,
 }
 
 // The detached placeholder never starts work, so its effects are inert.
@@ -215,6 +219,8 @@ struct Shell {
   selection_menu: SelectionMenu?,
   // The shell surface, measured to fit the selection menu in the viewport.
   surface: &mut cui::BoxRef,
+  // Where selected text can be commented on (ADR 0070).
+  comment_regions: &mut comment_regions::Regions,
   // Owns the client-wide model-catalog refresh.
   models: &mut model_refresh::Refresher,
   // Owns update checks and installs; Shell shows them and relaunches.
@@ -281,6 +287,7 @@ fn new(props: &mut Props) &mut Shell {
     selection_copy_base: ui::rgb(0, 0, 0),
     selection_menu: Maybe::new<SelectionMenu>(),
     surface: cui::box_ref(),
+    comment_regions: comment_regions::new(),
     models: model_refresh::refresher(props.options.Client, notifications),
     updates: updates::updater(props.options.Client, props.options.Server == "" and props.options.View.Kind == ""),
     theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
@@ -695,6 +702,7 @@ impl Shell {
         cui::box(
           [self.scratchpad_view()],
           key: "scratchpad-workspace",
+          ref: self.comment_regions.put("scratchpad", "Scratchpad"),
           styles: ui::style(
             flex_grow: 1.0,
             flex_basis: ui::cells(0),
@@ -969,6 +977,9 @@ impl Shell {
                         self.active_modal = SubagentsModal{confirm: id}
                       })
                     },
+                    comments: Maybe::new(
+                      transcript_pane::Comments{regions: self.comment_regions, name: "Subagent · {tab.label}"},
+                    ),
                   },
                 ),
               ],
@@ -1351,6 +1362,7 @@ impl Shell {
             })
           },
         },
+        comments: Maybe::new(transcript_pane::Comments{regions: self.comment_regions, name: ""}),
         load_older: fn() {
           self.request_older_history()
         },
@@ -1942,31 +1954,22 @@ impl Shell {
     )
   }
 
-  // Where the selected text is, as a comment on it names it, or none where
-  // the selection menu offers no Comment (ADR 0070): while the composer
-  // isn't shown, and in File and Diff tabs, whose lines take annotations.
-  fn comment_source() Str? {
+  // What a comment on text selected from a screen cell names where it was
+  // selected, or none where the selection menu offers no Comment (ADR
+  // 0070): while the composer isn't shown, and outside the transcript's
+  // messages and output, a subagent's, and the scratchpad.
+  fn mut comment_source(x: Int, y: Int) Str? {
     match self.phase == Phase::ready and not self.docked() {
       false => Maybe::new<Str>(),
-      true => {
-        match self.workspace.current() {
-          tab => {
-            match tab.kind {
-              workspace::Kind::scratchpad => Maybe::new("Scratchpad"),
-              workspace::Kind::subagent => Maybe::new("Subagent · {tab.label}"),
-              _ => Maybe::new<Str>(),
-            }
-          },
-          _ => Maybe::new("Transcript"),
-        }
-      },
+      true => self.comment_regions.at(x, y),
     }
   }
 
   // open_selection_menu opens the selection menu at a screen cell when text
   // is selected and no dialog is open, and reports whether it opened.
   fn mut open_selection_menu(ctx: cui::Context, x: Int, y: Int) Bool {
-    let text = match (ctx.current_selection)() {
+    let selected = (ctx.current_selection)()
+    let text = match selected {
       selection => selection_text(selection),
       _ => "",
     }
@@ -1989,6 +1992,10 @@ impl Shell {
             text: text,
             pointer: ui::Point{x: x, y: y},
             viewport: viewport,
+            source: match selected {
+              selection => self.comment_source(selection.anchor.x, selection.anchor.y),
+              _ => Maybe::new<Str>(),
+            },
           },
         )
         true
@@ -1999,7 +2006,7 @@ impl Shell {
   fn mut selection_menu_layer(menu: SelectionMenu) cui::View {
     let items = &mut List::new<selection_menu::Item>()
     items.push(selection_menu::Item{key: "copy", label: "Copy"})
-    if self.comment_source().is_some() {
+    if menu.source.is_some() {
       items.push(selection_menu::Item{key: "comment", label: "Comment"})
     }
     selection_menu::view(
@@ -2009,7 +2016,7 @@ impl Shell {
         pointer: menu.pointer,
         viewport: menu.viewport,
         activate: fn(action: Str) {
-          self.choose_selection_action(action, menu.text)
+          self.choose_selection_action(action, menu.text, menu.source)
         },
         dismiss: fn() {
           self.close_selection_menu()
@@ -2021,7 +2028,7 @@ impl Shell {
     )
   }
 
-  private fn mut choose_selection_action(action: Str, text: Str) {
+  private fn mut choose_selection_action(action: Str, text: Str, source: Str?) {
     match self.context {
       ctx => {
         let _ = ctx.dispatch(fn() {
@@ -2029,8 +2036,8 @@ impl Shell {
           if action == "copy" {
             self.copy_selection(ctx, text)
             self.restore_focus(ctx)
-          } else if action == "comment" and self.comment_source().is_some() and self.modal_closed() {
-            self.active_modal = text_comment::Request{quote: text, source: self.comment_source().expect("a source")}
+          } else if action == "comment" and source.is_some() and self.modal_closed() and (not self.docked()) {
+            self.active_modal = text_comment::Request{quote: text, source: source.expect("a source")}
           }
         })
       },
@@ -3528,7 +3535,7 @@ test fn a_secondary_click_on_selected_text_opens_the_selection_menu() Void!Str {
   terminal.flush()
   open_menu_on_draft(terminal)
   // The composer's last row leaves no room below, so the menu opens upward
-  // and ends above the clicked row.
+  // and ends above the clicked row. A draft's words can't be commented on.
   expect_shell_rows(
     shell_rows(terminal),
     [
@@ -3539,9 +3546,9 @@ test fn a_secondary_click_on_selected_text_opens_the_selection_menu() Void!Str {
       "                  k i t",
       "               ━━━━━━━━━━━",
       "",
-      "     Ask ┌────────────┐give a task.",
+      "     Ask a question or give a task.",
+      "         ┌────────────┐",
       "         │ Copy       │",
-      "         │ Comment    │",
       "─────────└────────────┘─────────────────",
       " hello world",
       "────────────────────────────────────────",
@@ -3586,7 +3593,7 @@ test fn comment_on_selected_transcript_text_waits_as_a_chip() Void!Str {
   terminal.flush()
   try testing::assert(
     match subject.active_modal {
-      text_comment::Request(request) => request.quote == "retries" and request.source == "Transcript",
+      text_comment::Request(request) => request.quote == "retries" and request.source == "Assistant reply",
       _ => false,
     },
     "Comment opens the comment box on the words:\n{strings::Join(shell_rows(terminal), "\n")}",
@@ -3611,7 +3618,7 @@ test fn a_sent_message_counts_its_comments_on_selected_text_until_opened() Void!
     [],
     1,
     "Back off.",
-    "Transcript",
+    "Assistant reply",
     "every 2 seconds",
   ).expect("a comment")
   let sent = &mut transcript::message("sent", "turn-1", transcript::Role::user)
@@ -3647,7 +3654,7 @@ test fn a_sent_message_counts_its_comments_on_selected_text_until_opened() Void!
     [
       "   🗨️ 1 comment ▾",
       "",
-      "   ▎ Transcript",
+      "   ▎ Assistant reply",
       "   ▎   every 2 seconds",
       "   ▎ Back off.",
     ],

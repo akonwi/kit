@@ -1,0 +1,110 @@
+use ard/testing
+
+use cooper/cui
+use cooper/ui
+
+// Where selected text can be commented on (ADR 0070), and what a comment
+// names it: "Assistant reply", "Your message", "Tool output · …",
+// "Shell output · …", "Scratchpad". Views register the boxes that hold such
+// text as they render; the selection menu offers Comment only for a
+// selection that starts in one, and names it by the innermost. Text
+// elsewhere, such as the composer, chrome, or a file or diff whose lines
+// take annotations, has none.
+
+// One registered box and what text selected in it is named.
+struct Region {
+  label: Str,
+  frame: &mut cui::BoxRef,
+}
+
+// A placed region, as the lookup sees it.
+struct Placed {
+  label: Str,
+  rect: ui::Rect,
+}
+
+// Regions is the registry of one shell's commentable boxes. A box that
+// unmounts drops out of lookups; registering a key again replaces it.
+struct Regions {
+  entries: [Str: Region],
+}
+
+fn new() &mut Regions {
+  &mut Regions{entries: [:]}
+}
+
+impl Regions {
+  // Registers the box frame binds to under key, naming its text label, and
+  // returns frame for the box.
+  fn mut put(key: Str, label: Str) &mut cui::BoxRef {
+    let frame = cui::box_ref()
+    self.entries.set(key, Region{label: label, frame: frame})
+    frame
+  }
+
+  // What text selected at a screen cell is named, or none where it can't be
+  // commented on. Boxes no longer mounted are forgotten.
+  fn mut at(x: Int, y: Int) Str? {
+    let placed = &mut List::new<Placed>()
+    for key in self.entries.keys() {
+      match self.entries.get(key) {
+        region => {
+          match region.frame.current {
+            frame => placed.push(Placed{label: region.label, rect: frame.layout().screen}),
+            _ => self.entries.delete(key),
+          }
+        },
+        _ => (),
+      }
+    }
+    innermost(placed.*, x, y)
+  }
+}
+
+// The label of the smallest region holding a screen cell, or none.
+fn innermost(regions: [Placed], x: Int, y: Int) Str? {
+  mut found = Maybe::new<Str>()
+  mut area = 0
+  for region in regions {
+    let rect = region.rect
+    let inside = x >= rect.x and x < rect.x + rect.width and y >= rect.y and y < rect.y + rect.height
+    let size = rect.width * rect.height
+    let smaller = match found.is_some() {
+      true => size < area,
+      false => true,
+    }
+    if inside and smaller {
+      found = Maybe::new(region.label)
+      area = size
+    }
+  }
+  found
+}
+
+test fn a_selection_is_named_by_the_innermost_region_holding_it() Void!Str {
+  let regions = [
+    Placed{label: "Scratchpad", rect: ui::Rect{
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 20,
+    }},
+    Placed{
+      label: "Tool output · Run go test",
+      rect: ui::Rect{
+        x: 2,
+        y: 4,
+        width: 70,
+        height: 6,
+      },
+    },
+  ]
+  try testing::assert(
+    innermost(regions, 5, 5) == Maybe::new("Tool output · Run go test"),
+    "inner region",
+  )
+  try testing::assert(innermost(regions, 5, 12) == Maybe::new("Scratchpad"), "outer region")
+  try testing::assert(innermost(regions, 5, 25) == Maybe::new<Str>(), "outside every region")
+  try testing::assert(innermost(regions, 72, 5) == Maybe::new("Scratchpad"), "right edge is outside")
+  Result::ok(())
+}
