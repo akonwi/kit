@@ -3,6 +3,7 @@ package workspace
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -818,7 +819,7 @@ func readPreview(ctx context.Context, r io.Reader, maxBytes, maxLines int) ([]by
 			return nil, "", classify(err, NotFile)
 		}
 	}
-	if strings.IndexByte(string(data), 0) >= 0 {
+	if bytes.IndexByte(data, 0) >= 0 {
 		return nil, "", &Error{Code: BinaryFile, Message: "binary files cannot be previewed"}
 	}
 	reason := ""
@@ -849,7 +850,7 @@ func readPreview(ctx context.Context, r io.Reader, maxBytes, maxLines int) ([]by
 	if lineCount(data) > maxLines {
 		idx := 0
 		for n := 0; n < maxLines; n++ {
-			next := strings.IndexByte(string(data[idx:]), '\n')
+			next := bytes.IndexByte(data[idx:], '\n')
 			if next < 0 {
 				break
 			}
@@ -864,7 +865,7 @@ func lineCount(b []byte) int {
 	if len(b) == 0 {
 		return 0
 	}
-	n := strings.Count(string(b), "\n")
+	n := bytes.Count(b, []byte{'\n'})
 	if b[len(b)-1] != '\n' {
 		n++
 	}

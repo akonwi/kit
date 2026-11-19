@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -367,5 +368,27 @@ func TestReadLineRangeTerminatesEverySelectedLine(t *testing.T) {
 				t.Fatalf("range = %+v, %v; want %q", read, err, test.content)
 			}
 		})
+	}
+}
+
+// A line-limited preview must not copy the rest of the buffer once per line,
+// which made a 1 MB source file cost gigabytes of allocation.
+func TestReadPreviewLineLimitAllocatesLinearly(t *testing.T) {
+	line := strings.Repeat("x", 33) + "\n"
+	source := []byte(strings.Repeat(line, protocol.MaxWorkspacePreviewBytes/len(line)))
+	var data []byte
+	var reason string
+	allocations := testing.AllocsPerRun(5, func() {
+		var err error
+		data, reason, err = readPreview(context.Background(), bytes.NewReader(source), protocol.MaxWorkspacePreviewBytes, protocol.MaxWorkspacePreviewLines)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	if reason != "line_limit" || len(data) != protocol.MaxWorkspacePreviewLines*len(line) {
+		t.Fatalf("preview = %d bytes, reason %q; want %d bytes, line_limit", len(data), reason, protocol.MaxWorkspacePreviewLines*len(line))
+	}
+	if allocations > 64 {
+		t.Fatalf("line-limited preview made %.0f allocations; want at most 64", allocations)
 	}
 }
