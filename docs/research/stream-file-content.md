@@ -124,3 +124,80 @@ stat operation considered earlier.
 | Compatibility | Additive. Existing operations stay. No protocol bump. |
 | readPreview fix | Done first, separately (`6e38fa09`) |
 | Hard ceiling for files that misreport their size | None. The ADR records why. |
+
+## Pierre's diffs, highlights, and trees
+
+The user pointed to [diffs.com/words](https://diffs.com/words) as the
+inspiration for this work. Its source is the Apache-2.0 monorepo
+[pierrecomputer/pierre](https://github.com/pierrecomputer/pierre), checked at
+`b049b9e`. The packages that matter for files:
+
+- **`@pierre/highlights` 0.5.1.** A highlighter written in WebAssembly Text
+  that covers 152 languages. Ard isn't one of them. Its lexers keep
+  per-line state instead of building a syntax tree. That allows a
+  `StreamTokenizer`, a `TransformStream<Uint8Array, ThemedToken[]>` that
+  takes raw UTF-8 byte chunks, buffers a split character, and returns tokens
+  for each completed line. The Wasm module is 303 KB (144 KB gzipped).
+- **`@pierre/diffs` 1.6.4.** File and diff views. `FileStream` renders a
+  `ReadableStream<string>` as it arrives. Completed lines are final; the
+  unfinished last line is provisional and can be recalled when more text
+  arrives. `FileStream` appends every line to the DOM, with no
+  virtualization. `CodeView` and `VirtualizedFile` virtualize per line, and
+  their docs say they "should scale to nearly any file … that can fit in
+  memory". They support line annotations, selection, and `scrollTo` a line.
+- **`@pierre/trees` 1.0.0.** A virtualized file tree. Its guidance is to
+  prepare and presort the path list on the server and send it whole, rather
+  than have the client build the tree.
+
+### Measured
+
+Bun 1.4 on this Mac, a Go file built from repeated
+`internal/workspace/service.go`, `pierreDark` theme, 64 KiB chunks:
+
+| Size | Whole file (`codeToTokens`) | Streamed (`StreamTokenizer`) | First lines | Throughput |
+| ---: | ---: | ---: | ---: | ---: |
+| 166 KiB | 6–17 ms | 2.5–3.4 ms | 1–1.6 ms | 48–65 MiB/s |
+| 1 MiB | 14–16 ms | 9–10 ms | 0.7 ms | ~105 MiB/s |
+| 4 MiB | 39–42 ms | 31–33 ms | 0.6 ms | ~125 MiB/s |
+
+For comparison, Kit's server highlighter took 60–160 ms for 100–170 KB (see
+[Measurements](#measurements)). It stops at 512 KiB and has a 750 ms timeout,
+because Tree-sitter parses the whole file.
+
+### What it teaches
+
+- **Raw bytes are the right wire shape for the web, too.** A browser can pipe
+  `fetch(url).body` straight into `StreamTokenizer`, or through
+  `TextDecoderStream` into `FileStream`. Framing such as JSON or SSE would
+  only have to be stripped off again. That supports ADR 0074's raw download.
+- **Highlighting can stream if the highlighter keeps line state.** A
+  Tree-sitter parse needs the whole file, which is why server highlighting
+  stays off the download. A line-state lexer colors each line as it arrives,
+  at about 100 MiB/s. A client that streams should therefore highlight on
+  the client.
+- **Show the first screen early, then virtualize.** `FileStream` renders as
+  bytes arrive but keeps every line in the DOM. `CodeView` virtualizes but
+  needs the whole text. A large-file view can stream the first screen, then
+  hand the completed download to a virtualized view.
+- **Line annotations survive virtualization.** `CodeView`'s line annotations
+  correspond to Kit's file comments, which are anchored to a revision and
+  line range.
+- **Trees prefer a whole, presorted path list.** This argues for the server's
+  file index over paginated directory pages for large trees. Directories are
+  out of scope here.
+
+### Costs of adopting it in the web client
+
+- **Content Security Policy.** The browser build compiles Wasm from embedded
+  bytes. The web client's CSP (`internal/webui/webui.go`) has
+  `script-src 'self'` with no `'wasm-unsafe-eval'`, so the Wasm can't load
+  until the CSP allows it. ADR 0062 chose server highlighting to avoid exactly
+  this. `@pierre/diffs` also injects theme `<style>` elements into shadow
+  roots, which `style-src 'self'` may block. That needs a spike in a real
+  browser.
+- **Ard.** `@pierre/highlights` has no Ard lexer, so Ard files would show
+  plain. ADR 0062 lists Ard highlighting as a gain of server highlighting.
+- **Framework.** The web client is SolidJS. `@pierre/diffs` ships vanilla
+  classes and web components besides React, so it can be mounted from Solid
+  without React.
+- **Size.** About 144 KB gzipped of Wasm, plus the view code.
