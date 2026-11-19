@@ -335,6 +335,26 @@ func decodeLifecycleEvent(event StoredEvent, conversationID ConversationID) (Eve
 		return EventEnvelope{}, fmt.Errorf("droids: decode event %d: %w", event.Sequence, err)
 	}
 	var decoded Event = LifecycleEvent{Kind: event.Kind, Data: append(json.RawMessage(nil), payload.Data...)}
+	switch event.Kind {
+	case "interaction.requested":
+		var data struct {
+			Interaction durableInteraction `json:"interaction"`
+		}
+		if err := json.Unmarshal(payload.Data, &data); err != nil || data.Interaction.ID == "" {
+			return EventEnvelope{}, fmt.Errorf("droids: decode interaction event %d", event.Sequence)
+		}
+		decoded = InteractionRequested{Interaction: data.Interaction.public()}
+	case "interaction.settled":
+		var data struct {
+			ID         InteractionID `json:"interaction_id"`
+			ToolCallID ToolCallID    `json:"tool_call_id"`
+			Settlement Settlement    `json:"settlement"`
+		}
+		if err := json.Unmarshal(payload.Data, &data); err != nil || data.ID == "" {
+			return EventEnvelope{}, fmt.Errorf("droids: decode interaction event %d", event.Sequence)
+		}
+		decoded = InteractionSettled{ID: data.ID, TurnID: payload.TurnID, ToolCallID: data.ToolCallID, Settlement: data.Settlement}
+	}
 	if event.Kind == "usage.updated" {
 		var data struct {
 			SessionUsage SessionUsage `json:"session_usage"`

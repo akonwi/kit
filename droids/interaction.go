@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -384,8 +385,7 @@ func (rt *sdkRuntime) requestInteractionLocked(ctx context.Context, interaction 
 	}
 	rt.state.Interactions = append(rt.state.Interactions, interaction.ID)
 	event, _ := lifecycleEvent("interaction.requested", interaction.TurnID, rt.state.AttemptID, map[string]any{
-		"interaction_id": interaction.ID, "tool_call_id": interaction.ToolCallID,
-		"live": interaction.Live, "kind": interaction.Question.Kind,
+		"interaction_id": interaction.ID, "interaction": interaction,
 	})
 	if err := rt.commitLocked(ctx, append([]EncodedMutation{mutation}, extra...), []EncodedDurableEvent{event}); err != nil {
 		rt.state = before
@@ -473,6 +473,7 @@ func (rt *sdkRuntime) settleInteractionMutationsLocked(settlements map[Interacti
 		}
 		event, _ := lifecycleEvent("interaction.settled", interaction.TurnID, rt.state.AttemptID, map[string]any{
 			"interaction_id": id, "tool_call_id": interaction.ToolCallID, "status": settlement.Status,
+			"settlement": settlement,
 		})
 		events = append(events, event)
 	}
@@ -795,11 +796,17 @@ func hasOption(options []Option, id string) bool {
 	return slices.ContainsFunc(options, func(option Option) bool { return option.ID == id })
 }
 
-// boundedText accepts valid UTF-8 without NUL bytes of at most maximum bytes,
-// and, when required, with visible content.
+// boundedText accepts valid UTF-8 of at most maximum bytes without control
+// characters other than newline and tab, and, when required, with visible
+// content.
 func boundedText(value string, maximum int, required bool) bool {
-	if len(value) > maximum || !utf8.ValidString(value) || strings.IndexByte(value, 0) >= 0 {
+	if len(value) > maximum || !utf8.ValidString(value) {
 		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) && character != '\n' && character != '\t' {
+			return false
+		}
 	}
 	return !required || strings.TrimSpace(value) != ""
 }

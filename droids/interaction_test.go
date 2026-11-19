@@ -544,3 +544,68 @@ func TestABeforeToolHookDecidesBeforeTheToolsConfirmationAndCanAsk(t *testing.T)
 		t.Fatalf("runs = %d, results = %v", runs.Load(), results)
 	}
 }
+
+func TestInteractionEventsCarryTheQuestionAndItsSettlement(t *testing.T) {
+	providers := newInteractionProviders(callTools(toolCall("call_1", "danger", `{"target":"prod"}`)))
+	var runs atomic.Int32
+	droid := spawnInteractionDroid(t, "interaction_events", droids.NewMemoryStore(), providers,
+		countingTool("danger", &runs, func(tool *droids.Tool[dangerArgs]) { tool.RequireConfirmation = true }))
+	subscription, err := droid.Subscribe(t.Context(), droids.SubscribeOptions{Buffer: 256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subscription.Close()
+	handle, err := droid.Prompt(t.Context(), textInput("go"), droids.PromptOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := waitPending(t, droid, 1)
+	if err := droid.Respond(t.Context(), pending[0].ID, droids.Answer{Confirmed: no()}); err != nil {
+		t.Fatal(err)
+	}
+	settle(t, handle)
+	var requested *droids.InteractionRequested
+	var settled *droids.InteractionSettled
+	timeout := time.After(5 * time.Second)
+	for requested == nil || settled == nil {
+		select {
+		case envelope := <-subscription.Events():
+			switch event := envelope.Event.(type) {
+			case droids.InteractionRequested:
+				requested = &event
+			case droids.InteractionSettled:
+				settled = &event
+			}
+		case <-timeout:
+			t.Fatal("interaction events did not arrive")
+		}
+	}
+	if requested.Interaction.ID != pending[0].ID || requested.Interaction.Question.Title != "Allow danger?" || requested.Interaction.TurnID != handle.TurnID() {
+		t.Fatalf("requested = %+v", requested.Interaction)
+	}
+	if settled.ID != pending[0].ID || settled.TurnID != handle.TurnID() || settled.ToolCallID != pending[0].ToolCallID ||
+		settled.Settlement.Status != droids.InteractionAnswered || *settled.Settlement.Answer.Confirmed {
+		t.Fatalf("settled = %+v", settled)
+	}
+}
+
+func TestShuttingDownEndsTheWaitForAWaitingTurn(t *testing.T) {
+	providers := newInteractionProviders(callTools(toolCall("call_1", "danger", `{"target":"prod"}`)))
+	var runs atomic.Int32
+	droid := spawnInteractionDroid(t, "confirm_shutdown", droids.NewMemoryStore(), providers,
+		countingTool("danger", &runs, func(tool *droids.Tool[dangerArgs]) { tool.RequireConfirmation = true }))
+	handle, err := droid.Prompt(t.Context(), textInput("go"), droids.PromptOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the turn waits", func() bool { return activeStatus(t, droid) == droids.ExecutionWaiting })
+	if err := droid.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	outcome, err := handle.Wait(ctx)
+	if !errors.Is(err, droids.ErrClosed) || outcome.Status != droids.ExecutionWaiting {
+		t.Fatalf("Wait after shutdown = %+v, %v; want the waiting state and ErrClosed", outcome, err)
+	}
+}

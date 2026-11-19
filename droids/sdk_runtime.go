@@ -1357,6 +1357,13 @@ func (rt *sdkRuntime) finishShutdown(d *Droid, cancel, resumeCancel, contextCanc
 		}
 		<-changed
 	}
+	// A waiting turn stays waiting for the next Spawn, but nothing here can
+	// continue it: its handle ends with the turn's state and ErrClosed.
+	rt.mu.Lock()
+	if rt.handle != nil && rt.state.Status == ExecutionWaiting && rt.handle.turnID == rt.state.TurnID {
+		rt.handle.completeWithError(outcomeFromState(rt.conversation, rt.state), ErrClosed)
+	}
+	rt.mu.Unlock()
 	rt.subsMu.Lock()
 	subs := make([]*sdkSubscription, 0, len(rt.subs))
 	for sub := range rt.subs {

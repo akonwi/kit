@@ -32,6 +32,22 @@ type UsageUpdated struct {
 
 func (UsageUpdated) isEvent() {}
 
+// InteractionRequested announces a pending interaction.
+type InteractionRequested struct{ Interaction Interaction }
+
+func (InteractionRequested) isEvent() {}
+
+// InteractionSettled announces how a pending interaction was settled.
+// TurnID and ToolCallID are empty for one asked outside any turn.
+type InteractionSettled struct {
+	ID         InteractionID
+	TurnID     TurnID
+	ToolCallID ToolCallID
+	Settlement Settlement
+}
+
+func (InteractionSettled) isEvent() {}
+
 // ToolExecutionStart is emitted before a tool runs.
 type ToolExecutionStart struct {
 	ToolCallID ToolCallID
