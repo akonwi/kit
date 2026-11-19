@@ -74,17 +74,26 @@ func droidInteractionResolution(settlement droids.Settlement) string {
 	}
 }
 
-// droidAnswer converts a validated client response to the droid's answer.
-func droidAnswer(response InteractionResponse) droids.Answer {
+// droidAnswer converts a validated client response to the droid's answer,
+// carrying only the field that answers a question of kind.
+func droidAnswer(kind InteractionKind, response InteractionResponse) droids.Answer {
 	response = cloneInteractionResponse(response)
-	answer := droids.Answer{Declined: response.Cancelled, Confirmed: response.Confirmed, Value: response.Value, OptionID: response.SelectedOptionID}
-	if response.Answers != nil {
-		answer.Answers = make(map[string]droids.GuidedAnswer, len(response.Answers))
-		for id, guided := range response.Answers {
-			answer.Answers[id] = droids.GuidedAnswer{Text: guided.Text, Boolean: guided.Boolean, OptionIDs: guided.OptionIDs, Skipped: guided.Skipped}
-		}
+	if response.Cancelled {
+		return droids.Answer{Declined: true}
 	}
-	return answer
+	switch kind {
+	case InteractionConfirm:
+		return droids.Answer{Confirmed: response.Confirmed}
+	case InteractionInput, InteractionAuthorize:
+		return droids.Answer{Value: response.Value}
+	case InteractionSelect:
+		return droids.Answer{OptionID: response.SelectedOptionID}
+	}
+	answers := make(map[string]droids.GuidedAnswer, len(response.Answers))
+	for id, guided := range response.Answers {
+		answers[id] = droids.GuidedAnswer{Text: guided.Text, Boolean: guided.Boolean, OptionIDs: guided.OptionIDs, Skipped: guided.Skipped}
+	}
+	return droids.Answer{Answers: answers}
 }
 
 // pendingInteractions merges the broker's pending requests with the droid's,
@@ -109,10 +118,11 @@ func (m *Manager) respondDroidInteraction(ctx context.Context, loaded *runtime, 
 	if index < 0 {
 		return loaded.interactions.notPending(response.RequestID)
 	}
-	if err := validateInteractionResponse(projectDroidInteraction(sessionID, pending[index]), response); err != nil {
+	request := projectDroidInteraction(sessionID, pending[index])
+	if err := validateInteractionResponse(request, response); err != nil {
 		return err
 	}
-	err = loaded.droid.Respond(ctx, pending[index].ID, droidAnswer(response))
+	err = loaded.droid.Respond(ctx, pending[index].ID, droidAnswer(request.Kind, response))
 	switch {
 	case err == nil:
 		// Remember now rather than when the drain reaches the settlement, so
