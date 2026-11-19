@@ -281,8 +281,14 @@ tmux, or another native terminal workflow.
 - Selecting a conversation from the picker, Agent activity, a notification, or
   another explicit entry point creates or activates one retained workspace tab
   for that durable conversation.
-- Starting or activating background subagent work does not automatically create
-  a tab, change tab order, or steal focus.
+- In the macOS app, a subagent conversation that starts while its session is
+  attached opens a background tab at the end of the Agent tab's tile, once:
+  it isn't selected, doesn't take focus, and doesn't end a zoom, and a tab the
+  user closes stays closed for that conversation. Conversations already
+  started when the session attaches open only when asked. A conversation that
+  ends, wherever it was dismissed, closes its tab. Other clients don't create
+  tabs for background subagent work, and no client reorders tabs or steals
+  focus for it.
 - Individual subagent tabs show that conversation's activity. Reopening the same
   conversation focuses the existing tab rather than duplicating it.
 
@@ -310,7 +316,7 @@ Do not store JSX, components, or callbacks in pane descriptors. Identity reflect
 - The composer remains fixed and available beneath every selected tab of the client showing the whole session (single views have none; see below). `Tab` and `Shift+Tab` move focus between the selected Agent/workspace content and composer; active modal or interaction layers trap those focus intents locally.
 - Directory browsing uses the modal workspace file picker, not a retained Explorer tab. Opening a file creates or selects its File tab.
 - Annotations render inline at their anchored lines or ranges and project immediately as synchronized structured chips above the fixed composer on every tab. Activating a chip reveals its resource and anchor. Review is a target-scoped workflow over annotations across File and Diff tabs, not a Review tab; target, changed-file, draft-summary, and submission flows use bounded modals.
-- The subagent roster uses a modal status picker. Only explicitly opened durable conversations become retained tabs.
+- The subagent roster uses a modal status picker. Only explicitly opened durable conversations, and on macOS those started while the session is attached, become retained tabs.
 - Pane bodies must not add another outer edge border.
 - The tab owns the pane title.
 - Use `WorkspacePanelLayout` for the shared optional-header/body/footer structure.

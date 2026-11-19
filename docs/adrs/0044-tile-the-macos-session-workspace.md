@@ -53,6 +53,10 @@ number of tiles beyond what the window can usefully show.
 
 - New panes open as a tab in the focused tile. Opening a pane whose identity is
   already open focuses that pane instead of opening another.
+- A subagent conversation that starts while the session is attached opens as a
+  background tab at the end of the Agent tab's tile, once. It doesn't take
+  focus, change the selected tab, or end a zoom, and a tab the user closes
+  stays closed for that conversation. A conversation that ends closes its tab.
 - Dragging a tab onto another tile's center or tab strip moves it into that
   tile. Dropping it near an edge splits the target tile on that side and moves
   the tab into the new tile. Closing the last tab of a tile removes the tile,

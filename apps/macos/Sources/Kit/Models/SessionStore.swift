@@ -591,7 +591,21 @@ final class SessionStore {
             self?.operationsBySession[session.id]?.reconcile(session)
             self?.reconcileInteractions(session)
             self?.openRequestedURLs(session)
+            self?.reconcileSubagentTabs(session)
         }
+    }
+
+    /// Each session's subagent tabs, by session, as its roster last stood.
+    @ObservationIgnored private var subagentTabs: [String: SubagentTabs] = [:]
+
+    /// Opens the tab of each subagent that started in the shown session, in
+    /// the background of the Agent tab's tile, and closes the tabs of those
+    /// whose conversations ended.
+    private func reconcileSubagentTabs(_ session: SessionExcerpt) {
+        guard !isDemo, replica.delivered, session.id == selectedID, let roster = session.subagents else { return }
+        let changes = subagentTabs[session.id, default: SubagentTabs()].reconcile(roster)
+        for name in changes.close { ui.workspace.close(.agent(name)) }
+        for name in changes.open { ui.workspace.openInBackground(.agent(name), inTileOf: .conversation) }
     }
 
     /// Opens a browser tab for each open_url call the shown session

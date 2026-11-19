@@ -272,6 +272,18 @@ final class WorkspaceState {
         }
     }
 
+    /// Adds a pane as the last tab of `anchor`'s tile without selecting it,
+    /// moving focus, or ending a zoom, as when a subagent starts. A pane that
+    /// is already open stays as it is.
+    func openInBackground(_ pane: WorkspacePane, inTileOf anchor: WorkspacePane) {
+        if case .browser(let id) = pane, browsers[id] == nil { return }
+        if case .terminal(let id) = pane, terminals[id] == nil { return }
+        if case .diagram(let id) = pane, diagrams[id] == nil { return }
+        guard !panes.contains(pane), let home = tile(containing: anchor) else { return }
+        panes.append(pane)
+        tiles[home]?.panes.append(pane)
+    }
+
     /// Opens a file the diff shows, by its workspace path, in its tab beside
     /// the Diff pane, keeping the diff in view; an open tab is selected
     /// where it is.
