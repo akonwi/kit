@@ -37,8 +37,13 @@ private actor RosterClient: SessionClient {
     /// An agent's state: its conversation, if started, and its status.
     private typealias Agent = (name: String, conversation: String?, status: String)
 
-    private func excerpt(_ title: String, _ agents: [Agent]) -> SessionExcerpt {
-        var value = SessionExcerpt(id: "s", title: title, sourceTitle: "test", model: "m", thinking: "off", workspace: "tmp", date: "", messages: [])
+    /// A session whose main transcript started `started`, in that order.
+    private func excerpt(_ title: String, _ agents: [Agent], started: [String] = []) -> SessionExcerpt {
+        let starts = started.isEmpty ? [] : [TranscriptMessage(id: "tools", role: "tools", text: "", tools: started.map {
+            ToolActivity(id: "call-" + $0, name: "subagent", summary: "", output: "",
+                         arguments: #"{"action":"start","agent":"\#($0)"}"#, failed: false)
+        })]
+        var value = SessionExcerpt(id: "s", title: title, sourceTitle: "test", model: "m", thinking: "off", workspace: "tmp", date: "", messages: starts)
         value.subagents = SubagentRoster(items: agents.map {
             SubagentRoster.Item(name: $0.name, description: "", model: "m", status: $0.status,
                                 conversationID: $0.conversation, updatedAt: nil, generation: $0.conversation == nil ? nil : 1)
@@ -167,27 +172,58 @@ private actor RosterClient: SessionClient {
             ("reviewer", nil, "inactive"), ("helper", nil, "inactive"), ("builder", nil, "inactive"),
         ]))
         try await deliver(excerpt("Started", [
-            ("reviewer", "c1", "running"), ("helper", "c2", "running"), ("builder", nil, "inactive"),
-        ]), to: client, store)
-        #expect(panes(store) == [.conversation, .agent("helper"), .agent("reviewer")])
+            ("reviewer", "c1", "running"), ("helper", nil, "inactive"), ("builder", nil, "inactive"),
+        ], started: ["reviewer"]), to: client, store)
+        #expect(panes(store) == [.conversation, .agent("reviewer")])
         store.ui.workspace.close(.agent("reviewer"))
-        #expect(panes(store) == [.conversation, .agent("helper")])
+        #expect(panes(store) == [.conversation])
 
-        // While the connection is down, builder starts.
+        // While the connection is down, builder starts, then helper.
         await client.drop(returning: excerpt("Reconnected", [
-            ("reviewer", "c1", "idle"), ("helper", "c2", "idle"), ("builder", "c3", "running"),
-        ]))
+            ("reviewer", "c1", "idle"), ("helper", "c2", "running"), ("builder", "c3", "running"),
+        ], started: ["reviewer", "builder", "helper"]))
         try await eventually { store.selected?.title == "Reconnected" }
         #expect(await client.watches == 2)
-        #expect(panes(store) == [.conversation, .agent("helper"), .agent("builder")])
+        #expect(panes(store) == [.conversation, .agent("builder"), .agent("helper")])
         #expect(store.ui.workspace.selected == .conversation)
 
         // While it's down again, helper is dismissed.
         await client.drop(returning: excerpt("Reconnected again", [
             ("reviewer", "c1", "idle"), ("helper", nil, "inactive"), ("builder", "c3", "idle"),
-        ]))
+        ], started: ["reviewer", "builder", "helper"]))
         try await eventually { store.selected?.title == "Reconnected again" }
         #expect(panes(store) == [.conversation, .agent("builder")])
+        store.detach()
+    }
+
+    @Test func agentsStartedTogetherOpenInStartOrderThenByName() async throws {
+        let (store, client) = try await attached(excerpt("Attached", [
+            ("alpha", nil, "inactive"), ("beta", nil, "inactive"), ("gamma", nil, "inactive"), ("delta", nil, "inactive"),
+        ]))
+        // gamma and alpha were started by the main agent; delta and beta by
+        // other means, so the transcript doesn't order them.
+        try await deliver(excerpt("All started", [
+            ("alpha", "c1", "running"), ("beta", "c2", "running"), ("gamma", "c3", "running"), ("delta", "c4", "running"),
+        ], started: ["gamma", "alpha"]), to: client, store)
+        #expect(panes(store) == [.conversation, .agent("gamma"), .agent("alpha"), .agent("beta"), .agent("delta")])
+        #expect(store.ui.workspace.selected == .conversation)
+        store.detach()
+    }
+
+    @Test func aRestoredTabWhoseConversationEndedMeanwhileCloses() async throws {
+        // Last time, reviewer's and helper's tabs were open beside Agent's,
+        // with helper's selected; helper was dismissed while the app was quit.
+        let saved = TileArrangement(root: .split(.init(axis: .horizontal, ratio: 0.5,
+            first: .tile(.init(panes: ["conversation"], selected: "conversation")),
+            second: .tile(.init(panes: ["agent:reviewer", "agent:helper"], selected: "agent:helper")))),
+            focused: 1, zoomed: false)
+        let (store, _) = try await attached(excerpt("Attached", [
+            ("reviewer", "c1", "idle"), ("helper", nil, "inactive"),
+        ]), arrangement: saved)
+        let workspace = store.ui.workspace
+        #expect(panes(store) == [.conversation])
+        #expect(panes(store, tileOf: .agent("reviewer")) == [.agent("reviewer")])
+        #expect(workspace.selected == .agent("reviewer"))
         store.detach()
     }
 

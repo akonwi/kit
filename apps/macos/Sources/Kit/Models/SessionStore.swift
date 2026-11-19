@@ -600,10 +600,15 @@ final class SessionStore {
 
     /// Opens the tab of each subagent that started in the shown session, in
     /// the background of the Agent tab's tile, and closes the tabs of those
-    /// whose conversations ended.
+    /// whose conversations ended, including restored tabs of agents whose
+    /// conversations ended before the session attached.
     private func reconcileSubagentTabs(_ session: SessionExcerpt) {
         guard !isDemo, replica.delivered, session.id == selectedID, let roster = session.subagents else { return }
-        let changes = subagentTabs[session.id, default: SubagentTabs()].reconcile(roster)
+        let open = ui.workspace.panes.compactMap { pane -> String? in
+            if case .agent(let name) = pane { return name }
+            return nil
+        }
+        let changes = subagentTabs[session.id, default: SubagentTabs()].reconcile(roster, messages: session.messages, open: open)
         for name in changes.close { ui.workspace.close(.agent(name)) }
         for name in changes.open { ui.workspace.openInBackground(.agent(name), inTileOf: .conversation) }
     }
