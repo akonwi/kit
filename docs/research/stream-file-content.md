@@ -91,15 +91,21 @@ Other relevant facts:
 
 ## The macOS editor with large files
 
-A partial, abandoned test opened a generated Go file in the file pane's
-editor configuration (`TextViewController`, 1200×800 window, Debug build).
-A 1 MB file (30,784 lines) took 10–12 s to first paint, with or without
-highlighting. After that, jumping to the middle or end took about 50 ms. A
-5 MB file hadn't painted after about 25 minutes when the test environment
-failed. The numbers come from an unoptimized build and weren't repeated, but
-opening appears to grow faster than file size. The macOS adoption should
-measure and fix opening a large file in the editor before it relies on
-whole-file downloads.
+Workspace file tabs show files in `AnnotatedFileEditor`, which creates its
+`TextViewController` with the document's text. Upstream CodeEditTextView
+lays out lines when the text view is created, before it is in a scroll
+view, while its frame is the document's height. Every line then counts as
+visible and gets its own subview, so opening is quadratic in the line count:
+in a Debug build, generated Go source took 0.9 s at 256 KiB, 11 s at 1 MiB,
+and 71 s at 2 MiB. Previews are capped at 5,000 lines, which keeps this
+under about half a second; whole files are not.
+
+The vendored copy skips that layout, and AppKit lays out the visible lines
+once the view is shown. With that change, the annotated editor shows 2 MiB
+in about 0.7 s and 8 MiB in about 1.3 s, and highlighting stalls the main
+thread for at most about 0.25 s. `ReadOnlyFileEditor`, used for host files,
+creates its controller empty and sets the text afterwards, so it never hit
+the quadratic path: 8 MiB in about 1.2 s.
 
 ## Shapes considered
 
