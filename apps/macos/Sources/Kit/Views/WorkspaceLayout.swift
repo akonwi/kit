@@ -843,7 +843,7 @@ struct FilePane: View {
                         AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
                             client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false,
                             lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)
-                            .id(preview.workspace.workspaceId + preview.revision).clipped()
+                            .id(preview.workspace.workspaceId + preview.revision + ":" + String(preview.returnedBytes)).clipped()
                     } else {
                         ReadOnlyFileEditor(path: path, source: preview.content, position: $position,
                                            lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)
@@ -857,8 +857,10 @@ struct FilePane: View {
                 }
             }
             .workspaceFocusTarget(pane)
-            Text((entry?.stale == true && preview != nil ? "Read-only · Preview may be out of date" : "Read-only") + (preview?.truncated == true ? " · Preview truncated" : ""))
-                .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
+            FileFooter(text: (entry?.stale == true && preview != nil ? "Read-only · Preview may be out of date" : "Read-only") +
+                       FileFooter.truncation(previewTruncated: preview?.truncated == true, whole: entry?.whole,
+                                             download: workspace.filePreviews.downloads[path]),
+                       download: workspace.filePreviews.downloads[path])
         }.onChange(of: FileFind.searchedLines(preview?.content, truncated: preview?.truncated == true), initial: true) {
             find?.searchedLines = $1
         }.onChange(of: state.annotationState.evidenceConflict) {

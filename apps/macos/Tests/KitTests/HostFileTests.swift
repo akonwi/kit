@@ -215,8 +215,8 @@ struct FilePathsTests {
     }
 
     @Test func externalFileFooterNamesTheSizeAndTruncation() {
-        #expect(ExternalFilePhase.footer(size: 12, truncated: false) == "Read-only · 12 bytes")
-        #expect(ExternalFilePhase.footer(size: 2_048, truncated: true) == "Read-only · 2 KB · Preview truncated")
+        #expect(ExternalFilePhase.footer(size: 12) + FileFooter.truncation(previewTruncated: false, whole: nil, download: nil) == "Read-only · 12 bytes")
+        #expect(ExternalFilePhase.footer(size: 2_048) + FileFooter.truncation(previewTruncated: true, whole: nil, download: nil) == "Read-only · 2 KB · Preview truncated")
     }
 
     @Test func typedPathsOpenTheirPaneAndCloseThePicker() throws {

@@ -94,6 +94,9 @@ struct ExternalFilePane: View {
                 do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
             }
             await loader.load(version, read: reader())
+            if case .hostFile = pane, !state.isDemo, let client = state.catalogClient as? any FileDownloadClient {
+                await loader.loadWhole(session: state.selectedID, client: client)
+            }
         }
     }
 
@@ -152,8 +155,9 @@ struct ExternalFilePane: View {
                 .onChange(of: FileFind.searchedLines(source, truncated: truncated), initial: true) {
                     workspace.find(for: pane)?.searchedLines = $1
                 }
-                Text(ExternalFilePhase.footer(size: file.size, truncated: truncated))
-                    .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
+                FileFooter(text: ExternalFilePhase.footer(size: file.size) +
+                           FileFooter.truncation(previewTruncated: truncated, whole: loader.whole, download: loader.download),
+                           download: loader.download)
             }
         }
     }
@@ -185,6 +189,14 @@ final class ExternalFileLoader {
     private(set) var note: String?
     /// Whether a read is under way.
     private(set) var reading = false
+    /// The whole file, shown in place of a cut-off preview (ADR 0074).
+    private(set) var whole: WholeFileDownload.Text?
+    let download = WholeFileDownload()
+    /// The latest preview read, which the whole file replaces.
+    private var preview: ViewedFile?
+    private let downloadStore: FileDownloadStore
+
+    init(downloadStore: FileDownloadStore = .shared) { self.downloadStore = downloadStore }
     /// The version last read to completion, so showing the tab again
     /// doesn't reread it.
     private var completed: Version?
@@ -219,11 +231,36 @@ final class ExternalFileLoader {
         guard !Task.isCancelled, self.generation == generation else { return }
         if case .failed(let message) = next, phase.file != nil {
             note = message
+        } else if let file = next.file, keepsWhole(file) {
+            // The whole file already shows and the new preview agrees with
+            // it, so it stays while the download is revalidated.
+            preview = file
+            note = nil
         } else {
             phase = next
+            preview = next.file
+            whole = nil
             note = nil
         }
         completed = version
+    }
+
+    /// Downloads the whole of a cut-off text preview and shows it instead,
+    /// or revalidates the whole file already shown.
+    func loadWhole(session: String, client: any FileDownloadClient) async {
+        guard let preview, case .text(_, truncated: true) = preview.content else { return }
+        let generation = generation
+        guard let next = await download.load(.host(path: preview.path), session: session, client: client, store: downloadStore),
+              self.generation == generation, self.preview == preview else { return }
+        guard next != whole else { return }
+        whole = next
+        phase = .loaded(ViewedFile(path: preview.path, size: next.size ?? preview.size, content: .text(next.content, truncated: next.limited)), nil)
+    }
+
+    /// Whether the whole file shows and begins with `file`'s preview.
+    private func keepsWhole(_ file: ViewedFile) -> Bool {
+        guard let whole, case .text(let text, truncated: true) = file.content, file.path == phase.file?.path else { return false }
+        return whole.content.hasPrefix(text)
     }
 }
 
@@ -245,10 +282,9 @@ enum ExternalFilePhase: Equatable {
         return .loaded(file, image)
     }
 
-    /// The text footer: read-only, the file's size, and whether the preview
-    /// stops before the file ends.
-    static func footer(size: Int64, truncated: Bool) -> String {
-        "Read-only · " + ByteCountFormatter.string(fromByteCount: size, countStyle: .file) + (truncated ? " · Preview truncated" : "")
+    /// The text footer: read-only and the file's size.
+    static func footer(size: Int64) -> String {
+        "Read-only · " + ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {

@@ -10,15 +10,21 @@ final class FilePreviewCache {
         var loading = false
         var stale = true
         var token = UUID()
+        /// The whole file, downloaded because the preview was cut off; it
+        /// replaces the preview's content (ADR 0074).
+        var whole: WholeFileDownload.Text?
     }
     private(set) var entries: [String: Entry] = [:]
     private var recent: [String] = []
     private(set) var revision = 0
     private var activity: [String]?
+    /// Downloads of whole files, by path.
+    private(set) var downloads: [String: WholeFileDownload] = [:]
     let byteLimit: Int
     let entryLimit: Int
-    init(byteLimit: Int = 8_000_000, entryLimit: Int = 8) {
-        self.byteLimit = byteLimit; self.entryLimit = entryLimit
+    private let downloadStore: FileDownloadStore
+    init(byteLimit: Int = 8_000_000, entryLimit: Int = 8, downloadStore: FileDownloadStore = .shared) {
+        self.byteLimit = byteLimit; self.entryLimit = entryLimit; self.downloadStore = downloadStore
     }
     func observe(_ snapshot: SessionExcerpt) {
         let next = [snapshot.watchGeneration ?? "", snapshot.activeRunID ?? "", snapshot.activeBashID ?? "", snapshot.messages.last?.id ?? ""] +
@@ -30,8 +36,14 @@ final class FilePreviewCache {
         revision += 1
     }
     func invalidate(_ path: String) { entries[path]?.stale = true; revision += 1 }
-    func clear() { entries = [:]; recent = []; activity = nil; revision += 1 }
-    func remove(_ path: String) { entries.removeValue(forKey: path); recent.removeAll { $0 == path } }
+    func clear() {
+        downloads.values.forEach { $0.cancel() }
+        entries = [:]; recent = []; activity = nil; downloads = [:]; revision += 1
+    }
+    func remove(_ path: String) {
+        downloads.removeValue(forKey: path)?.cancel()
+        entries.removeValue(forKey: path); recent.removeAll { $0 == path }
+    }
 
     func load(_ path: String, session: String, cwd: String, client: any WorkspaceFileClient, force: Bool = false) async {
         recent.removeAll { $0 == path }; recent.append(path)
@@ -55,20 +67,59 @@ final class FilePreviewCache {
             try Task.checkCancellation()
             guard entries[path]?.token == token else { return }
             guard value.sessionId == session, value.path == path, value.workspace.cwd == cwd else { throw ClientError.invalidPayload }
+            // A reread of a file whose whole text already shows keeps it
+            // while the revision is unchanged, rather than flashing back to
+            // the preview. A download without a revision can't be validated
+            // that way, so it's fetched again.
+            if value.truncated, let shown = entries[path]?.preview, shown.revision == value.revision,
+               shown.workspace.workspaceId == value.workspace.workspaceId, let whole = entries[path]?.whole {
+                entries[path]?.stale = false
+                if whole.revision == nil, let downloads = client as? any FileDownloadClient {
+                    await loadWhole(path, preview: value, session: session, token: token, client: downloads)
+                }
+                return
+            }
             entries[path]?.preview = value
+            entries[path]?.whole = nil
             entries[path]?.stale = false
             trim(keeping: path)
+            if value.truncated, let downloads = client as? any FileDownloadClient {
+                await loadWhole(path, preview: value, session: session, token: token, client: downloads)
+            }
         } catch is CancellationError {} catch {
             guard !Task.isCancelled, entries[path]?.token == token else { return }
             entries[path]?.error = error.localizedDescription
             entries[path]?.stale = true
         }
     }
+    /// Downloads the whole of a cut-off file and shows it in place of the
+    /// preview. The preview stays when the download can't replace it.
+    private func loadWhole(_ path: String, preview: WireWorkspaceFileRead, session: String, token: UUID, client: any FileDownloadClient) async {
+        let download = downloads[path] ?? WholeFileDownload()
+        downloads[path] = download
+        guard let whole = await download.load(.workspace(id: preview.workspace.workspaceId, path: path), session: session, client: client,
+                                               store: downloadStore),
+              entries[path]?.token == token else { return }
+        var value = preview
+        value.content = whole.content
+        value.returnedBytes = whole.content.utf8.count
+        value.returnedLines = FileFind.searchedLines(whole.content, truncated: true)
+        value.truncated = whole.limited
+        value.truncationReason = whole.limited ? "byte_limit" : nil
+        value.highlight = nil
+        if let revision = whole.revision { value.revision = revision }
+        if let size = whole.size { value.size = size }
+        entries[path]?.preview = value
+        entries[path]?.whole = whole
+        trim(keeping: path)
+    }
+
     private func trim(keeping path: String) {
         while entries.values.compactMap(\.preview).count > entryLimit ||
                 entries.values.compactMap(\.preview).reduce(0, { $0 + $1.content.utf8.count }) > byteLimit {
             guard let victim = recent.first(where: { $0 != path && entries[$0]?.preview != nil }) else { break }
             entries[victim]?.preview = nil
+            entries[victim]?.whole = nil
             entries[victim]?.stale = true
             recent.removeAll { $0 == victim }
         }

@@ -43,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let windows = sessionWindows
         AppUpdater.shared.frontWindow = { windows.frontmost()?.window }
         AppUpdater.shared.start()
+        // Downloaded files from a run that didn't quit cleanly go now.
+        Task.detached(priority: .utility) { _ = FileDownloadStore.shared }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -52,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // A verified update replaces the app as it quits (ADR 0048).
         AppUpdater.shared.installOnQuit()
+        FileDownloadStore.deleteSharedFiles()
     }
 }
 

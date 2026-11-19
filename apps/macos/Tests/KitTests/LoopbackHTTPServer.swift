@@ -44,7 +44,8 @@ final class LoopbackHTTPServer: @unchecked Sendable {
         }
     }
 
-    private init(respond: @escaping @Sendable (String) -> Data) throws {
+    /// A server answering each request with the raw response `respond` returns.
+    init(respond: @escaping @Sendable (String) -> Data) throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
