@@ -747,6 +747,18 @@ func TestAForgedAnswerOnACallThatHasNotRunIsRefused(t *testing.T) {
 			delete(tool, "interaction_id")
 			tool["settlement"] = json.RawMessage(`{"status":"answered","answer":{"confirmed":true}}`)
 		},
+		"an approval that also declines": func(tool map[string]json.RawMessage) {
+			tool["phase"] = json.RawMessage(`"ready"`)
+			tool["settlement"] = json.RawMessage(`{"status":"answered","answer":{"declined":true,"confirmed":true}}`)
+		},
+		"a decline recorded as an answer": func(tool map[string]json.RawMessage) {
+			tool["phase"] = json.RawMessage(`"ready"`)
+			tool["settlement"] = json.RawMessage(`{"status":"answered","answer":{"declined":true}}`)
+		},
+		"an approval carrying another answer": func(tool map[string]json.RawMessage) {
+			tool["phase"] = json.RawMessage(`"ready"`)
+			tool["settlement"] = json.RawMessage(`{"status":"answered","answer":{"confirmed":true,"value":"yes"}}`)
+		},
 		"an approval of another kind": func(tool map[string]json.RawMessage) {
 			tool["phase"] = json.RawMessage(`"ready"`)
 			tool["settlement"] = json.RawMessage(`{"status":"answered","answer":{"value":"yes"}}`)

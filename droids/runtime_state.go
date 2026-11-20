@@ -732,11 +732,13 @@ func validPreExecutionAnswer(tool durableTool, pending []InteractionID) bool {
 	settlement := *tool.Settlement
 	switch tool.Ask {
 	case declaredConfirm:
-		return settlement.Status == InteractionAnswered && settlement.Answer.Confirmed != nil && *settlement.Answer.Confirmed
+		answer := settlement.Answer
+		return settlement.Status == InteractionAnswered && settlement.Reason == "" && !answer.Declined &&
+			validateAnswer(Question{Kind: QuestionConfirm}, answer) == nil && answer.Confirmed != nil && *answer.Confirmed
 	case declaredAnswer:
 		switch settlement.Status {
 		case InteractionAnswered:
-			return tool.Question != nil && validateAnswer(*tool.Question, settlement.Answer) == nil
+			return tool.Question != nil && settlement.Reason == "" && validateAnswer(*tool.Question, settlement.Answer) == nil
 		case InteractionDeclined, InteractionCancelled, InteractionUnavailable:
 			return true
 		}
