@@ -107,6 +107,17 @@ thread for at most about 0.25 s. `ReadOnlyFileEditor`, used for host files,
 creates its controller empty and sets the text afterwards, so it never hit
 the quadratic path: 8 MiB in about 1.2 s.
 
+## Checking a home-relative host answer
+
+`X-Kit-File-Path` (and a host preview's `path`) is the absolute path with
+`~` expanded, and clients don't know the server's home directory. The Apple
+clients write each host path one way: absolute paths cleaned, and home paths
+as normalized `~/…`. They then accept an answer to `~/…` when it is a clean
+absolute path ending in the normalized path. An answer to `~`, or to a path
+that climbs out of the home with `..`, can only be checked for being
+absolute. The server is trusted, so this is a defensive check against a
+mismatched response, not a security boundary.
+
 ## Shapes considered
 
 | Shape | Strength | Weakness |
