@@ -191,14 +191,16 @@ struct BrowserAnnotationCommentBox: View {
     @Bindable var session: BrowserAnnotationSession
     let add: () -> Void
     let cancel: () -> Void
-    @FocusState private var focused: Bool
+    @State private var focused = false
+    @State private var focusRequest = 0
     @State private var ownDictation = DictationSlot()
     @Environment(\.dictationSlot) private var givenDictation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             crumbs.disabled(dictating)
-            DictatedCommentField(text: $session.comment, focused: $focused, prompt: "Comment on this element…",
+            DictatedCommentField(text: $session.comment, focused: $focused, focusRequest: focusRequest,
+                                 prompt: "Comment on this element…",
                                  accessibilityLabel: "Comment on the selected element", submit: add, cancel: cancel,
                                  up: { stepIfEmpty(.parent) }, down: { stepIfEmpty(.child) })
                 .environment(\.dictationSlot, dictationSlot)
@@ -225,16 +227,16 @@ struct BrowserAnnotationCommentBox: View {
         .background(theme.surface, in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.strongBorder, lineWidth: 1))
         .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
-        .onAppear { focused = true }
+        .onAppear { focusRequest += 1 }
         .onDisappear { dictationSlot.reset() }
         // Words said about one element don't go to another.
         .onChange(of: session.page.selected?.label) {
             dictationSlot.reset()
-            focused = true
+            focusRequest += 1
         }
         .onChange(of: session.clicks) {
             dictationSlot.reset()
-            if session.page.selected != nil { focused = true }
+            if session.page.selected != nil { focusRequest += 1 }
         }
     }
 
@@ -250,10 +252,12 @@ struct BrowserAnnotationCommentBox: View {
         return false
     }
 
-    private func stepIfEmpty(_ step: BrowserAnnotationSession.Step) -> KeyPress.Result {
-        guard session.comment.isEmpty, !dictating else { return .ignored }
+    /// Steps through the selection's ancestors while the comment is empty;
+    /// returns whether it did.
+    private func stepIfEmpty(_ step: BrowserAnnotationSession.Step) -> Bool {
+        guard session.comment.isEmpty, !dictating else { return false }
         Task { await session.step(step) }
-        return .handled
+        return true
     }
 
     /// The selection's nearest ancestors that fit, each in full, after an

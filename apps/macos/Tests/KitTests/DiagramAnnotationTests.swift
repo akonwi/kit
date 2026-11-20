@@ -309,14 +309,14 @@ private actor SendingClient: SessionMutationClient, ComposerClient {
 
     func close() { window.close() }
 
-    private var field: NSTextField? {
-        RenderedDiagram.allViews(in: host).compactMap { $0 as? NSTextField }.first { $0.isEditable }
+    private var field: ComposerTextView? {
+        RenderedDiagram.allViews(in: host).compactMap { $0 as? ComposerTextView }.first
     }
 
     /// Types into the comment once it has focus.
     func type(_ text: String) async throws {
-        try await eventually { self.field?.currentEditor() != nil }
-        let editor = try #require(field?.currentEditor() as? NSTextView)
+        try await eventually { self.field.map { self.window.firstResponder === $0 } ?? false }
+        let editor = try #require(field)
         editor.insertText(text, replacementRange: editor.selectedRange())
     }
 

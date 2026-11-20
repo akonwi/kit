@@ -24,7 +24,8 @@ struct TextCommentBox: View {
     let submit: () -> Void
     let cancel: () -> Void
     var delete: (() -> Void)? = nil
-    @FocusState private var focused: Bool
+    @State private var focused = false
+    @State private var focusRequest = 0
     @State private var dictationSlot = DictationSlot()
 
     static let width: CGFloat = 340
@@ -32,7 +33,7 @@ struct TextCommentBox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextCommentQuote(text: quote, lineLimit: 2)
-            DictatedCommentField(text: $editor.comment, focused: $focused, prompt: "Add a comment…",
+            DictatedCommentField(text: $editor.comment, focused: $focused, focusRequest: focusRequest, prompt: "Add a comment…",
                                  accessibilityLabel: "Comment on the selected text", submit: add, cancel: cancel)
                 .environment(\.dictationSlot, dictationSlot)
             if #available(macOS 26, *), dictation.hasNotice { DictationNotice(dictation: dictation) }
@@ -52,7 +53,7 @@ struct TextCommentBox: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(width: Self.width)
         .background(theme.surface)
-        .onAppear { focused = true }
+        .onAppear { focusRequest += 1 }
         .onDisappear { dictationSlot.reset() }
     }
 

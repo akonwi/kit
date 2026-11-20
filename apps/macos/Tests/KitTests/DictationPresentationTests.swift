@@ -510,12 +510,12 @@ import Testing
     var answerField: NSTextField? { Self.views(InteractionInputBox.self, in: host).first?.field }
 
     /// The browser comment box's field.
-    var commentField: NSTextField? { Self.views(NSTextField.self, in: host).first { $0.isEditable } }
+    var commentField: ComposerTextView? { Self.views(ComposerTextView.self, in: host).first }
 
     /// The browser comment's editor while it has focus.
-    var commentEditor: NSTextView? {
-        guard let field = commentField, let editor = field.currentEditor() as? NSTextView else { return nil }
-        return editor
+    var commentEditor: ComposerTextView? {
+        guard let field = commentField, window.firstResponder === field else { return nil }
+        return field
     }
 
     /// The Annotate overlay's layer over the page.

@@ -153,7 +153,8 @@ struct DiagramCommentBox: View {
     @Bindable var annotator: DiagramAnnotator
     let summary: String
     let add: () -> Void
-    @FocusState private var focused: Bool
+    @State private var focused = false
+    @State private var focusRequest = 0
     @State private var ownDictation = DictationSlot()
     @Environment(\.dictationSlot) private var givenDictation
 
@@ -165,7 +166,8 @@ struct DiagramCommentBox: View {
                 .font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
                 .lineLimit(2).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            DictatedCommentField(text: $annotator.comment, focused: $focused, prompt: "Comment on this part…",
+            DictatedCommentField(text: $annotator.comment, focused: $focused, focusRequest: focusRequest,
+                                 prompt: "Comment on this part…",
                                  accessibilityLabel: "Comment on the selected part", submit: submit,
                                  cancel: { annotator.deselect() })
                 .environment(\.dictationSlot, dictationSlot)
@@ -181,7 +183,7 @@ struct DiagramCommentBox: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(width: Self.width)
         .background(theme.surface)
-        .onAppear { focused = true }
+        .onAppear { focusRequest += 1 }
         .onDisappear { dictationSlot.reset() }
     }
 

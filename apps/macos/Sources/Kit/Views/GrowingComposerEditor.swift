@@ -37,6 +37,14 @@ struct GrowingComposerEditor: NSViewRepresentable {
     /// Where the caret was, kept outside the view so a remounted editor puts
     /// it back. Without a saved range the caret starts at the end of the text.
     var selection: Binding<NSRange?>? = nil
+    /// The tallest the editor grows before it scrolls.
+    var maximumHeight = ComposerScrollView.maximumHeight
+    /// Up and Down, for a field that steps through something with them;
+    /// returns whether it took the key. Others move the caret.
+    var arrow: ((_ up: Bool) -> Bool)? = nil
+    /// Whether `focused` follows the editor being first responder, rather
+    /// than its being edited, as a comment box's border does.
+    var focusFollowsResponder = false
 
     func makeNSView(context: Context) -> ComposerScrollView {
         let scroll = ComposerScrollView()
@@ -63,6 +71,12 @@ struct GrowingComposerEditor: NSViewRepresentable {
         let view = scroll.editor
         context.coordinator.parent = self
         scroll.useKitScrollers(theme)
+        scroll.maximumHeight = maximumHeight
+        view.arrow = arrow
+        view.responderChanged = focusFollowsResponder ? { [weak coordinator = context.coordinator] focused in
+            guard let coordinator, coordinator.parent.focused != focused else { return }
+            coordinator.parent.focused = focused
+        } : nil
         view.pickerAnchor = pickerAnchor
         pickerAnchor?.changed = { [weak coordinator = context.coordinator, weak view] in
             guard let view else { return }; coordinator?.renderMentions(view)
@@ -127,7 +141,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ComposerScrollView, context: Context) -> CGSize? {
         guard let width = proposal.width, width > 0 else { return nil }
-        return CGSize(width: width, height: min(ComposerScrollView.maximumHeight, nsView.contentHeight(width: width)))
+        return CGSize(width: width, height: min(maximumHeight, nsView.contentHeight(width: width)))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -246,6 +260,8 @@ struct GrowingComposerEditor: NSViewRepresentable {
 /// paste reveal the caret through AppKit's normal text scrolling behavior.
 final class ComposerScrollView: NSScrollView {
     static let maximumHeight: CGFloat = 240
+    /// The tallest this editor grows before it scrolls.
+    var maximumHeight = ComposerScrollView.maximumHeight
     /// The height of one line of the draft, which a recording strip in the editor's place matches.
     @MainActor static var lineHeight: CGFloat {
         ceil(NSLayoutManager().defaultLineHeight(for: Typography.shared.font(size: 14)))
@@ -275,7 +291,7 @@ final class ComposerScrollView: NSScrollView {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: min(Self.maximumHeight, contentHeight(width: contentSize.width)))
+        NSSize(width: NSView.noIntrinsicMetric, height: min(maximumHeight, contentHeight(width: contentSize.width)))
     }
 
     override func layout() {
@@ -454,14 +470,20 @@ final class ComposerTextView: NSTextView {
         }
         return urls.isEmpty ? nil : urls
     }
+    /// Told when the editor becomes or stops being first responder.
+    var responderChanged: ((Bool) -> Void)?
+    /// Up and Down for a field that steps through something; see
+    /// `GrowingComposerEditor.arrow`.
+    var arrow: ((_ up: Bool) -> Bool)?
+
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
-        if result { LaunchMetrics.mark(.composerFocused) }
+        if result { LaunchMetrics.mark(.composerFocused); responderChanged?(true) }
         return result
     }
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
-        if result { mentions?.close(); history?.close(); mentionChanged?() }
+        if result { mentions?.close(); history?.close(); mentionChanged?(); responderChanged?(false) }
         return result
     }
     override func layout() { super.layout(); mentionChanged?() }
@@ -545,6 +567,8 @@ final class ComposerTextView: NSTextView {
             }
             mentionChanged?(); return
         }
+        if isEditable, !hasMarkedText(), plain, [125, 126].contains(event.keyCode),
+           let arrow, arrow(event.keyCode == 126) { return }
         // Let NSTextView move within multiline (including wrapped) commands.
         // History recall starts only at the corresponding end of the draft.
         let caret = selectedRange()
