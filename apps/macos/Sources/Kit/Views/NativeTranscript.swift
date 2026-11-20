@@ -670,12 +670,15 @@ extension NativeTranscriptCoordinator: TextCommentRevealer {
         return nil
     }
 
-    func showsTextComments(in scope: String) -> Bool { !stopped && commentRow(scope) != nil }
+    func showsTextComments(in scope: String, pane: WorkspacePane?) -> Bool {
+        !stopped && (pane ?? input.pane) == input.pane && commentRow(scope) != nil
+    }
 
     /// Opens the tool output holding the words, scrolls them to the middle
     /// of the transcript, and keeps them there as rows are measured.
-    func revealTextComment(_ mark: TextCommentMark, in scope: String) async -> TextCommentPlace? {
-        guard let target = commentRow(scope) else { return nil }
+    func revealTextComment(_ mark: TextCommentMark, in scope: String,
+                           while current: () -> Bool) async -> TextCommentPlace? {
+        guard current(), let target = commentRow(scope) else { return nil }
         target.open()
         arrival = nil
         follow.userScrolled(distanceFromBottom: 9)
@@ -689,7 +692,7 @@ extension NativeTranscriptCoordinator: TextCommentRevealer {
         }
         for _ in 0..<30 {
             try? await Task.sleep(for: .milliseconds(50))
-            guard !stopped, let row = indices[target.id], let window = scroll.window else { return nil }
+            guard current(), !stopped, let row = indices[target.id], let window = scroll.window else { return nil }
             table.layoutSubtreeIfNeeded()
             guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: true) as? NativeTranscriptCell,
                   let (field, rect) = TextCommentMarkFinder.find(mark, in: cell) else { continue }

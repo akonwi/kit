@@ -18,11 +18,14 @@ struct TextCommentPlace {
 /// A view showing words comments can be on, which can bring a comment's
 /// words into view.
 @MainActor protocol TextCommentRevealer: AnyObject {
-    /// Whether it shows, or can open to show, the words of scope.
-    func showsTextComments(in scope: String) -> Bool
+    /// Whether it shows, or can open to show, the words of scope, in pane
+    /// when one is given.
+    func showsTextComments(in scope: String, pane: WorkspacePane?) -> Bool
     /// Brings mark's words in scope into view, opening what holds them, and
-    /// says where they are; nil when it can't find them.
-    func revealTextComment(_ mark: TextCommentMark, in scope: String) async -> TextCommentPlace?
+    /// says where they are; nil when it can't find them. It stops, leaving
+    /// the view alone, once current says a later reveal took over.
+    func revealTextComment(_ mark: TextCommentMark, in scope: String,
+                           while current: () -> Bool) async -> TextCommentPlace?
 }
 
 extension WorkspaceState {
@@ -55,15 +58,16 @@ extension WorkspaceState {
                 atChip(); return
             }
         }
-        var revealer = draft.revealer(for: scope)
+        let current = { draft.revealing == turn && draft.item(id) != nil }
+        var revealer = draft.revealer(for: scope, in: item.pane)
         let clock = ContinuousClock(), deadline = clock.now + patience
-        while revealer == nil, clock.now < deadline, draft.revealing == turn {
+        while revealer == nil, clock.now < deadline, current() {
             try? await Task.sleep(for: .milliseconds(50))
-            revealer = draft.revealer(for: scope)
+            revealer = draft.revealer(for: scope, in: item.pane)
         }
-        guard draft.revealing == turn else { return }
-        guard let revealer, let place = await revealer.revealTextComment(item.mark, in: scope),
-              draft.revealing == turn, draft.item(id) != nil else { atChip(); return }
+        guard current() else { return }
+        guard let revealer, let place = await revealer.revealTextComment(item.mark, in: scope, while: current),
+              current() else { atChip(); return }
         draft.present(quote: item.annotation.quote, source: .init(label: item.annotation.source), editing: id,
                       at: place.rect, in: place.window, theme: theme)
     }
@@ -105,12 +109,14 @@ extension WorkspaceState {
 }
 
 extension ScratchpadCommentPainter: TextCommentRevealer {
-    func showsTextComments(in scope: String) -> Bool {
-        scope == TextCommentSource.scratchpadScope && controller?.textView.window != nil
+    func showsTextComments(in scope: String, pane: WorkspacePane?) -> Bool {
+        scope == TextCommentSource.scratchpadScope && (pane ?? .scratchpad) == .scratchpad
+            && controller?.textView.window != nil
     }
 
-    func revealTextComment(_ mark: TextCommentMark, in scope: String) async -> TextCommentPlace? {
-        guard let view = controller?.textView, let window = view.window,
+    func revealTextComment(_ mark: TextCommentMark, in scope: String,
+                           while current: () -> Bool) async -> TextCommentPlace? {
+        guard current(), let view = controller?.textView, let window = view.window,
               let range = Self.ranges(of: [mark], in: view.string).first else { return nil }
         view.scrollToRange(range, center: true)
         view.layoutSubtreeIfNeeded()

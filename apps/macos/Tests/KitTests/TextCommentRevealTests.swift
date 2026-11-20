@@ -52,6 +52,59 @@ import Testing
         try await eventually { TextCommentMarkFinder.find(mark, in: fixture.adapter.table) == nil }
     }
 
+    @Test func aLaterChipClickKeepsItsWordsInViewWhileAnEarlierOneStillSearches() async throws {
+        var messages = Self.conversation(target: "Retries happen every 2 seconds with no backoff.")
+        let fixture = try await TranscriptWindow(messages: messages)
+        defer { fixture.close() }
+        let comments = fixture.workspace.textComments
+        // The first comment's words aren't drawn yet, so its reveal goes on looking.
+        let slow = try #require(comments.add(comment: "Why so slow?", source: "Assistant reply", quote: "a late answer",
+                                             scope: "message:m4", pane: .conversation))
+        let quick = try #require(comments.add(comment: "Back off.", source: "Assistant reply", quote: "every 2 seconds",
+                                              scope: "message:m20", pane: .conversation))
+        let first = Task { await fixture.open(slow) }
+        try await Task.sleep(for: .milliseconds(120))
+        await fixture.open(quick)
+        let mark = try #require(comments.item(quick)).mark
+        // The box as it opened; a window another test makes key can close it later.
+        let panel = try #require(fixture.popover)
+        #expect(try await Self.focusedEditor(in: panel).string == "Back off.")
+        // The first comment's words appear while it's still looking.
+        messages[4] = TranscriptMessage(id: "m4", role: "assistant", text: "Here is a late answer.", tools: [])
+        fixture.update(messages)
+        await first.value
+        try await Task.sleep(for: .milliseconds(200))
+        let words = try fixture.wordsInViewport(mark)
+        #expect(abs(words.midY - fixture.viewport.midY) <= 2, "words \(words), viewport \(fixture.viewport)")
+        // The box is still beside the words.
+        let screenWords = try fixture.wordsOnScreen(mark)
+        #expect(abs(panel.frame.maxY - (screenWords.minY - AnchoredPopover.gap)) <= 1, "\(panel.frame) \(screenWords)")
+    }
+
+    @Test func wordsAreShownInTheTabTheyWereSelectedIn() async throws {
+        let messages = Self.conversation(target: "Retries happen every 2 seconds with no backoff.")
+        let main = try await TranscriptWindow(messages: messages)
+        defer { main.close() }
+        // A subagent's transcript with the same message IDs, in its own tab.
+        let agent = try await TranscriptWindow(messages: messages, workspace: main.workspace, pane: .agent("reviewer"))
+        defer { agent.close() }
+        let comments = main.workspace.textComments
+        // Whichever tab the words came from shows them; the other stays put.
+        for (shown, other) in [(agent, main), (main, agent)] {
+            let id = try #require(comments.add(comment: "Back off.", source: "Assistant reply", quote: "every 2 seconds",
+                                               scope: "message:m20", pane: shown.pane))
+            let mark = try #require(comments.item(id)).mark
+            let before = other.viewport
+            await shown.open(id)
+            let words = try shown.wordsInViewport(mark)
+            #expect(abs(words.midY - shown.viewport.midY) <= 2)
+            #expect(other.viewport == before)
+            #expect(shown.popover != nil)
+            comments.popover.dismiss()
+            comments.remove(id)
+        }
+    }
+
     @Test func wordsInACollapsedToolGroupOpenItsRowAndScrollItsWell() async throws {
         let output = (1...40).map { $0 == 30 ? "--- FAIL: TestPairRetries (30.02s)" : "ok   line \($0)" }.joined(separator: "\n")
         let tools = (0..<6).map { index in
@@ -192,16 +245,18 @@ import Testing
 /// A transcript in a window, scrolled to its latest message, with a chip
 /// near the bottom of the screen.
 @MainActor private final class TranscriptWindow {
-    let workspace = WorkspaceState(demo: false)
+    let workspace: WorkspaceState
     let presentation = TranscriptPresentationState()
+    let pane: WorkspacePane
     let adapter: NativeTranscriptCoordinator
     let window: NSWindow
 
-    init(messages: [TranscriptMessage]) async throws {
+    init(messages: [TranscriptMessage], workspace: WorkspaceState = WorkspaceState(demo: false),
+         pane: WorkspacePane = .conversation) async throws {
         _ = NSApplication.shared
-        let input = NativeTranscript(messages: messages, hasHistory: false, historyLoading: false, historyError: nil,
-            active: false, presentation: presentation, workspace: workspace, resumeRequest: 0,
-            latestOutOfView: .constant(false), loadHistory: {}, theme: TextCommentRevealTests.theme)
+        self.workspace = workspace
+        self.pane = pane
+        let input = Self.input(messages, workspace: workspace, presentation: presentation, pane: pane)
         adapter = NativeTranscriptCoordinator(input)
         window = NSWindow(testContentRect: NSRect(x: 200, y: 200, width: 900, height: 600))
         window.contentView = adapter.scroll
@@ -211,6 +266,18 @@ import Testing
             adapter.scroll.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(30))
         }
+    }
+
+    private static func input(_ messages: [TranscriptMessage], workspace: WorkspaceState,
+                              presentation: TranscriptPresentationState, pane: WorkspacePane) -> NativeTranscript {
+        NativeTranscript(messages: messages, hasHistory: false, historyLoading: false, historyError: nil,
+            active: false, presentation: presentation, workspace: workspace, resumeRequest: 0,
+            latestOutOfView: .constant(false), loadHistory: {}, theme: TextCommentRevealTests.theme, pane: pane)
+    }
+
+    /// Shows messages in place of those shown.
+    func update(_ messages: [TranscriptMessage]) {
+        adapter.receive(Self.input(messages, workspace: workspace, presentation: presentation, pane: pane))
     }
 
     func close() {

@@ -80,9 +80,11 @@ import Observation
     func register(_ revealer: TextCommentRevealer) { revealers.add(revealer) }
     func unregister(_ revealer: TextCommentRevealer) { revealers.remove(revealer) }
 
-    /// The view showing scope's words, if one does.
-    func revealer(for scope: String) -> TextCommentRevealer? {
-        revealers.allObjects.lazy.compactMap { $0 as? TextCommentRevealer }.first { $0.showsTextComments(in: scope) }
+    /// The view in pane, or any when it's nil, showing scope's words, if
+    /// one does.
+    func revealer(for scope: String, in pane: WorkspacePane?) -> TextCommentRevealer? {
+        revealers.allObjects.lazy.compactMap { $0 as? TextCommentRevealer }
+            .first { $0.showsTextComments(in: scope, pane: pane) }
     }
 
     /// The blocks the model gets after the message's text, or "" for none.
