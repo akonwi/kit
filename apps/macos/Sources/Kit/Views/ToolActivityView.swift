@@ -101,6 +101,7 @@ private struct ToolCallRow: View {
     @Environment(\.mica) private var theme
     @Environment(\.transcriptToolContext) private var context
     @Environment(\.transcriptSessionLink) private var sessionLink
+    @Environment(\.textCommentPane) private var pane
     let tool: ToolActivity
     let presentation: ToolPresentation
     let titleWidth: CGFloat
@@ -122,7 +123,8 @@ private struct ToolCallRow: View {
             if shown {
                 Rule()
                 ToolCallDetail(tool: tool, workspace: workspace, presentation: presentation)
-                    .background(CommentSourceRegion(source: .init(label: commentSource, scope: TextCommentSource.toolScope(tool.id))))
+                    .background(CommentSourceRegion(source: .init(label: commentSource, scope: TextCommentSource.toolScope(tool.id),
+                                                                      pane: pane)))
             }
         }
         .background {

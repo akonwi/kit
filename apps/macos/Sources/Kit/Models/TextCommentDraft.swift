@@ -15,12 +15,22 @@ import Observation
         let scope: String?
         /// Which of the matching words in the scope were selected.
         var locator: TextCommentLocator? = nil
+        /// The tab the words were selected in, to show them from the chip.
+        var pane: WorkspacePane? = nil
+
+        /// The words' mark.
+        var mark: TextCommentMark { TextCommentMark(id: id, quote: annotation.quote, locator: locator) }
     }
 
     private(set) var items: [Item] = []
     var error: String?
     /// The comment box at a selection or a mark.
     @ObservationIgnored let popover = AnchoredPopover()
+    /// The views showing words comments can be on, which bring them into view.
+    @ObservationIgnored private let revealers = NSHashTable<AnyObject>.weakObjects()
+    /// Counts chip clicks, so a later one wins over one still bringing its
+    /// words into view.
+    @ObservationIgnored var revealing = 0
 
     init() { TextCommentDrafts.register(self) }
 
@@ -30,7 +40,8 @@ import Observation
     /// ID, or nil when the message holds all it can or there's nothing to
     /// add.
     @discardableResult
-    func add(comment: String, source: String, quote: String, scope: String?, locator: TextCommentLocator? = nil) -> UUID? {
+    func add(comment: String, source: String, quote: String, scope: String?, locator: TextCommentLocator? = nil,
+             pane: WorkspacePane? = nil) -> UUID? {
         let comment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !comment.isEmpty, !TextAnnotationText.trimmedQuote(quote).text.isEmpty else { return nil }
         guard items.count < TextAnnotationText.limit else {
@@ -39,7 +50,7 @@ import Observation
         }
         error = nil
         let item = Item(id: UUID(), annotation: TextAnnotation(comment: comment, source: source, quote: quote), scope: scope,
-                        locator: locator)
+                        locator: locator, pane: pane)
         items.append(item)
         return item.id
     }
@@ -61,9 +72,17 @@ import Observation
 
     /// The waiting comments selected in scope, to mark their words.
     func marks(in scope: String) -> [TextCommentMark] {
-        items.filter { $0.scope == scope }.map {
-            TextCommentMark(id: $0.id, quote: $0.annotation.quote, locator: $0.locator)
-        }
+        items.filter { $0.scope == scope }.map(\.mark)
+    }
+
+    /// Adds a view that shows words comments can be on, for chips to bring
+    /// them into view. It's held weakly.
+    func register(_ revealer: TextCommentRevealer) { revealers.add(revealer) }
+    func unregister(_ revealer: TextCommentRevealer) { revealers.remove(revealer) }
+
+    /// The view showing scope's words, if one does.
+    func revealer(for scope: String) -> TextCommentRevealer? {
+        revealers.allObjects.lazy.compactMap { $0 as? TextCommentRevealer }.first { $0.showsTextComments(in: scope) }
     }
 
     /// The blocks the model gets after the message's text, or "" for none.

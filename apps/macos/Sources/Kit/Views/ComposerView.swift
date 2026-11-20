@@ -58,7 +58,9 @@ struct ComposerView: View {
                     HStack(spacing: 8) {
                         LineAnnotationChips(state: state)
                         ForEach(textComments.items) { item in
-                            TextCommentChip(item: item, draft: textComments)
+                            TextCommentChip(item: item, draft: textComments) { chip, window in
+                                openTextComment(item.id, chip: chip, window: window)
+                            }
                         }
                         ForEach(browserAnnotations.items) { item in
                             BrowserAnnotationChip(item: item, draft: browserAnnotations)
@@ -159,6 +161,18 @@ struct ComposerView: View {
     private var browserAnnotations: BrowserAnnotationDraft { state.ui.workspace.browserAnnotations }
     private var diagramAnnotations: DiagramAnnotationDraft { state.ui.workspace.diagramAnnotations }
     private var textComments: TextCommentDraft { state.ui.workspace.textComments }
+
+    /// Brings a waiting comment's words into view and opens it there. A
+    /// subagent's tab opens while its conversation goes on.
+    private func openTextComment(_ id: UUID, chip: NSRect?, window: NSWindow?) {
+        let workspace = state.ui.workspace, theme = theme
+        Task {
+            await workspace.openTextComment(id, canOpen: { pane in
+                guard case .agent(let name) = pane else { return true }
+                return state.selected?.subagents?.items.first { $0.name == name }?.conversationID != nil
+            }, chip: chip, window: window, theme: theme)
+        }
+    }
 
     // MARK: Dictation
 

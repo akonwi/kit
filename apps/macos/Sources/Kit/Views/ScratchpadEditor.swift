@@ -24,7 +24,10 @@ struct ScratchpadEditor: View {
         .onChange(of: marks) { updateMarks() }
         .onChange(of: theme) { updateMarks() }
         .clipped()
-        .background(CommentSourceRegion(source: .init(label: "Scratchpad", scope: TextCommentSource.scratchpadScope)))
+        .background(CommentSourceRegion(source: .init(label: "Scratchpad", scope: TextCommentSource.scratchpadScope,
+                                                      pane: .scratchpad)))
+        .onAppear { comments?.register(painter) }
+        .onDisappear { comments?.unregister(painter) }
         .accessibilityLabel("Scratchpad editor")
     }
 

@@ -204,6 +204,7 @@ struct NativeTranscript: NSViewRepresentable {
             })
             .environment(\.diagramAnnotations, DiagramAnnotationContext(draft: input.workspace.diagramAnnotations))
             .environment(\.textComments, input.workspace.textComments)
+            .environment(\.textCommentPane, input.pane)
             .environment(\.transcriptSessionLink, input.sessionLink)
             .environment(\.transcriptToolContext, input.toolContext)
             .environment(\.openURL, .reopeningTextComments(.transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink),
@@ -398,6 +399,8 @@ struct NativeTranscript: NSViewRepresentable {
             attachments = next.attachmentClient.map { TranscriptAttachmentStore(client: $0, session: next.attachmentSession) }
         }
         let turnFinished = input.active && !next.active
+        if input.workspace !== next.workspace { input.workspace.textComments.unregister(self) }
+        next.workspace.textComments.register(self)
         let oldLiveGroups = liveGroups
         liveGroups = Set(ToolGroupActivity.liveGroups(in: next.messages, active: next.active).map { "message:" + $0 })
         let activityChanged = oldLiveGroups.symmetricDifference(liveGroups)
@@ -629,6 +632,7 @@ struct NativeTranscript: NSViewRepresentable {
 
     func stop() {
         stopped = true
+        input.workspace.textComments.unregister(self)
         historyRelease?.cancel(); historyRelease = nil
         pendingMeasurements.removeAll()
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
@@ -641,6 +645,64 @@ struct NativeTranscript: NSViewRepresentable {
         table.delegate = nil
         table.dataSource = nil
         scroll.documentView = nil
+    }
+}
+
+extension NativeTranscriptCoordinator: TextCommentRevealer {
+    /// The row showing scope's words, and how to open the tool output
+    /// holding them.
+    private func commentRow(_ scope: String) -> (id: String, open: () -> Void)? {
+        if indices[scope] != nil { return (scope, {}) }
+        if scope.hasPrefix("tool:") {
+            let tool = String(scope.dropFirst("tool:".count))
+            guard let message = messages.first(where: { $0.role == "tools" && $0.tools.contains { $0.id == tool } })
+            else { return nil }
+            let drawer = input.presentation.drawer(for: String(message.id.dropFirst("message:".count)))
+            return (message.id, {
+                if case .group(false) = drawer.disclosure(count: message.tools.count) { drawer.expanded = true }
+                drawer.selectedTool = tool
+            })
+        }
+        if scope.hasPrefix("shell:") {
+            let run = String(scope.dropFirst("shell:".count))
+            return messages.first { $0.bash?.id == run }.map { ($0.id, {}) }
+        }
+        return nil
+    }
+
+    func showsTextComments(in scope: String) -> Bool { !stopped && commentRow(scope) != nil }
+
+    /// Opens the tool output holding the words, scrolls them to the middle
+    /// of the transcript, and keeps them there as rows are measured.
+    func revealTextComment(_ mark: TextCommentMark, in scope: String) async -> TextCommentPlace? {
+        guard let target = commentRow(scope) else { return nil }
+        target.open()
+        arrival = nil
+        follow.userScrolled(distanceFromBottom: 9)
+        // The row is built once it's in view; then its words can be found.
+        if let row = indices[target.id] {
+            table.layoutSubtreeIfNeeded()
+            let frame = table.rect(ofRow: row)
+            let top = frame.height > scroll.contentSize.height ? frame.minY : frame.midY - scroll.contentSize.height / 2
+            insertionAnchor = Anchor(id: target.id, inset: top - frame.minY)
+            scrollToOffset(top)
+        }
+        for _ in 0..<30 {
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !stopped, let row = indices[target.id], let window = scroll.window else { return nil }
+            table.layoutSubtreeIfNeeded()
+            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: true) as? NativeTranscriptCell,
+                  let (field, rect) = TextCommentMarkFinder.find(mark, in: cell) else { continue }
+            TextCommentMarkFinder.scrollInner(rect, of: field, outside: scroll)
+            let words = table.convert(rect, from: field)
+            let rowTop = table.rect(ofRow: row).minY
+            scrollToOffset(words.midY - scroll.contentSize.height / 2)
+            insertionAnchor = Anchor(id: target.id, inset: scroll.contentView.bounds.minY - rowTop)
+            publishVisibility()
+            scroll.layoutSubtreeIfNeeded()
+            return TextCommentPlace(rect: window.convertToScreen(field.convert(rect, to: nil)), window: window)
+        }
+        return nil
     }
 }
 
@@ -757,6 +819,7 @@ private struct NativeMessageRow: View {
     let onSections: ([TranscriptReadingSection]) -> Void
     let onExpand: () -> Void
     @Environment(\.mica) private var theme
+    @Environment(\.textCommentPane) private var pane
     var body: some View {
         if let bash = message.bash {
             BashExecutionView(execution: bash)
@@ -813,7 +876,8 @@ private struct NativeMessageRow: View {
                                 .padding(.vertical, message.role == "user" ? 6 : 0)
                                 .background(MessageCopyRegion(markdown: message.text))
                                 .background(CommentSourceRegion(source: .init(
-                                    label: message.role == "user" ? "Your message" : "Assistant reply", scope: message.id)))
+                                    label: message.role == "user" ? "Your message" : "Assistant reply", scope: message.id,
+                                    pane: pane)))
         }
     }
 }

@@ -3,6 +3,7 @@ import SwiftUI
 struct BashExecutionView: View {
     @Environment(\.mica) private var theme
     @Environment(\.textComments) private var comments
+    @Environment(\.textCommentPane) private var pane
     let execution: BashExecution
     @State private var hovered = false
     /// Outcome text beside the command. The spinner alone conveys a running
@@ -45,7 +46,8 @@ struct BashExecutionView: View {
                         .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                 }.frame(height: min(240, CGFloat(execution.output.split(separator: "\n", omittingEmptySubsequences: false).count) * 18 + 24))
                     .background(CommentSourceRegion(source: .init(label: "Shell output · " + execution.command,
-                                                                  scope: TextCommentSource.shellScope(execution.id))))
+                                                                  scope: TextCommentSource.shellScope(execution.id),
+                                                                  pane: pane)))
                     .defaultScrollAnchor(.topLeading, for: .alignment)
             }
             if let error = execution.error { Text(error).foregroundStyle(theme.danger).padding(12) }

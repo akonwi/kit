@@ -16,6 +16,8 @@ struct TextCommentSource: Equatable {
     /// The scope the words are marked in, such as a transcript message's
     /// ID; nil where they aren't marked.
     var scope: String? = nil
+    /// The tab the words are in, which their chip opens to show them.
+    var pane: WorkspacePane? = nil
 
     /// The scope of a tool call's output.
     static func toolScope(_ id: String) -> String { "tool:" + id }
@@ -112,6 +114,8 @@ extension EnvironmentValues {
     /// The session's waiting comments on selected text, where words can be
     /// commented on and marked.
     @Entry var textComments: TextCommentDraft? = nil
+    /// The tab a transcript is shown in, which comments on its words name.
+    @Entry var textCommentPane: WorkspacePane? = nil
 }
 
 /// Waiting comments' words in rendered text: an accent wash and underline,
@@ -174,7 +178,10 @@ extension TextCommentDraft {
         let box = TextCommentBox(editor: editor, quote: existing?.annotation.quote ?? quote, submit: { [weak self] in
             guard let self else { return }
             if let editing { self.update(editing, comment: editor.comment) }
-            else { self.add(comment: editor.comment, source: source.label, quote: quote, scope: source.scope, locator: locator) }
+            else {
+                self.add(comment: editor.comment, source: source.label, quote: quote, scope: source.scope, locator: locator,
+                         pane: source.pane)
+            }
             popover.dismiss()
         }, cancel: { popover.dismiss() }, delete: editing.map { id in { [weak self] in
             self?.remove(id); popover.dismiss()

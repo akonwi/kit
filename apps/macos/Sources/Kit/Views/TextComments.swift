@@ -96,20 +96,21 @@ struct TextCommentQuote: View {
 }
 
 /// A comment on selected text waiting in the composer: its words and the
-/// comment. Clicking it reopens the comment; its × removes it.
+/// comment. Clicking it brings the words into view and reopens the comment
+/// at them; its × removes it.
 struct TextCommentChip: View {
     @Environment(\.mica) private var theme
     let item: TextCommentDraft.Item
     let draft: TextCommentDraft
-    @State private var editing = false
-    @State private var editor = TextCommentEditor()
+    /// Opens the comment, given where the chip is on screen.
+    let open: (_ chip: NSRect?, _ window: NSWindow?) -> Void
+    @State private var anchor = ComposerPickerAnchor()
 
     var body: some View {
         CommentChipFrame(help: item.annotation.comment,
                          label: "Comment on “\(Self.excerpt(item.annotation.quote))”: \(item.annotation.comment)") {
             Button {
-                editor = TextCommentEditor(comment: item.annotation.comment, editing: item.id)
-                editing = true
+                open(anchor.screenFrame, anchor.view?.window)
             } label: {
                 HStack(spacing: 6) {
                     IconView(.quotes, size: 12).foregroundStyle(theme.muted)
@@ -122,11 +123,7 @@ struct TextCommentChip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .popover(isPresented: $editing, arrowEdge: .top) {
-                TextCommentBox(editor: editor, quote: item.annotation.quote, submit: {
-                    draft.update(item.id, comment: editor.comment); editing = false
-                }, cancel: { editing = false }, delete: { draft.remove(item.id); editing = false })
-            }
+            .background(ComposerPickerAnchorView(anchor: anchor))
         } remove: {
             draft.remove(item.id)
         }

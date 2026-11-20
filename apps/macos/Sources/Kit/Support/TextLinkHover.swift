@@ -432,6 +432,23 @@ enum TranscriptClickable: CaseIterable {
         field.toolTip = previous
     }
 
+    /// Where `field` draws the text linking to `url`, in the field's
+    /// coordinates: a box around each line of it, in order.
+    static func boxes(linkingTo url: URL, in field: NSTextField) -> [NSRect] {
+        let text = field.attributedStringValue
+        var ranges: [NSRange] = []
+        text.enumerateAttribute(.link, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            if Self.url(value) == url { ranges.append(range) }
+        }
+        guard !ranges.isEmpty else { return [] }
+        let bounds = field.cell?.drawingRect(forBounds: field.bounds) ?? field.bounds
+        let layout = FieldLayout(field: field, text: text, width: bounds.width)
+        return ranges.flatMap(layout.boxes).map { rect in
+            let origin = field.isFlipped ? rect.minY + bounds.minY : bounds.maxY - rect.maxY
+            return NSRect(x: rect.minX + bounds.minX, y: origin, width: rect.width, height: rect.height)
+        }
+    }
+
     /// The link at `point`, in `field`'s coordinates, and its underline.
     func link(in field: NSTextField, at point: NSPoint) -> Hovered? {
         let text = field.attributedStringValue
@@ -492,6 +509,18 @@ enum TranscriptClickable: CaseIterable {
             guard storage.attribute(.link, at: character, longestEffectiveRange: &range,
                                     in: NSRange(location: 0, length: storage.length)) != nil else { return nil }
             return range
+        }
+
+        /// A box around each line's part of `range`.
+        func boxes(for range: NSRange) -> [NSRect] {
+            let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rects: [NSRect] = []
+            manager.enumerateLineFragments(forGlyphRange: glyphs) { _, _, _, lineGlyphs, _ in
+                let part = NSIntersectionRange(glyphs, lineGlyphs)
+                guard part.length > 0 else { return }
+                rects.append(self.manager.boundingRect(forGlyphRange: part, in: self.container))
+            }
+            return rects
         }
 
         /// An underline under each line's part of `range`, as the text
