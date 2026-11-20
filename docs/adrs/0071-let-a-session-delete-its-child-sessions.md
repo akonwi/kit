@@ -93,9 +93,10 @@ droids' declined hook.
 
 After approval the server reads the stored parent links again and deletes
 each requested session that is still the caller's child, with its
-descendants as they are then: approving a child covers its descendants. A
-requested session that has left the tree, by being deleted or no longer
-having the caller above it, is reported as not deleted.
+descendants as they are then: approving a child covers its descendants,
+including any created after the approval was asked, which the approval
+did not list. A requested session that has left the tree, by being deleted
+or no longer having the caller above it, is reported as not deleted.
 
 Each session is deleted through the session service's delete, the path a
 client's delete takes: the session manager's permanent delete
