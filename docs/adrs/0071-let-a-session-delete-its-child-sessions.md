@@ -81,7 +81,7 @@ model can read, which is not an error:
 ```
 
 The tool asks through droids' tool confirmation
-([ADR 0073](0073-layer-the-session-runtime-into-public-packages.md)): before
+([ADR 0073](0073-make-droids-the-unit-applications-compose-and-share-conversation-ui.md)): before
 the call runs, the server resolves the sessions and writes the approval, and
 the call runs only once the person approves. A call that can't be approved,
 because an ID is invalid, no ID names a child, a session is busy, or the
@@ -130,4 +130,4 @@ deleted.
 - [ADR 0009: Keep temporary sessions process-local](0009-keep-temporary-sessions-process-local.md)
 - [ADR 0017: Create top-level sessions from model tools](0017-create-top-level-sessions-from-model-tools.md)
 - [ADR 0028: Hard-delete persisted sessions](0028-hard-delete-persisted-sessions.md)
-- [ADR 0073: Layer the session runtime into public packages](0073-layer-the-session-runtime-into-public-packages.md)
+- [ADR 0073: Make droids the unit applications compose, and share conversation UI](0073-make-droids-the-unit-applications-compose-and-share-conversation-ui.md)

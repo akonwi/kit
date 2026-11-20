@@ -13,7 +13,7 @@ the follow-up waits. Removing an attachment afterwards does not change it.
 ## Restarts
 
 Follow-ups wait in the session droid's durable queue
-([ADR 0073](../adrs/0073-layer-the-session-runtime-into-public-packages.md)),
+([ADR 0073](../adrs/0073-make-droids-the-unit-applications-compose-and-share-conversation-ui.md)),
 so they survive a restart of the Kit server. After a restart, a session's
 queue starts when the server next loads the session, after the session
 resumes any turn the restart interrupted. Interrupted turns resume the same
