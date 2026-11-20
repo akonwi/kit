@@ -851,6 +851,9 @@ struct FilePane: View {
                 } else if let file = workspace.fixture.files.first(where: { $0.path == path }) {
                     ReadOnlyFileEditor(path: path, source: file.content,
                                        lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)
+                } else if entry?.binary == true && !loading {
+                    // The note above says why; there's nothing to retry.
+                    Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     Text(loading ? "Loading file…" : error == nil ? "File preview unavailable" : "Refresh to try again")
                         .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -8,13 +8,16 @@ private actor PreviewClient: WorkspaceFileClient {
     var revision = "one"
     var expected: [String?] = []
     var fail = false
+    var failure = 403
     func sessions() async throws -> [SessionExcerpt] { [] }
     func snapshot(_ id: String) async throws -> SessionExcerpt { throw ClientError.missingSession }
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
-    func change(_ revision: String, fail: Bool = false) { self.revision = revision; self.fail = fail }
+    func change(_ revision: String, fail: Bool = false, failure: Int = 403) {
+        self.revision = revision; self.fail = fail; self.failure = failure
+    }
     func readWorkspaceFile(_ session: String, path: String, expectedRevision: String?) async throws -> WireWorkspaceFileRead {
         expected.append(expectedRevision)
-        if fail { throw WorkspaceFileError.response(403) }
+        if fail { throw WorkspaceFileError.response(failure) }
         if let expectedRevision, expectedRevision != revision { throw WorkspaceFileError.response(409) }
         return try JSONDecoder().decode(WireWorkspaceFileRead.self, from: Data("""
         {"sessionId":"\(session)","workspace":{"sessionId":"\(session)","cwd":"/tmp","workspaceId":"workspace_test","state":"ready","limits":{"maxPathBytes":4096,"maxPathComponents":64,"defaultDirectoryPageSize":100,"maxDirectoryPageSize":200,"maxDirectoryEntries":10000,"maxDirectoryResponseBytes":524288,"maxDirectoryObservationBytes":8388608,"maxPreviewBytes":1000000,"maxPreviewLines":5000,"maxActiveRequests":1,"maxPendingRequests":0}},"path":"\(path)","revision":"\(revision)","size":5,"encoding":"utf-8","content":"hello","returnedBytes":5,"returnedLines":1,"truncated":false}
@@ -111,6 +114,20 @@ private actor LongFileClient: WorkspaceFileClient, FileDownloadClient {
         #expect(cache.entries["a"]?.preview?.revision == "two")
         #expect(cache.entries["a"]?.stale == true)
         #expect(cache.entries["a"]?.error == "This file cannot be read from this workspace.")
+    }
+    @Test func aBinaryFileIsMarkedSoThePaneOffersNoRetry() async {
+        let client = PreviewClient(), cache = FilePreviewCache()
+        await client.change("one", fail: true, failure: 415)
+        await cache.load("a", session: "s", cwd: "/tmp", client: client)
+        #expect(cache.entries["a"]?.error == "Binary files cannot be previewed.")
+        #expect(cache.entries["a"]?.binary == true)
+        // Another failure can be retried.
+        await client.change("one", fail: true)
+        await cache.load("a", session: "s", cwd: "/tmp", client: client, force: true)
+        #expect(cache.entries["a"]?.binary == false)
+        await client.change("one")
+        await cache.load("a", session: "s", cwd: "/tmp", client: client, force: true)
+        #expect(cache.entries["a"]?.error == nil && cache.entries["a"]?.binary == false)
     }
     @Test func cacheEvictsContentAndActivityInvalidatesWithoutProseChurn() async {
         let client = PreviewClient(), cache = FilePreviewCache(byteLimit: 8, entryLimit: 2)

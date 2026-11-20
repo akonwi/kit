@@ -7,6 +7,8 @@ final class FilePreviewCache {
     struct Entry {
         var preview: WireWorkspaceFileRead?
         var error: String?
+        /// The file is binary, so it has no preview to retry for.
+        var binary = false
         var loading = false
         var stale = true
         var token = UUID()
@@ -51,7 +53,7 @@ final class FilePreviewCache {
         let token = UUID()
         var entry = entries[path] ?? Entry()
         let expected = entry.preview?.revision
-        entry.token = token; entry.loading = true; entry.error = nil
+        entry.token = token; entry.loading = true; entry.error = nil; entry.binary = false
         entries[path] = entry
         defer { if entries[path]?.token == token { entries[path]?.loading = false } }
         do {
@@ -89,6 +91,7 @@ final class FilePreviewCache {
         } catch is CancellationError {} catch {
             guard !Task.isCancelled, entries[path]?.token == token else { return }
             entries[path]?.error = error.localizedDescription
+            if case WorkspaceFileError.response(415) = error { entries[path]?.binary = true }
             entries[path]?.stale = true
         }
     }
