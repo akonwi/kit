@@ -68,6 +68,24 @@ fn highlight_later(
   dispatch: fn(fn()) Void!event::DispatchError,
   done: fn(highlight::Result),
 ) contextbridge::Cancellation? {
+  highlight_then(
+    request,
+    dispatch,
+    fn(result: highlight::Result) highlight::Result {
+      result
+    },
+    done,
+  )
+}
+
+// Like `highlight_later`, but turns the result into what done takes off the
+// UI thread too, for results that are costly to take apart.
+fn highlight_then(
+  request: highlight::Request,
+  dispatch: fn(fn()) Void!event::DispatchError,
+  convert: fn(highlight::Result) $T,
+  done: fn($T),
+) contextbridge::Cancellation? {
   match highlight::DetectLanguage(request.Language, request.Path) == "" {
     true => Maybe::new<contextbridge::Cancellation>(),
     false => {
@@ -77,7 +95,7 @@ fn highlight_later(
         defer highlight_slots.recv()
         match attempt.Context.Err() {
           ok(_) => {
-            let result = highlight::Default.Highlight(attempt.Context, request)
+            let result = convert(highlight::Default.Highlight(attempt.Context, request))
             attempt.Cancel()
             let _ = dispatch(fn() {
               done(result)

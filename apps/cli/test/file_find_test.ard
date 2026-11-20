@@ -6,6 +6,7 @@ use cooper/cui
 use cooper/event
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/filedownload
 use kit/tui/file_pane
 use kit/tui/theme
 use kit/tui/workspace
@@ -35,6 +36,11 @@ struct Host {
   props: &mut HostProps,
 }
 
+// A read of a whole file, as a download that fits returns it.
+fn whole(file: protocol::WorkspaceFileRead) filedownload::Read!Error {
+  Result::ok(filedownload::Read{File: file})
+}
+
 fn host(props: &mut HostProps) &mut Host {
   &mut Host{props: props}
 }
@@ -58,8 +64,8 @@ impl cui::Component for Host {
         tab: self.props.tab,
         stale: false,
         shown: true,
-        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error {
-          Result::ok(
+        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+          whole(
             protocol::WorkspaceFileRead{
               Path: input.Path,
               Content: content,

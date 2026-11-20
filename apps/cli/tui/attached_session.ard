@@ -13,6 +13,7 @@ use go:github.com/akonwi/kit/internal/identifier
 use go:kit/ffi/attachmentbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
+use go:kit/ffi/filedownload
 use go:kit/ffi/footer
 use go:kit/ffi/hostfilebridge
 use go:kit/ffi/promptcommand
@@ -2142,42 +2143,45 @@ impl Controller {
     }
   }
 
-  // file_reader reads workspace files for File panes. Like
-  // `scratchpad_updater`, it captures only this attachment's session and
-  // cancellation, and blocks, so callers run it off the UI thread.
-  fn file_reader() (fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error)? {
+  // file_reader reads workspace files for File panes, given the revision of
+  // the copy shown. Like `scratchpad_updater`, it captures only this
+  // attachment's session and cancellation, and blocks, so callers run it off
+  // the UI thread.
+  fn file_reader() (fn(protocol::ReadWorkspaceFileInput, Str) filedownload::Read!Error)? {
     match self.lifetime {
       lifetime => {
         match self.session {
           session => {
             Maybe::new(
-              fn(input: protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error {
-                session.ReadWorkspaceFile(lifetime.Context, input)
+              fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+                filedownload::Workspace(session, lifetime.Context, input, held)
               },
             )
           },
-          _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error>(),
+          _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput, Str) filedownload::Read!Error>(),
         }
       },
-      _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error>(),
+      _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput, Str) filedownload::Read!Error>(),
     }
   }
 
   // host_reader reads files on the session's server outside its working
   // directory for host File panes. Like `file_reader`, its calls block.
-  fn host_reader() (fn(Str, Int, Int) hostfilebridge::File!Error)? {
+  fn host_reader() (fn(Str, Int, Int, Str) hostfilebridge::File!Error)? {
     match self.lifetime {
       lifetime => {
         match self.session {
           session => {
-            Maybe::new(fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
-              hostfilebridge::Read(session, lifetime.Context, file_path, width, height)
-            })
+            Maybe::new(
+              fn(file_path: Str, width: Int, height: Int, held: Str) hostfilebridge::File!Error {
+                hostfilebridge::Read(session, lifetime.Context, file_path, width, height, held)
+              },
+            )
           },
-          _ => Maybe::new<fn(Str, Int, Int) hostfilebridge::File!Error>(),
+          _ => Maybe::new<fn(Str, Int, Int, Str) hostfilebridge::File!Error>(),
         }
       },
-      _ => Maybe::new<fn(Str, Int, Int) hostfilebridge::File!Error>(),
+      _ => Maybe::new<fn(Str, Int, Int, Str) hostfilebridge::File!Error>(),
     }
   }
 

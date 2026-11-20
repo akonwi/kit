@@ -1,0 +1,297 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use go:kit/ffi/filedownload
+use kit/tui/file_pane
+use kit/tui/theme
+use kit/tui/workspace
+use go:strings
+use go:time
+
+// A File tab's reads as downloads answer them: cut short at the pane's
+// limits, revalidated when the tab is shown again, and changed while they
+// loaded.
+
+// What the host passes the pane, and what the pane asked of it.
+struct Model {
+  // Whether the tab is shown.
+  shown: Bool,
+  // The reads to answer, in order; the last answers every read after it.
+  answers: [filedownload::Read],
+  // The revision each read held.
+  held: [Str],
+  context: cui::Context?,
+}
+
+struct HostProps {
+  model: &mut Model,
+  tab: workspace::Tab,
+}
+
+struct Host {
+  props: &mut HostProps,
+}
+
+fn host(props: &mut HostProps) &mut Host {
+  &mut Host{props: props}
+}
+
+impl cui::Lifecycle for Host {
+  fn mut mounted(context: cui::Context) {
+    self.props.model.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.props.model
+    file_pane::view(
+      file_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        tab: self.props.tab,
+        stale: false,
+        shown: model.shown,
+        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+          let index = model.held.size()
+          model.held.push(held)
+          let last = model.answers.size() - 1
+          Result::ok(
+            model.answers.at(
+              match index < last {
+                true => index,
+                false => last,
+              },
+            ).expect("an answer"),
+          )
+        }),
+        annotations: [],
+        remove_annotation: fn(id: Uint64) {},
+        release_focus: fn() {},
+      },
+    )
+  }
+}
+
+struct Shown {
+  terminal: headless::TestApp,
+  renderer: cui::Renderer,
+  model: &mut Model,
+}
+
+// A download of notes.txt with content at revision.
+fn download(content: Str, revision: Str) filedownload::Read {
+  filedownload::Read{
+    File: protocol::WorkspaceFileRead{
+      Path: "notes.txt",
+      Revision: revision,
+      Content: content,
+      Size: Int64::from(content.size()),
+      ReturnedBytes: content.size(),
+      ReturnedLines: strings::Count(content, "\n"),
+    },
+  }
+}
+
+// Mounts a shown File pane for notes.txt whose reads are answered in order,
+// and waits for the first to load.
+fn show(width: Int, height: Int, answers: [filedownload::Read]) Shown {
+  let terminal = headless::new(width, height)
+  let tabs = workspace::tabs()
+  let _ = tabs.open(workspace::file("workspace_a", "notes.txt", 0))
+  let model = &mut Model{
+    shown: true,
+    answers: answers,
+    held: [],
+    context: Maybe::new<cui::Context>(),
+  }
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::child(host, HostProps{model: model, tab: tabs.current().expect("the file tab")}),
+  )
+  let shown = Shown{
+    terminal: terminal,
+    renderer: renderer,
+    model: model,
+  }
+  settle(shown, 1)
+  shown
+}
+
+// Flushes until the pane has made `reads` reads and shows none loading.
+fn settle(shown: Shown, reads: Int) {
+  shown.terminal.flush()
+  mut attempts = 0
+  while attempts < 200 and (shown.model.held.size() < reads or loading(shown.terminal)) {
+    shown.terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  shown.terminal.flush()
+  shown.terminal.flush()
+}
+
+fn loading(terminal: headless::TestApp) Bool {
+  let text = terminal.frame().text()
+  strings::Contains(text, "Loading file") or strings::Contains(text, "Refreshing")
+}
+
+// Hides the tab and shows it again, which reads the file again.
+fn reshow(shown: Shown) {
+  let model = shown.model
+  let reads = model.held.size()
+  match model.context {
+    context => {
+      let _ = context.dispatch(fn() {
+        model.shown = false
+      })
+      shown.terminal.flush()
+      let _ = context.dispatch(fn() {
+        model.shown = true
+      })
+    },
+    _ => (),
+  }
+  settle(shown, reads + 1)
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = &mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.*
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+test fn a_file_cut_at_the_byte_limit_says_how_much_shows() Void!Str {
+  mut cut = download("alpha\nbeta\n", "rev-1")
+  cut.File.Size = Int64::from(5 * 1048576)
+  cut.File.ReturnedBytes = 2 * 1048576
+  cut.File.Truncated = true
+  cut.File.TruncationReason = "byte_limit"
+  let shown = show(48, 6, [cut])
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt             Ln 1 · 2 lines · 5.0 MiB",
+      "────────────────────────────────────────────────",
+      "   1 alpha",
+      "   2 beta",
+      "────────────────────────────────────────────────",
+      "Showing the first 2.0 MiB of 5.0 MiB",
+    ],
+  )
+}
+
+test fn a_file_cut_at_the_line_limit_says_how_many_lines_show() Void!Str {
+  mut cut = download("alpha\nbeta\n", "rev-1")
+  cut.File.Size = Int64::from(1048576)
+  cut.File.ReturnedLines = 65536
+  cut.File.Truncated = true
+  cut.File.TruncationReason = "line_limit"
+  let shown = show(48, 6, [cut])
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt             Ln 1 · 2 lines · 1.0 MiB",
+      "────────────────────────────────────────────────",
+      "   1 alpha",
+      "   2 beta",
+      "────────────────────────────────────────────────",
+      "Showing the first 65536 lines",
+    ],
+  )
+}
+
+test fn showing_the_tab_again_revalidates_what_it_shows() Void!Str {
+  let shown = show(
+    40,
+    5,
+    [
+      download("alpha\n", "rev-1"),
+      filedownload::Read{File: protocol::WorkspaceFileRead{}, Unchanged: true},
+      download("beta\ngamma\n", "rev-2"),
+    ],
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  let first = [
+    " notes.txt         Ln 1 · 1 lines · 6 B",
+    "────────────────────────────────────────",
+    "   1 alpha",
+    "",
+    "",
+  ]
+  try expect_rows(rows(shown.terminal), first)
+  reshow(shown)
+  try expect_rows(rows(shown.terminal), first)
+  reshow(shown)
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt        Ln 1 · 2 lines · 11 B",
+      "────────────────────────────────────────",
+      "   1 beta",
+      "   2 gamma",
+      "",
+    ],
+  )
+  testing::assert(
+    strings::Join(shown.model.held, ",") == ",rev-1,rev-1",
+    "each read held the revision shown: {strings::Join(shown.model.held, ",")}",
+  )
+}
+
+test fn a_file_that_changed_while_it_loaded_says_so_and_loads_whole_again() Void!Str {
+  mut changed = download("alpha\n", "")
+  changed.Changed = true
+  let shown = show(40, 5, [changed, download("beta\n", "rev-3")])
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt         Ln 1 · 1 lines · 6 B",
+      "────────────────────────────────────────",
+      "   1 alpha",
+      "────────────────────────────────────────",
+      "Changed while loading",
+    ],
+  )
+  reshow(shown)
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt         Ln 1 · 1 lines · 5 B",
+      "────────────────────────────────────────",
+      "   1 beta",
+      "",
+      "",
+    ],
+  )
+  testing::assert(
+    strings::Join(shown.model.held, ",") == ",",
+    "a changed copy holds no revision: {strings::Join(shown.model.held, ",")}",
+  )
+}

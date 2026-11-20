@@ -7,6 +7,7 @@ use cooper/event
 use cooper/testing as headless
 use cooper/ui
 use go:kit/ffi/attachmentbridge
+use go:kit/ffi/filedownload
 use go:kit/ffi/hostfilebridge
 use go:kit/ffi/sessionbridge
 use kit/tui/annotations
@@ -15,6 +16,11 @@ use kit/tui/theme
 use kit/tui/workspace
 use go:strings
 use go:time
+
+// A read of a whole file, as a download that fits returns it.
+fn whole(file: protocol::WorkspaceFileRead) filedownload::Read!Error {
+  Result::ok(filedownload::Read{File: file})
+}
 
 fn rows(terminal: headless::TestApp) [Str] {
   let trimmed = &mut List::new<Str>()
@@ -69,8 +75,8 @@ fn show_file(width: Int, height: Int, file_path: Str, content: Str, line: Int) S
         tab: tabs.current().expect("the file tab"),
         stale: false,
         shown: true,
-        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error {
-          Result::ok(
+        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+          whole(
             protocol::WorkspaceFileRead{
               Path: input.Path,
               Content: content,
@@ -212,8 +218,8 @@ fn annotated_tab(
         tab: tabs.current().expect("the file tab"),
         stale: false,
         shown: true,
-        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error {
-          Result::ok(
+        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+          whole(
             protocol::WorkspaceFileRead{
               Workspace: protocol::WorkspaceRef{WorkspaceID: "workspace_a"},
               Path: input.Path,
@@ -584,7 +590,7 @@ fn show_host(
   width: Int,
   height: Int,
   file_path: Str,
-  read: fn(Str, Int, Int) hostfilebridge::File!Error,
+  read: fn(Str, Int, Int, Str) hostfilebridge::File!Error,
 ) Shown {
   let terminal = headless::new(width, height)
   let tabs = workspace::tabs()
@@ -629,7 +635,7 @@ test fn a_host_file_shows_its_text_by_absolute_path_without_annotations() Void!S
     48,
     6,
     "/etc/hosts",
-    fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+    fn(file_path: Str, width: Int, height: Int, held: Str) hostfilebridge::File!Error {
       let content = "127.0.0.1 localhost\n::1 localhost\n"
       Result::ok(
         hostfilebridge::File{
@@ -664,7 +670,7 @@ test fn a_host_image_fills_the_pane_keeping_its_proportions() Void!Str {
     48,
     8,
     "/Users/me/shot.png",
-    fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+    fn(file_path: Str, width: Int, height: Int, held: Str) hostfilebridge::File!Error {
       let pixels = &mut List::new<Byte>()
       for index in 1..32 {
         pixels.push(Byte::from(255))
@@ -718,7 +724,7 @@ test fn a_host_file_that_cannot_be_shown_says_why() Void!Str {
     64,
     5,
     "/bin/ls",
-    fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+    fn(file_path: Str, width: Int, height: Int, held: Str) hostfilebridge::File!Error {
       Result::err(Error::new("context canceled"))
     },
   )
@@ -831,7 +837,7 @@ test fn a_host_markdown_file_shows_rendered() Void!Str {
     48,
     6,
     "/srv/docs/guide.md",
-    fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+    fn(file_path: Str, width: Int, height: Int, held: Str) hostfilebridge::File!Error {
       let content = "## Guide\n\n> Read me.\n"
       Result::ok(
         hostfilebridge::File{

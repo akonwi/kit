@@ -2,10 +2,13 @@ package hostfilebridge
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
+	"strings"
 	"testing"
 
 	kit "github.com/akonwi/kit/api"
@@ -97,5 +100,53 @@ func TestDescribeExplainsHostReadFailures(t *testing.T) {
 		if got := Describe(err); got != want {
 			t.Errorf("Describe(%v) = %+v, want %+v", err, got, want)
 		}
+	}
+}
+
+// hostSession downloads one file's content, and answers the bounded host
+// read with a text preview.
+type hostSession struct {
+	content string
+	reads   int
+}
+
+func (s *hostSession) DownloadFile(_ context.Context, input protocol.DownloadFileInput, conditions protocol.DownloadConditions) (protocol.FileDownloadResponse, io.ReadCloser, error) {
+	info := protocol.DownloadedFileInfo{SessionID: "s", Path: "/home/me/notes.txt", Revision: "hostfile_1", Size: int64(len(s.content))}
+	if input.HasWorkspace || input.Path != "~/notes.txt" {
+		return protocol.FileDownloadResponse{}, nil, errors.New("unexpected input")
+	}
+	if conditions.CachedRevision == info.Revision {
+		return protocol.FileDownloadResponse{Info: info, NotModified: true}, nil, nil
+	}
+	return protocol.FileDownloadResponse{Info: info}, io.NopCloser(strings.NewReader(s.content)), nil
+}
+
+func (s *hostSession) CheckFile(context.Context, protocol.DownloadFileInput) (protocol.DownloadedFileInfo, error) {
+	return protocol.DownloadedFileInfo{Revision: "hostfile_1"}, nil
+}
+
+func (s *hostSession) ReadHostFile(context.Context, protocol.ReadHostFileInput) (protocol.HostFileRead, error) {
+	s.reads++
+	return protocol.HostFileRead{Payload: protocol.HostTextFile{SessionID: "s", Path: "/home/me/notes.txt", Size: 3, Encoding: "utf-8", Content: "old", ReturnedBytes: 3, ReturnedLines: 1}}, nil
+}
+
+func TestReadDownloadsTextWithARevisionItCantBeAnnotatedAt(t *testing.T) {
+	session := &hostSession{content: "a\nb\n"}
+	file, err := read(t.Context(), session, "~/notes.txt", 100, 100, "")
+	if err != nil || file.Text.Content != "a\nb\n" || file.Text.Path != "/home/me/notes.txt" || file.Text.Revision != "" ||
+		file.Revision != "hostfile_1" || file.Text.ReturnedLines != 2 || file.Image || session.reads != 0 {
+		t.Fatalf("file = %+v, %v", file, err)
+	}
+	file, err = read(t.Context(), session, "~/notes.txt", 100, 100, "hostfile_1")
+	if err != nil || !file.Unchanged || file.Text.Content != "" {
+		t.Fatalf("revalidated = %+v, %v", file, err)
+	}
+}
+
+func TestReadFallsBackToTheBoundedReadForWhatIsntText(t *testing.T) {
+	session := &hostSession{content: "\x89PNG\r\n\x1a\n\x00\x00"}
+	file, err := read(t.Context(), session, "~/notes.txt", 100, 100, "")
+	if err != nil || file.Text.Content != "old" || file.Revision != "" || session.reads != 1 {
+		t.Fatalf("file = %+v, %v", file, err)
 	}
 }

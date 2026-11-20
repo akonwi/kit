@@ -9,6 +9,7 @@ import (
 	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/apps/cli/ffi/attachmentbridge"
+	"github.com/akonwi/kit/apps/cli/ffi/filedownload"
 )
 
 // File is a file on the session's server as a File tab shows it: text as a
@@ -27,13 +28,41 @@ type File struct {
 	Height    int
 	// Pixels is the image scaled to fit the requested bounds.
 	Pixels attachmentbridge.Pixels
+	// Revision is the downloaded text's revision, to revalidate it with; it
+	// is empty for an image, a preview read, or a file without one.
+	Revision string
+	// Unchanged and Changed are as for filedownload.Read.
+	Unchanged bool
+	Changed   bool
 }
 
-// Read reads path, absolute or "~/…", on the session's server. An image is
-// scaled to fit within maxWidth by maxHeight pixels.
-func Read(session *kit.Session, ctx context.Context, path string, maxWidth, maxHeight int) (File, error) {
+// Read reads path, absolute or "~/…", on the session's server: text with
+// one download, as filedownload.Host does, and an image, or text a server
+// that predates downloads has, with the bounded host read. An image is
+// scaled to fit within maxWidth by maxHeight pixels. held is the revision
+// of the text the caller shows, or empty.
+func Read(session *kit.Session, ctx context.Context, path string, maxWidth, maxHeight int, held string) (File, error) {
 	if session == nil {
 		return File{}, errors.New("session is unavailable")
+	}
+	return read(ctx, session, path, maxWidth, maxHeight, held)
+}
+
+type source interface {
+	filedownload.Downloader
+	ReadHostFile(context.Context, protocol.ReadHostFileInput) (protocol.HostFileRead, error)
+}
+
+func read(ctx context.Context, session source, path string, maxWidth, maxHeight int, held string) (File, error) {
+	text, err := filedownload.Download(ctx, session, path, held)
+	if err == nil {
+		// The text names no revision, so it can't be annotated.
+		revision := text.File.Revision
+		text.File.Revision = ""
+		return File{Text: text.File, Revision: revision, Unchanged: text.Unchanged, Changed: text.Changed}, nil
+	}
+	if !filedownload.Fallback(err) {
+		return File{}, err
 	}
 	read, err := session.ReadHostFile(ctx, protocol.ReadHostFileInput{Path: path})
 	if err != nil {

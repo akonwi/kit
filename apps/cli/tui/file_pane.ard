@@ -11,6 +11,7 @@ use go:fmt
 use go:github.com/akonwi/kit/internal/highlight
 use go:github.com/akonwi/kit/internal/markdown as parser
 use go:kit/ffi/contextbridge
+use go:kit/ffi/filedownload
 use go:kit/ffi/hostfilebridge
 use go:kit/ffi/sessionbridge
 use kit/tui/after_commit
@@ -112,10 +113,12 @@ struct Props {
   stale: Bool,
   // Whether the tab is selected.
   shown: Bool,
-  // Reads a workspace file; blocks.
-  read: (fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error)?,
-  // Reads a host file within image bounds in pixels; blocks.
-  read_host: (fn(Str, Int, Int) hostfilebridge::File!Error)?,
+  // Reads a workspace file, given the revision of the copy shown, or "";
+  // blocks.
+  read: (fn(protocol::ReadWorkspaceFileInput, Str) filedownload::Read!Error)?,
+  // Reads a host file within image bounds in pixels, given the revision of
+  // the text shown, or ""; blocks.
+  read_host: (fn(Str, Int, Int, Str) hostfilebridge::File!Error)?,
   // The session's annotations, and what saves them; without it, lines can't
   // be annotated.
   annotations: [sessionbridge::Annotation],
@@ -263,6 +266,29 @@ fn marked(segments: [Segment], marks: [file_find::Mark]) [Segment] {
   made.*
 }
 
+// A read's lines, split off the UI thread, and the widest one's cells.
+struct Prepared {
+  rows: [[Segment]],
+  widest: Int,
+}
+
+private fn prepare(result: highlight::Result) Prepared {
+  let rows = lines(result)
+  mut widest = 0
+  for row in rows {
+    let width = line_width(row)
+    if width > widest {
+      widest = width
+    }
+  }
+  Prepared{rows: rows, widest: widest}
+}
+
+// A read's lines before highlighting.
+private fn prepare_plain(file: protocol::WorkspaceFileRead) Prepared {
+  prepare(code::plain(code::source_request("", file.Path, file.Content)))
+}
+
 private fn line_width(segments: [Segment]) Int {
   mut width = 0
   for segment in segments {
@@ -305,6 +331,21 @@ fn size_label(size: Int) Str {
     size < 1024 => "{size} B",
     size < 1024 * 1024 => fmt::Sprintf("%.1f KiB", Float64::fit(size) / 1024.0),
     _ => fmt::Sprintf("%.1f MiB", Float64::fit(size) / 1048576.0),
+  }
+}
+
+// What the footer says of a read that stops before the file's end. A file
+// of unknown length reports no more than what shows.
+fn truncation(file: protocol::WorkspaceFileRead) Str {
+  match file.TruncationReason {
+    "line_limit" => "Showing the first {file.ReturnedLines} lines",
+    _ => {
+      let shown = "Showing the first {size_label(file.ReturnedBytes)}"
+      match Int::fit(file.Size) > file.ReturnedBytes {
+        true => "{shown} of {size_label(Int::fit(file.Size))}",
+        false => shown,
+      }
+    },
   }
 }
 
@@ -479,6 +520,10 @@ private struct Pane {
   image_label: Str,
   // The latest read, and its lines as currently highlighted.
   read: protocol::WorkspaceFileRead?,
+  // The revision of the text shown, to revalidate it with, or "".
+  revision: Str,
+  // Whether the file changed while the text shown loaded.
+  changed: Bool,
   // Whether a Markdown file shows rendered rather than as source, and the
   // latest read's Markdown, parsed, with whether it ends inside a fence.
   rendered: Bool,
@@ -535,6 +580,8 @@ private fn new(props: &mut Props) &mut Pane {
     image: Maybe::new<ui::ImageData>(),
     image_label: "",
     read: Maybe::new<protocol::WorkspaceFileRead>(),
+    revision: "",
+    changed: false,
     rendered: is_markdown(props.tab.path),
     document: Maybe::new<parser::Document>(),
     fence_open: false,
@@ -658,22 +705,41 @@ impl Pane {
             let dispatch = context.dispatch
             let matte = self.props.themes.current().background
             let wanted = is_markdown(file_path)
+            let held = self.revision
             async::start(fn() {
-              let result = read(file_path, image_width, image_height)
+              let result = read(file_path, image_width, image_height, held)
+              let text = match result {
+                ok(file) => not file.Image and not file.Unchanged,
+                err(_) => false,
+              }
               let parsed = match result {
-                ok(file) => parse_if(wanted and not file.Image, file.Text.Content),
+                ok(file) => parse_if(wanted and text, file.Text.Content),
                 err(_) => Maybe::new<Parsed>(),
+              }
+              let prepared = match result {
+                ok(file) => {
+                  match text {
+                    true => prepare_plain(file.Text),
+                    false => Prepared{rows: [], widest: 0},
+                  }
+                },
+                err(_) => Prepared{rows: [], widest: 0},
               }
               let _ = dispatch(fn() {
                 if self.generation == generation {
                   self.loading = false
                   match result {
                     ok(file) => {
-                      match file.Image {
-                        true => self.loaded_image(file, matte),
-                        false => {
+                      match {
+                        file.Unchanged => { self.failed = Maybe::new<Failure>() },
+                        file.Image => {
+                          self.revision = ""
+                          self.changed = false
+                          self.loaded_image(file, matte)
+                        },
+                        _ => {
                           self.image = Maybe::new<ui::ImageData>()
-                          self.loaded(file.Text, parsed)
+                          self.loaded(file.Text, file.Revision, file.Changed, parsed, prepared)
                         },
                       }
                     },
@@ -730,17 +796,36 @@ impl Pane {
               let input = protocol::ReadWorkspaceFileInput{WorkspaceID: self.props.tab.workspace_id, Path: self.props.tab.path}
               let dispatch = context.dispatch
               let wanted = is_markdown(self.props.tab.path)
+              let held = self.revision
               async::start(fn() {
-                let result = read(input)
+                let result = read(input, held)
+                let text = match result {
+                  ok(file) => not file.Unchanged,
+                  err(_) => false,
+                }
                 let parsed = match result {
-                  ok(file) => parse_if(wanted, file.Content),
+                  ok(file) => parse_if(wanted and text, file.File.Content),
                   err(_) => Maybe::new<Parsed>(),
+                }
+                let prepared = match result {
+                  ok(file) => {
+                    match text {
+                      true => prepare_plain(file.File),
+                      false => Prepared{rows: [], widest: 0},
+                    }
+                  },
+                  err(_) => Prepared{rows: [], widest: 0},
                 }
                 let _ = dispatch(fn() {
                   if self.generation == generation {
                     self.loading = false
                     match result {
-                      ok(file) => self.loaded(file, parsed),
+                      ok(file) => {
+                        match file.Unchanged {
+                          true => { self.failed = Maybe::new<Failure>() },
+                          false => self.loaded(file.File, file.File.Revision, file.Changed, parsed, prepared),
+                        }
+                      },
                       err(error) => self.load_failed(failure(error)),
                     }
                   }
@@ -762,8 +847,21 @@ impl Pane {
     }
   }
 
-  private fn mut loaded(file: protocol::WorkspaceFileRead, parsed: Parsed?) {
+  // Shows a read whose lines were prepared off the UI thread. A copy that
+  // changed while it loaded keeps no revision, so it is read again whole.
+  private fn mut loaded(
+    file: protocol::WorkspaceFileRead,
+    revision: Str,
+    changed: Bool,
+    parsed: Parsed?,
+    prepared: Prepared,
+  ) {
     self.read = Maybe::new(file)
+    self.revision = match changed {
+      true => "",
+      false => revision,
+    }
+    self.changed = changed
     self.failed = Maybe::new<Failure>()
     match parsed {
       markdown_file => {
@@ -776,18 +874,19 @@ impl Pane {
       },
     }
     let request = code::source_request("", file.Path, file.Content)
-    self.show(code::plain(request))
+    self.show(prepared)
     self.stop_highlight()
     let generation = self.generation
     match self.context {
       context => {
-        self.highlighting = code::highlight_later(
+        self.highlighting = code::highlight_then(
           request,
           context.dispatch,
-          fn(result: highlight::Result) {
+          prepare,
+          fn(highlighted: Prepared) {
             if self.generation == generation {
               self.highlighting = Maybe::new<contextbridge::Cancellation>()
-              self.show(result)
+              self.show(highlighted)
             }
           },
         )
@@ -831,17 +930,10 @@ impl Pane {
     }
   }
 
-  private fn mut show(result: highlight::Result) {
-    self.rows = lines(result)
+  private fn mut show(prepared: Prepared) {
+    self.rows = prepared.rows
     self.find_texts_current = false
-    mut widest = 0
-    for row in self.rows {
-      let width = line_width(row)
-      if width > widest {
-        widest = width
-      }
-    }
-    self.widest = widest
+    self.widest = prepared.widest
   }
 
   private fn mut stop_highlight() {
@@ -2111,9 +2203,10 @@ impl Pane {
                   notes.push("Too large to render; showing source")
                 }
                 if file.Truncated {
-                  notes.push(
-                    "Preview truncated ({strings::ReplaceAll(file.TruncationReason, "_", " ")})",
-                  )
+                  notes.push(truncation(file))
+                }
+                if self.changed {
+                  notes.push("Changed while loading")
                 }
                 strings::Join(notes, " · ")
               },
@@ -2349,4 +2442,21 @@ test fn the_header_status_gives_way_to_the_path() Void!Str {
   )
   try testing::assert(status(24, "README.md", 0, 3, 17) == "3 lines", "rendered, the size goes first")
   testing::assert(status(12, "README.md", 0, 3, 17) == "", "then the count")
+}
+
+test fn a_cut_read_says_how_much_of_the_file_shows() Void!Str {
+  let cut = protocol::WorkspaceFileRead{
+    Size: Int64::from(5 * 1048576),
+    ReturnedBytes: 2 * 1048576,
+    ReturnedLines: 65536,
+    Truncated: true,
+    TruncationReason: "byte_limit",
+  }
+  try testing::assert(truncation(cut) == "Showing the first 2.0 MiB of 5.0 MiB", "a known length")
+  mut unknown = cut
+  unknown.Size = Int64::from(2 * 1048576)
+  try testing::assert(truncation(unknown) == "Showing the first 2.0 MiB", "an unknown length")
+  mut lines = cut
+  lines.TruncationReason = "line_limit"
+  testing::assert(truncation(lines) == "Showing the first 65536 lines", "the line limit")
 }
