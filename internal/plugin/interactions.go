@@ -254,12 +254,14 @@ func (h *Host) handleInteraction(ctx context.Context, owner InstanceID, method s
 	}
 	if parent != nil {
 		// The dialog lives only as long as the Kit request it serves.
-		done, pending := pendingRequestDone(ctx, parent)
+		done, values, pending := pendingRequestDone(ctx, parent)
 		if !pending {
 			return nil, rpcError(-32001, "Request cancelled: its parent request is not pending")
 		}
+		// The dialog sees what Kit's request carried, such as the tool call
+		// a before-execute request checks.
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithCancel(ctx)
+		ctx, cancel = context.WithCancel(parentValues{Context: ctx, parent: values})
 		defer cancel()
 		go func() {
 			select {

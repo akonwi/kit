@@ -10,8 +10,9 @@ import (
 )
 
 // droid_interactions.go — the session droid's interactions, projected into
-// Kit's interaction requests, events, and responses. The droid owns questions
-// its tools raise; Kit's broker still owns those that Kit's own code asks.
+// Kit's interaction requests, events, and responses. The droid owns every
+// question: those its tools raise and those Kit asks for plugins and MCP
+// servers.
 
 // projectDroidInteraction projects a droid interaction as Kit's canonical
 // request.
@@ -24,6 +25,11 @@ func projectDroidInteraction(sessionID string, interaction droids.Interaction) I
 		ConfirmLabel: question.ConfirmLabel, CancelLabel: question.CancelLabel,
 		Placeholder: question.Placeholder, InitialValue: question.InitialValue,
 		URL: question.URL, RedirectURI: question.RedirectURI, CreatedAt: interaction.CreatedAt,
+	}
+	if owner := interactionPlugin(interaction.Metadata); owner != nil {
+		// A plugin's dialog is the plugin's, even when a tool call's
+		// turn holds it.
+		request.Plugin, request.RunID, request.ToolCallID = owner, "", ""
 	}
 	if question.Default != nil {
 		value := *question.Default
@@ -96,38 +102,35 @@ func droidAnswer(kind InteractionKind, response InteractionResponse) droids.Answ
 	return droids.Answer{Answers: answers}
 }
 
-// pendingInteractions merges the broker's pending requests with the droid's,
-// oldest first.
-func pendingInteractions(sessionID string, broker []InteractionRequest, droid []droids.Interaction) []InteractionRequest {
-	requests := slices.Clone(broker)
-	for _, interaction := range droid {
-		requests = append(requests, projectDroidInteraction(sessionID, interaction))
-	}
-	slices.SortStableFunc(requests, func(a, b InteractionRequest) int { return a.CreatedAt.Compare(b.CreatedAt) })
-	return requests
-}
-
 // respondDroidInteraction settles one of the droid's pending interactions
 // with a client response, validated as Kit validates its own.
-func (m *Manager) respondDroidInteraction(ctx context.Context, loaded *runtime, sessionID string, response InteractionResponse) error {
-	pending, err := loaded.droid.Interactions(ctx)
+func respondDroidInteraction(ctx context.Context, interactions *sessionInteractions, response InteractionResponse) error {
+	droid := interactions.current()
+	if droid == nil {
+		return ErrClosed
+	}
+	pending, err := droid.Interactions(ctx)
 	if err != nil {
 		return err
 	}
 	index := slices.IndexFunc(pending, func(interaction droids.Interaction) bool { return string(interaction.ID) == response.RequestID })
 	if index < 0 {
-		return loaded.interactions.notPending(response.RequestID)
+		return interactions.notPending(response.RequestID)
 	}
-	request := projectDroidInteraction(sessionID, pending[index])
+	request := projectDroidInteraction(interactions.sessionID, pending[index])
+	if !interactions.visible(request) {
+		// Its plugin generation is gone; the dialog settles as unavailable.
+		return ErrInteractionSettled
+	}
 	if err := validateInteractionResponse(request, response); err != nil {
 		return err
 	}
-	err = loaded.droid.Respond(ctx, pending[index].ID, droidAnswer(request.Kind, response))
+	err = droid.Respond(ctx, pending[index].ID, droidAnswer(request.Kind, response))
 	switch {
 	case err == nil:
-		// Remember now rather than when the drain reaches the settlement, so
-		// an immediate second response reports the question as settled.
-		loaded.interactions.remember(response.RequestID)
+		// Remember now rather than when the settlement is announced, so an
+		// immediate second response reports the question as settled.
+		interactions.remember(response.RequestID)
 		return nil
 	case errors.Is(err, droids.ErrInteractionNotFound):
 		// It was pending when listed, so something settled it since.

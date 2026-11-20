@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -136,6 +137,14 @@ func TestClientsAnswerTheModelsQuestionsOverHTTP(t *testing.T) {
 				t.Fatalf("%s never asked", tc.tool)
 			}
 			time.Sleep(10 * time.Millisecond)
+		}
+		// The session waits for its user while the question is pending.
+		activity, err := client.GetSessionActivity(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []protocol.SessionActivityEntry{{SessionID: record.ID, Status: protocol.SessionActivityAwaitingResponse}}; !reflect.DeepEqual(activity, want) {
+			t.Fatalf("%s: activity = %#v, want %#v", tc.tool, activity, want)
 		}
 		// Another kind's answer is refused and leaves the question pending.
 		wrong := protocol.InteractionResponse{RequestID: pending.ID, Value: &text}

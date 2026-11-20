@@ -286,7 +286,7 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 			unlockMetadata()
 			return Snapshot{}, err
 		}
-		pendingInteractions := pendingInteractions(sessionID, loaded.interactions.snapshot(), droidSnapshot.Pending.Interactions)
+		pendingInteractions := loaded.interactions.project(droidSnapshot.Pending.Interactions)
 		loaded.events.mu.Lock()
 		result, err := m.projectSnapshotLocked(ctx, sessionID, loaded, record, droidSnapshot, pendingInteractions)
 		if err != nil {

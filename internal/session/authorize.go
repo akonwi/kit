@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -17,37 +18,41 @@ const maxRedirectURIBytes = 2 << 10
 var ErrAuthorizationCancelled = errors.New("the user cancelled authorization")
 
 // attachInteractions gives a session runtime bundle the session's interaction
-// tools and lets its MCP namespaces ask the session's user to authorize.
-func attachInteractions(bundle *RuntimeBundle, sessionID string, broker *interactionBroker) {
+// tools and its MCP authorizer.
+func attachInteractions(bundle *RuntimeBundle, sessionID string, interactions *sessionInteractions) {
 	bundle.Prompt.Prompt += interactionPromptGuidance
 	bundle.Tools = append(bundle.Tools, interactionTools()...)
 	if bundle.MCP != nil {
 		// Subagents borrow these namespaces but run in other conversations,
 		// which no user is watching, so only the session's own can ask.
-		bundle.MCP.SetAuthorizer(droids.ConversationID(sessionID), mcpAuthorizer(sessionID, broker))
+		bundle.MCP.SetAuthorizer(droids.ConversationID(sessionID), mcpAuthorizer(interactions))
 	}
 }
 
-// mcpAuthorizer asks the session's user, through an authorize interaction
-// owned by the tool call, to authorize an MCP server.
-func mcpAuthorizer(sessionID string, broker *interactionBroker) mcp.Authorizer {
+// mcpAuthorizer asks the session's user, through an authorize question on
+// the tool call, to authorize an MCP server. The question belongs to the
+// call's turn: steering declines it and the turn ending cancels it.
+func mcpAuthorizer(interactions *sessionInteractions) mcp.Authorizer {
 	return func(ctx context.Context, call droids.ToolContext, request mcp.AuthorizationRequest) (string, error) {
-		settlement, err := executeInteraction(ctx, sessionID, broker, call, InteractionRequest{
-			Kind:        InteractionAuthorize,
+		if !validAuthorizationURL(request.URL) || !validRedirectURI(request.RedirectURI) {
+			return "", fmt.Errorf("%w: authorization request is invalid", ErrInvalidInput)
+		}
+		settlement, err := interactions.ask(ctx, droids.Question{
+			Kind:        droids.QuestionAuthorize,
 			Title:       "Authorize the " + request.Server + " MCP server",
 			URL:         request.URL,
 			RedirectURI: request.RedirectURI,
-		})
+		}, droids.AskOptions{Call: &call})
 		if err != nil {
 			return "", err
 		}
-		if settlement.response.Cancelled {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-			return "", ErrAuthorizationCancelled
+		if settlement.Status == droids.InteractionAnswered && settlement.Answer.Value != nil {
+			return *settlement.Answer.Value, nil
 		}
-		return *settlement.response.Value, nil
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return "", ErrAuthorizationCancelled
 	}
 }
 

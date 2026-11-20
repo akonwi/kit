@@ -79,7 +79,7 @@ func TestRuntimeCloseJoinsInFlightTurnProjectionBeforeStoreClose(t *testing.T) {
 	}}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	if err := runtime.close(ctx, "test"); err != nil {
+	if err := runtime.close(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if !storeClosed {
@@ -109,7 +109,7 @@ func TestRuntimeCloseTransfersCleanupAfterTurnProjectionDeadline(t *testing.T) {
 	runtime := &runtime{turnEvents: bridge, droid: droid, closeStore: func() error { close(storeClosed); return nil }}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	if err := runtime.close(ctx, "test"); !errors.Is(err, context.DeadlineExceeded) {
+	if err := runtime.close(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("close error = %v, want deadline exceeded", err)
 	}
 	select {
@@ -118,7 +118,7 @@ func TestRuntimeCloseTransfersCleanupAfterTurnProjectionDeadline(t *testing.T) {
 	default:
 	}
 	secondClose := make(chan error, 1)
-	go func() { secondClose <- runtime.close(context.Background(), "test") }()
+	go func() { secondClose <- runtime.close(context.Background()) }()
 	close(store.release)
 	select {
 	case <-storeClosed:
@@ -152,7 +152,7 @@ func TestRuntimeCloseOwnsCleanupAfterCallerCancellation(t *testing.T) {
 	runtime := &runtime{turnEvents: bridge, droid: droid, closeStore: func() error { close(storeClosed); return nil }}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := runtime.close(ctx, "test"); !errors.Is(err, context.Canceled) {
+	if err := runtime.close(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("close error = %v, want cancelled", err)
 	}
 	select {

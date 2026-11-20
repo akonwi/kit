@@ -65,7 +65,7 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 		t.Skip("Python required")
 	}
 	manifest := `{"manifestVersion":1,"protocolVersion":2,"id":"approval","transport":{"type":"stdio","command":"python3","args":["-u","plugin.py"]}}`
-	for _, mode := range []string{"reject", "allow", "cancel"} {
+	for _, mode := range []string{"reject", "allow", "cancel", "steer"} {
 		testPluginInterception(t, "approval-plugin-v2.py", manifest, mode)
 	}
 }
@@ -181,7 +181,16 @@ func testPluginInterception(t *testing.T, scriptName, manifest, mode string) {
 			}
 			return
 		}
-		if err := client.RespondInteraction(ctx, created.ID, protocol.InteractionResponse{RequestID: interaction.ID, Confirmed: &allow}); err != nil {
+		if mode == "steer" {
+			// Steering answers for the user: the plugin's dialog belongs to
+			// the turn, so the plugin is told the user declined.
+			if _, err := client.SubmitPrompt(ctx, created.ID, "never mind"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.PromoteFollowUps(ctx, created.ID); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := client.RespondInteraction(ctx, created.ID, protocol.InteractionResponse{RequestID: interaction.ID, Confirmed: &allow}); err != nil {
 			t.Fatal(err)
 		}
 		select {

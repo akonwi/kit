@@ -67,7 +67,8 @@ func (m *Manager) Activity(ctx context.Context) ([]SessionActivity, error) {
 		candidate.mu.Unlock()
 		var pending []InteractionRequest
 		if candidate.interactions != nil {
-			pending = candidate.interactions.snapshot()
+			// A runtime that closed meanwhile reports nothing pending.
+			pending, _ = candidate.interactions.pending(ctx)
 		}
 		if len(pending) > 0 {
 			activity[id] = ActivityAwaitingResponse

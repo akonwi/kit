@@ -1021,7 +1021,12 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 	switch typed := event.(type) {
 	case droids.InteractionRequested:
 		request := projectDroidInteraction(sessionID, typed.Interaction)
-		request.RunID = runID
+		if request.Plugin == nil {
+			request.RunID = runID
+		} else {
+			// A plugin's dialog belongs to the session, not the turn.
+			base.TurnID, base.RunID = "", ""
+		}
 		base.Kind, base.Interaction = EventInteractionRequested, &request
 		return []NewEvent{base}
 	case droids.InteractionSettled:

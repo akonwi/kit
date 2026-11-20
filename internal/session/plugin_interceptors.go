@@ -53,7 +53,8 @@ func (b *pluginInterceptorBridge) before(ctx context.Context, call droids.ToolCo
 	if binding == nil {
 		return droids.BeforeToolResult{}, errors.New("Plugin interception is unavailable; tool execution blocked")
 	}
-	decision, err := binding.host.InterceptTool(ctx, call.BeforeHookIdentity, string(tool.ID), tool.Name, tool.Arguments)
+	// A dialog the check opens belongs to this call.
+	decision, err := binding.host.InterceptTool(withHookCall(ctx, call), call.BeforeHookIdentity, string(tool.ID), tool.Name, tool.Arguments)
 	if err != nil {
 		if ctx.Err() != nil {
 			return droids.BeforeToolResult{}, ctx.Err()

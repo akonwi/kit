@@ -26,7 +26,8 @@ elsewhere.
 5. Kit exchanges the code on the server and saves the credential in the
    server's home. The tool call continues.
 
-Cancelling the request fails the tool call. Kit checks that a received or
+Cancelling the request, or sending a message to the session instead of
+answering it, fails the tool call. Kit checks that a received or
 pasted redirect belongs to this authorization before using it.
 
 ## Limits

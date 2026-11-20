@@ -45,6 +45,8 @@ type rpcPending struct {
 	// done closes when the request leaves the pending set: answered,
 	// cancelled, or abandoned with the endpoint.
 	done chan struct{}
+	// values is the context Kit made the request in.
+	values context.Context
 }
 
 // busyError rejects a request beyond the endpoint's concurrency bound.
@@ -66,21 +68,38 @@ func (e *RPCEndpoint) removePendingLocked(key string) {
 }
 
 // pendingRequestDone returns a channel that closes when the request with id,
-// which this handler's endpoint sent, ends. It reports false when no such
-// request is pending.
-func pendingRequestDone(ctx context.Context, id json.RawMessage) (<-chan struct{}, bool) {
+// which this handler's endpoint sent, ends, and the context Kit sent it in.
+// It reports false when no such request is pending.
+func pendingRequestDone(ctx context.Context, id json.RawMessage) (<-chan struct{}, context.Context, bool) {
 	e, _ := ctx.Value(endpointContextKey{}).(*RPCEndpoint)
 	key, err := requestKey(id)
 	if e == nil || err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	pending := e.pending[key]
 	if pending == nil {
-		return nil, false
+		return nil, nil, false
 	}
-	return pending.done, true
+	return pending.done, pending.values, true
+}
+
+// parentValues is a request's context that also carries the values of the
+// Kit request it serves, without its deadline or cancellation.
+type parentValues struct {
+	context.Context
+	parent context.Context
+}
+
+func (c parentValues) Value(key any) any {
+	if value := c.Context.Value(key); value != nil {
+		return value
+	}
+	if c.parent == nil {
+		return nil
+	}
+	return c.parent.Value(key)
 }
 
 type rpcIncoming struct {
@@ -259,7 +278,7 @@ func (e *RPCEndpoint) callAdmitted(ctx context.Context, method string, params js
 	e.next++
 	id := json.RawMessage(strconv.Quote("kit-" + strconv.FormatUint(e.next, 10)))
 	key, _ := requestKey(id)
-	pending := &rpcPending{result: make(chan rpcResult, 1), validate: validate, done: make(chan struct{})}
+	pending := &rpcPending{result: make(chan rpcResult, 1), validate: validate, done: make(chan struct{}), values: context.WithoutCancel(ctx)}
 	e.pending[key] = pending
 	e.mu.Unlock()
 	if err := admit(func() error {

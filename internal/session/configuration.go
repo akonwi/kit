@@ -273,6 +273,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 		return ConfigureSessionResult{}, fmt.Errorf("activate replacement reasoning context: %w", err)
 	}
 	loaded.droid = replacementDroid
+	loaded.interactions.setDroid(replacementDroid)
 	loaded.pluginContributions.setDroid(replacementDroid)
 	if loaded.turnEvents != nil {
 		loaded.turnEvents.droid.Store(replacementDroid)
@@ -653,7 +654,7 @@ func (m *Manager) quarantineRuntime(sessionID string, loaded *runtime, replaceme
 	// Configuration callers still hold runtime transition locks here. Establish
 	// cleanup ownership without waiting so plugins, interactions, notifications,
 	// turn events, the droid, and the store all follow the single close path.
-	loaded.startClose("unavailable")
+	loaded.startClose()
 }
 
 func (m *Manager) persistSessionConfigurationReconciled(ctx context.Context, previous SessionRecord, update ConfigurationUpdate) (SessionRecord, error) {

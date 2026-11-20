@@ -341,7 +341,7 @@ type runtime struct {
 	// announcedCompactions are the latest compactions outside a turn that
 	// succeeded and were announced to attached clients.
 	announcedCompactions []string
-	interactions         *interactionBroker
+	interactions         *sessionInteractions
 }
 
 // admissionLock is the mutex whose holder may start a session's turn, or
@@ -1277,7 +1277,7 @@ func (m *Manager) delete(ctx context.Context, sessionID string, leaf bool) error
 	var cleanupErr error
 	if loaded != nil {
 		// Wait for the droid SQLite connection to close before unlinking its files.
-		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background(), "deleted"))
+		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background()))
 		m.mu.Lock()
 		if m.runtimes[sessionID] == loaded {
 			delete(m.runtimes, sessionID)
@@ -1488,7 +1488,7 @@ func (m *Manager) finishTemporaryDisposal(
 		loaded.mu.Lock()
 		m.unpinFollowUpsLocked(loaded, sessionID)
 		loaded.workspace.mutationMu.Lock()
-		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background(), "deleted"))
+		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background()))
 	}
 	m.bashMu.Lock()
 	delete(m.bashHistory, sessionID)
@@ -2278,14 +2278,28 @@ func (m *Manager) drainRunEvents(subscription droids.Subscription, loaded *runti
 	// replays them. Only a turn after this one counts: events recorded while
 	// the droid was idle, such as boundaries, carry the previous turn's ID.
 	settled, foreign := false, false
+	// Plugin dialogs this turn holds, whose events carry no turn.
+	pluginDialogs := map[droids.InteractionID]bool{}
 	for envelope := range subscription.Events() {
 		loaded.mu.Lock()
 		var appendErr error
 		if envelope.TurnID == droids.TurnID(turnID) {
-			if settled, ok := envelope.Event.(droids.InteractionSettled); ok {
-				loaded.interactions.remember(string(settled.ID))
+			events := projectDroidEvent(sessionID, turnID, runID, envelope.Event)
+			switch typed := envelope.Event.(type) {
+			case droids.InteractionRequested:
+				if interactionPlugin(typed.Interaction.Metadata) != nil {
+					pluginDialogs[typed.Interaction.ID] = true
+				}
+			case droids.InteractionSettled:
+				loaded.interactions.remember(string(typed.ID))
+				if pluginDialogs[typed.ID] {
+					delete(pluginDialogs, typed.ID)
+					for index := range events {
+						events[index].TurnID, events[index].RunID = "", ""
+					}
+				}
 			}
-			appendErr = loaded.events.append(projectDroidEvent(sessionID, turnID, runID, envelope.Event))
+			appendErr = loaded.events.append(events)
 			if lifecycle, ok := envelope.Event.(droids.LifecycleEvent); ok && lifecycle.Kind == "turn.settled" {
 				settled = true
 			}
@@ -2364,7 +2378,7 @@ func (m *Manager) finishShutdown(runtimes []*runtime) {
 	var shutdownErr error
 	for _, loaded := range runtimes {
 		loaded.mu.Lock()
-		shutdownErr = errors.Join(shutdownErr, loaded.close(context.Background(), "shutdown"))
+		shutdownErr = errors.Join(shutdownErr, loaded.close(context.Background()))
 		loaded.mu.Unlock()
 	}
 	// Closed droids start no more turns, so no follower starts after this.
@@ -2430,7 +2444,7 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 	startRecovery := false
 	if m.closed || m.deleting[sessionID] {
 		if loaded != nil {
-			_ = loaded.close(context.Background(), "unavailable")
+			_ = loaded.close(context.Background())
 		}
 		if m.closed {
 			loaded, err = nil, ErrClosed
@@ -2517,7 +2531,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		return nil, fmt.Errorf("build runtime bundle for session %q: %w", record.ID, err)
 	}
 	var loaded *runtime
-	interactions := newInteractionBroker(func(event NewEvent) {
+	interactions := newSessionInteractions(record.ID, func(event NewEvent) {
 		if loaded == nil {
 			return
 		}
@@ -2605,10 +2619,10 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		pluginImages: pluginImageStore{sessionID: record.ID, store: m.attachments},
 	}
 	loaded.pluginContributions.initialize(bundle.Subagents, droid)
-	interactions.authority = &loaded.mu
+	interactions.setDroid(droid)
 	quiescent, err := droid.WaitQuiescent(ctx)
 	if err != nil {
-		_ = loaded.close(context.Background(), "unavailable")
+		_ = loaded.close(context.Background())
 		return nil, err
 	}
 	// A waiting turn is followed as a run, as an interrupted one is resumed:
@@ -2646,7 +2660,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		}
 		if host, ok := loaded.plugins.(PluginInteractionHost); ok {
 			host.SetInteractionObserver(func(ctx context.Context, input PluginInteractionInput, available func() bool) (PluginInteractionResult, error) {
-				return loaded.interactions.requestPlugin(ctx, record.ID, input, available)
+				return loaded.interactions.askPlugin(ctx, input, available)
 			})
 		}
 		if host, ok := loaded.plugins.(PluginURLHost); ok {
@@ -2669,7 +2683,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		}
 		if host, ok := loaded.plugins.(PullRequestStatusHost); ok {
 			if err := startPullRequestInformer(record.ID, loaded, host); err != nil {
-				_ = loaded.close(context.Background(), "unavailable")
+				_ = loaded.close(context.Background())
 				return nil, fmt.Errorf("subscribe to pull request status: %w", err)
 			}
 		}
@@ -2677,7 +2691,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	if m.pluginSubagents != nil && loaded.plugins != nil {
 		cleanup, err := m.pluginSubagents.RegisterPluginCatalogProvider(record.ID, loaded.appliedPluginSubagentCatalog)
 		if err != nil {
-			_ = loaded.close(context.Background(), "unavailable")
+			_ = loaded.close(context.Background())
 			return nil, fmt.Errorf("register plugin subagent catalog: %w", err)
 		}
 		loaded.closePluginSubagentCatalog = cleanup
@@ -2821,11 +2835,11 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 	m.startRestoredQueue(loaded, sessionID)
 }
 
-func (r *runtime) close(ctx context.Context, interactionReason string) error {
+func (r *runtime) close(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	done := r.startClose(interactionReason)
+	done := r.startClose()
 	select {
 	case <-done:
 		r.closeMu.Lock()
@@ -2839,7 +2853,7 @@ func (r *runtime) close(ctx context.Context, interactionReason string) error {
 
 // startClose establishes cleanup ownership synchronously but never waits. It is
 // safe for quarantine paths that still hold runtime transition locks.
-func (r *runtime) startClose(interactionReason string) <-chan struct{} {
+func (r *runtime) startClose() <-chan struct{} {
 	r.closeMu.Lock()
 	defer r.closeMu.Unlock()
 	if !r.closeStarted {
@@ -2848,12 +2862,12 @@ func (r *runtime) startClose(interactionReason string) <-chan struct{} {
 		if r.cleanupOwner != nil {
 			r.cleanupOwner.Add(1)
 		}
-		go r.finishClose(interactionReason)
+		go r.finishClose()
 	}
 	return r.closeDone
 }
 
-func (r *runtime) finishClose(interactionReason string) {
+func (r *runtime) finishClose() {
 	defer func() {
 		if r.cleanupOwner != nil {
 			r.cleanupOwner.Done()
@@ -2874,9 +2888,6 @@ func (r *runtime) finishClose(interactionReason string) {
 	}
 	if r.turnEvents != nil {
 		cleanupErr = r.turnEvents.close(context.Background())
-	}
-	if r.interactions != nil {
-		r.interactions.cancelAll(interactionReason)
 	}
 	// Subagents stop offering client-hosted tools before the host that runs
 	// them closes.

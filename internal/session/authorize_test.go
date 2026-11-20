@@ -1,92 +1,14 @@
 package session
 
 import (
-	"context"
 	"errors"
-	"reflect"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/droids/mcp"
 )
 
-const testAuthorizeSession = "session_0123456789abcdef0123456789abcdef"
-
-func testAuthorizeCall() droids.ToolContext {
-	return droids.ToolContext{ConversationID: testAuthorizeSession, TurnID: "turn_0123456789abcdef0123456789abcdef", ToolCallID: "call_1"}
-}
-
 func testAuthorizationRequest() mcp.AuthorizationRequest {
 	return mcp.AuthorizationRequest{Server: "docs", URL: "https://auth.example.com/authorize?state=s", RedirectURI: "http://127.0.0.1:53173/mcp/callback"}
-}
-
-func TestMCPAuthorizerAsksTheUserAndReturnsTheirAnswer(t *testing.T) {
-	t.Parallel()
-	broker := newInteractionBroker(func(NewEvent) {})
-	answer := make(chan string, 1)
-	go func() {
-		value, err := mcpAuthorizer(testAuthorizeSession, broker)(context.Background(), testAuthorizeCall(), testAuthorizationRequest())
-		if err != nil {
-			t.Errorf("authorize: %v", err)
-		}
-		answer <- value
-	}()
-	pending := waitForOnePending(t, broker)
-	want := InteractionRequest{ID: pending.ID, SessionID: testAuthorizeSession, RunID: "turn_0123456789abcdef0123456789abcdef", ToolCallID: "call_1",
-		Kind: InteractionAuthorize, Title: "Authorize the docs MCP server",
-		URL: "https://auth.example.com/authorize?state=s", RedirectURI: "http://127.0.0.1:53173/mcp/callback", CreatedAt: pending.CreatedAt}
-	if !reflect.DeepEqual(pending, want) {
-		t.Fatalf("pending = %#v", pending)
-	}
-	redirect := "http://127.0.0.1:53173/mcp/callback?code=c&state=s"
-	if err := broker.respond(InteractionResponse{RequestID: pending.ID, Value: &redirect}); err != nil {
-		t.Fatal(err)
-	}
-	if got := <-answer; got != redirect {
-		t.Fatalf("answer = %q", got)
-	}
-}
-
-func TestMCPAuthorizerReportsCancellationAndTimeout(t *testing.T) {
-	t.Parallel()
-	var mu sync.Mutex
-	var resolutions []string
-	broker := newInteractionBroker(func(event NewEvent) {
-		if event.Kind == EventInteractionResolved {
-			mu.Lock()
-			resolutions = append(resolutions, event.InteractionResolution)
-			mu.Unlock()
-		}
-	})
-	failed := make(chan error, 1)
-	go func() {
-		_, err := mcpAuthorizer(testAuthorizeSession, broker)(context.Background(), testAuthorizeCall(), testAuthorizationRequest())
-		failed <- err
-	}()
-	pending := waitForOnePending(t, broker)
-	if err := broker.respond(InteractionResponse{RequestID: pending.ID, Cancelled: true}); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-failed; !errors.Is(err, ErrAuthorizationCancelled) {
-		t.Fatalf("cancelled error = %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	if _, err := mcpAuthorizer(testAuthorizeSession, broker)(ctx, testAuthorizeCall(), testAuthorizationRequest()); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("timed out error = %v", err)
-	}
-	if pending := broker.snapshot(); len(pending) != 0 {
-		t.Fatalf("pending after timeout = %#v", pending)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	// Waiting too long ends the request without ending the run.
-	if !reflect.DeepEqual(resolutions, []string{"user_cancelled", "unavailable"}) {
-		t.Fatalf("resolutions = %q", resolutions)
-	}
 }
 
 func TestAuthorizeInteractionValidation(t *testing.T) {
@@ -124,17 +46,4 @@ func TestAuthorizeInteractionValidation(t *testing.T) {
 	if err := validateInteractionResponse(valid, InteractionResponse{RequestID: valid.ID, Value: &empty}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("empty answer error = %v", err)
 	}
-}
-
-func waitForOnePending(t *testing.T, broker *interactionBroker) InteractionRequest {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if pending := broker.snapshot(); len(pending) == 1 {
-			return pending[0]
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("no interaction became pending")
-	return InteractionRequest{}
 }

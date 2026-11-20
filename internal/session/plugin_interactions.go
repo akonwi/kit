@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/akonwi/kit/droids"
 )
 
 // PluginInteractionOption exposes choice metadata, not the plugin's opaque value.
@@ -30,7 +32,8 @@ type PluginInteractionResult struct {
 }
 
 // PluginInteractionHost installs a session-owned observer before starting a host.
-// available is checked under broker authority to fence generation revocation.
+// available fences the plugin generation: once it reports false, the dialog
+// is hidden and refuses answers.
 type PluginInteractionHost interface {
 	SetInteractionObserver(func(context.Context, PluginInteractionInput, func() bool) (PluginInteractionResult, error))
 }
@@ -61,13 +64,18 @@ func validateInteractionPresentation(request InteractionRequest) error {
 	return nil
 }
 
-func (b *interactionBroker) requestPlugin(ctx context.Context, sessionID string, input PluginInteractionInput, available func() bool) (PluginInteractionResult, error) {
+// askPlugin asks the user a plugin's question. A dialog the plugin opens for
+// a before-execute check of the session's own tool call belongs to that
+// call's turn: steering declines it and the turn ending cancels it. Any other
+// dialog belongs to no turn. available fences the plugin generation: once it
+// reports false, the dialog is hidden and refuses answers.
+func (s *sessionInteractions) askPlugin(ctx context.Context, input PluginInteractionInput, available func() bool) (PluginInteractionResult, error) {
 	id, err := newInteractionID("interaction_")
 	if err != nil {
 		return PluginInteractionResult{}, err
 	}
 	owner := input.Owner
-	request := InteractionRequest{ID: id, SessionID: sessionID, Plugin: &owner, Kind: input.Kind, Title: input.Title, Detail: input.Detail, ConfirmLabel: input.ConfirmLabel, CancelLabel: input.CancelLabel, DefaultValue: input.DefaultValue, Placeholder: input.Placeholder, InitialValue: input.InitialValue, CreatedAt: time.Now().UTC()}
+	request := InteractionRequest{ID: id, SessionID: s.sessionID, Plugin: &owner, Kind: input.Kind, Title: input.Title, Detail: input.Detail, ConfirmLabel: input.ConfirmLabel, CancelLabel: input.CancelLabel, DefaultValue: input.DefaultValue, Placeholder: input.Placeholder, InitialValue: input.InitialValue, CreatedAt: time.Now().UTC()}
 	if input.Kind == InteractionSelect {
 		filterable := input.Filterable
 		request.Filterable = &filterable
@@ -82,31 +90,62 @@ func (b *interactionBroker) requestPlugin(ctx context.Context, sessionID string,
 		}
 		request.Options = append(request.Options, InteractionOption{ID: id, Label: option.Label, Detail: option.Detail, Value: strconv.Itoa(index)})
 	}
-	settlement, err := b.requestOwned(ctx, request, available)
+	if err := validateInteractionRequest(request); err != nil {
+		return PluginInteractionResult{}, err
+	}
+	release := s.fence(owner, available)
+	defer release()
+	if available != nil && !available() {
+		return PluginInteractionResult{}, ErrClosed
+	}
+	options := droids.AskOptions{Metadata: pluginMetadata(owner)}
+	if call, ok := hookCall(ctx); ok && call.ConversationID == droids.ConversationID(s.sessionID) {
+		options.Call = &call
+	}
+	settlement, err := s.ask(ctx, droidQuestion(request), options)
 	if err != nil {
 		return PluginInteractionResult{}, err
 	}
 	if ctx.Err() != nil {
 		return PluginInteractionResult{}, ctx.Err()
 	}
-	response := settlement.response
-	if response.Cancelled {
-		if settlement.reason != "user_cancelled" {
-			return PluginInteractionResult{}, ErrClosed
-		}
+	switch settlement.Status {
+	case droids.InteractionDeclined:
 		return PluginInteractionResult{Cancelled: true}, nil
+	case droids.InteractionAnswered:
+	default:
+		return PluginInteractionResult{}, ErrClosed
 	}
+	answer := settlement.Answer
 	switch request.Kind {
 	case InteractionConfirm:
-		return PluginInteractionResult{Confirmed: *response.Confirmed}, nil
+		if answer.Confirmed != nil {
+			return PluginInteractionResult{Confirmed: *answer.Confirmed}, nil
+		}
 	case InteractionInput:
-		return PluginInteractionResult{Text: *response.Value}, nil
+		if answer.Value != nil {
+			return PluginInteractionResult{Text: *answer.Value}, nil
+		}
 	case InteractionSelect:
 		for index, option := range request.Options {
-			if option.ID == response.SelectedOptionID {
+			if option.ID == answer.OptionID {
 				return PluginInteractionResult{OptionIndex: index}, nil
 			}
 		}
 	}
 	return PluginInteractionResult{}, errors.New("invalid plugin interaction settlement")
+}
+
+// droidQuestion is the droid question for a validated request.
+func droidQuestion(request InteractionRequest) droids.Question {
+	question := droids.Question{
+		Kind: droids.QuestionKind(request.Kind), Title: request.Title, Detail: request.Detail,
+		ConfirmLabel: request.ConfirmLabel, CancelLabel: request.CancelLabel, Default: request.DefaultValue,
+		Placeholder: request.Placeholder, InitialValue: request.InitialValue, Filterable: request.Filterable,
+		URL: request.URL, RedirectURI: request.RedirectURI,
+	}
+	for _, option := range request.Options {
+		question.Options = append(question.Options, droids.Option{ID: option.ID, Label: option.Label, Value: option.Value, Detail: option.Detail})
+	}
+	return question
 }
