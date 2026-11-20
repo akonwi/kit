@@ -312,7 +312,10 @@ func (d *Droid) Promote(ctx context.Context, ids ...QueuedPromptID) ([]QueuedPro
 		"queued_ids": removed, "message_ids": messageIDs,
 	})
 	events = append(events, promoted)
-	if err := rt.commitLocked(ctx, mutations, events); err != nil {
+	// Promoted prompts steer the turn, so they answer for the person as
+	// steering does: the turn's pending questions are declined.
+	declined := rt.turnInteractionsLocked(InteractionDeclined, reasonSteered)
+	if err := rt.settleInteractionsLocked(ctx, declined, mutations, events); err != nil {
 		rt.state = before
 		return nil, err
 	}

@@ -430,6 +430,9 @@ func validateOpenedRuntime(state durableRuntime) error {
 			if tool.RawResult != nil || tool.Final != nil {
 				return fmt.Errorf("droids: pre-execution tool %q contains a result", tool.ID)
 			}
+			if !validPreExecutionAnswer(tool, state.Interactions) {
+				return fmt.Errorf("droids: pre-execution tool %q has an invalid answer", tool.ID)
+			}
 		case toolPhaseAwaiting:
 			pending := slices.Contains(state.Interactions, tool.Interaction)
 			if tool.RawResult != nil || tool.Final != nil || !validID(string(tool.Interaction), interactionIDPrefix) ||
@@ -713,4 +716,30 @@ func boundaryToWire(message BoundaryMessage) (BoundaryMessageWire, error) {
 		Kind: message.Kind, Source: message.Source, Content: content,
 		Details: append(json.RawMessage(nil), message.Details...),
 	}, nil
+}
+
+// validPreExecutionAnswer reports whether a call that has not run carries
+// only an answer droids could have recorded: none, or the settled answer to
+// its declared question, which approves it when it asked for confirmation.
+// A call carrying an answer runs without asking again.
+func validPreExecutionAnswer(tool durableTool, pending []InteractionID) bool {
+	if tool.Settlement == nil {
+		return tool.Interaction == "" && tool.Ask == ""
+	}
+	if !validID(string(tool.Interaction), interactionIDPrefix) || slices.Contains(pending, tool.Interaction) {
+		return false
+	}
+	settlement := *tool.Settlement
+	switch tool.Ask {
+	case declaredConfirm:
+		return settlement.Status == InteractionAnswered && settlement.Answer.Confirmed != nil && *settlement.Answer.Confirmed
+	case declaredAnswer:
+		switch settlement.Status {
+		case InteractionAnswered:
+			return tool.Question != nil && validateAnswer(*tool.Question, settlement.Answer) == nil
+		case InteractionDeclined, InteractionCancelled, InteractionUnavailable:
+			return true
+		}
+	}
+	return false
 }

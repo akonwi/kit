@@ -715,8 +715,9 @@ Each successful `Enqueue` queues a new prompt. Metadata is bounded
 application JSON returned with the prompt.
 
 `Withdraw` removes queued prompts and returns them; `Promote` moves them into
-the running turn as steering in one commit. With no identifiers, either acts
-on the whole queue.
+the running turn as steering in one commit, which declines the turn's pending
+interactions as steering does. With no identifiers, either acts on the whole
+queue.
 
 A queue that `Spawn` restores, or that a turn ending in a provider policy stop
 leaves behind, is held: it starts nothing until the application calls
@@ -1332,8 +1333,10 @@ most 8 are pending.
   `Execute` or a before-tool hook calls the package-level `Ask` with its
   context, which attaches the question to its call. The application calls
   `Droid.Ask`, optionally with `AskOptions.Call`, for example on behalf of a
-  plugin. The waiting code does not outlive the process, so a shutdown wakes it
-  with `InteractionUnavailable` and `Spawn` records that.
+  plugin. `AskOptions.Requested`, when set, receives the interaction once it is
+  recorded, before `Ask` waits, so a caller can announce a question asked
+  outside any turn. The waiting code does not outlive the process, so a
+  shutdown wakes it with `InteractionUnavailable` and `Spawn` records that.
 
 `Respond` checks the answer against the question's kind and settles it as
 answered, or declined when `Answer.Declined` is set. Every interaction settles
@@ -1346,8 +1349,9 @@ with a status:
 | `unavailable` | The code waiting for a live interaction stopped, or a restart ended it. |
 | `cancelled` | The turn that owned it ended. |
 
-Steering a turn declines its pending interactions, with the reason `the user
-sent a message instead of answering`, and continues a waiting turn. Queued
+Steering a turn, with `PromptOptions.Steer` or `Promote`, declines its pending
+interactions, with the reason `the user sent a message instead of answering`,
+and continues a waiting turn. Queued
 prompts settle nothing; they start after the turn. Interactions asked outside a
 turn are settled only by `Respond` or by their waiting code stopping.
 

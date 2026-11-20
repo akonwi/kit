@@ -367,6 +367,35 @@ func TestAWaitingTurnSurvivesARestartAndContinuesWhenAnswered(t *testing.T) {
 	}
 }
 
+func TestPromotingAQueuedPromptDeclinesTheTurnsPendingQuestions(t *testing.T) {
+	providers := newInteractionProviders(callTools(toolCall("call_1", "danger", `{"target":"prod"}`)))
+	var runs atomic.Int32
+	droid := spawnInteractionDroid(t, "confirm_promote", droids.NewMemoryStore(), providers,
+		countingTool("danger", &runs, func(tool *droids.Tool[dangerArgs]) { tool.RequireConfirmation = true }))
+	handle, err := droid.Prompt(t.Context(), textInput("go"), droids.PromptOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitPending(t, droid, 1)
+	waitUntil(t, "the turn waits", func() bool { return activeStatus(t, droid) == droids.ExecutionWaiting })
+	queued, err := droid.Enqueue(t.Context(), textInput("use staging instead"), droids.QueueOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := droid.Promote(t.Context(), queued.Prompt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := settle(t, handle); outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+	if runs.Load() != 0 || providers.results()["call_1"] != "Not run: the user sent a message instead of answering." {
+		t.Fatalf("runs = %d, results = %v", runs.Load(), providers.results())
+	}
+	if got := lastUserText(providers.requestsSeen()[len(providers.requestsSeen())-1]); got != "use staging instead" {
+		t.Fatalf("last user message = %q, want the promoted prompt", got)
+	}
+}
+
 func TestSteeringDeclinesTheTurnsPendingQuestions(t *testing.T) {
 	providers := newInteractionProviders(callTools(toolCall("call_1", "danger", `{"target":"prod"}`)))
 	var runs atomic.Int32
@@ -700,6 +729,87 @@ func TestAnAnsweredCallUnderANewPolicyIsCheckedAgainWithoutAskingAgain(t *testin
 			if hooks.Load() != 2 || runs.Load() != wantRuns || providers.results()["call_1"] != want || len(interactions) != 0 {
 				t.Fatalf("hooks = %d, runs = %d, results = %v, pending = %v; want 2 hooks, %d runs, %q, none pending",
 					hooks.Load(), runs.Load(), providers.results(), interactions, wantRuns, want)
+			}
+		})
+	}
+}
+
+// A stored call that has not run may carry only an answer droids recorded,
+// since a call with an answer runs without asking.
+func TestAForgedAnswerOnACallThatHasNotRunIsRefused(t *testing.T) {
+	cases := map[string]func(tool map[string]json.RawMessage){
+		"a refusal recorded as ready": func(tool map[string]json.RawMessage) {
+			tool["phase"] = json.RawMessage(`"ready"`)
+			tool["settlement"] = json.RawMessage(`{"status":"declined","reason":"the user declined"}`)
+		},
+		"an approval without its question": func(tool map[string]json.RawMessage) {
+			tool["phase"] = json.RawMessage(`"before_hook"`)
+			delete(tool, "interaction_id")
+			tool["settlement"] = json.RawMessage(`{"status":"answered","answer":{"confirmed":true}}`)
+		},
+		"an approval of another kind": func(tool map[string]json.RawMessage) {
+			tool["phase"] = json.RawMessage(`"ready"`)
+			tool["settlement"] = json.RawMessage(`{"status":"answered","answer":{"value":"yes"}}`)
+		},
+	}
+	for name, forge := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := droids.NewMemoryStore()
+			providers := newInteractionProviders(callTools(toolCall("call_1", "danger", `{"target":"prod"}`)))
+			var runs atomic.Int32
+			tool := countingTool("danger", &runs, func(tool *droids.Tool[dangerArgs]) { tool.RequireConfirmation = true })
+			droid := spawnInteractionDroid(t, "confirm_forged", store, providers, tool)
+			if _, err := droid.Prompt(t.Context(), textInput("go"), droids.PromptOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			pending := waitPending(t, droid, 1)
+			if err := droid.Shutdown(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+
+			record, err := store.Record(t.Context(), "runtime", "current")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var runtime map[string]json.RawMessage
+			var tools map[string]map[string]json.RawMessage
+			if err := json.Unmarshal(record.Payload, &runtime); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(runtime["tools"], &tools); err != nil {
+				t.Fatal(err)
+			}
+			call := tools[string(pending[0].ToolCallID)]
+			if call == nil {
+				t.Fatalf("no stored call %s in %v", pending[0].ToolCallID, tools)
+			}
+			forge(call)
+			// As if droids had settled the question and the process then
+			// stopped.
+			delete(runtime, "interactions")
+			runtime["status"] = json.RawMessage(`"interrupted"`)
+			if runtime["tools"], err = json.Marshal(tools); err != nil {
+				t.Fatal(err)
+			}
+			payload, err := json.Marshal(runtime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state, err := store.State(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.Commit(t.Context(), droids.CommitRequest{ExpectedRevision: state.Revision, Mutations: []droids.EncodedMutation{{
+				Operation: droids.MutationPut, RecordKind: record.Kind, RecordID: record.ID, Scope: record.Scope, Version: record.Version, Payload: payload,
+			}}}); err != nil {
+				t.Fatal(err)
+			}
+			if reopened, err := droids.Spawn(t.Context(), "confirm_forged", droids.Config{Store: store, Model: resolvedTestModel(providers, "test/read"), Tools: []droids.AnyTool{tool}}); err == nil {
+				_ = reopened.Close()
+				t.Fatal("Spawn accepted the forged answer")
+			}
+			if runs.Load() != 0 {
+				t.Fatalf("runs = %d", runs.Load())
 			}
 		})
 	}

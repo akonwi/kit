@@ -183,6 +183,9 @@ type AskOptions struct {
 	Call *ToolContext
 	// Metadata is bounded application JSON returned with the interaction.
 	Metadata json.RawMessage
+	// Requested, when set, is called with the interaction once it is
+	// recorded and before Ask waits, so the caller learns its ID.
+	Requested func(Interaction)
 }
 
 type durableInteraction struct {
@@ -347,6 +350,9 @@ func (rt *sdkRuntime) ask(ctx context.Context, question Question, options AskOpt
 	}
 	rt.liveWaiters[interaction.ID] = waiter
 	rt.mu.Unlock()
+	if options.Requested != nil {
+		options.Requested(interaction.public())
+	}
 
 	select {
 	case settlement := <-waiter:
