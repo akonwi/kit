@@ -757,8 +757,12 @@ struct FilePane: View {
     private var previewAnnotations: MarkdownPreviewAnnotations? {
         guard let preview, let client = state.catalogClient as? any AnnotationClient else { return nil }
         return MarkdownPreviewAnnotations(document: AnnotationDocument(file: preview), state: state.annotationState,
-            client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
+            client: client, session: state.selectedID, canAnnotate: annotatable)
     }
+    /// Whether the file as shown takes comments: it is current, and has a
+    /// revision to anchor them to, which a copy that changed while it
+    /// downloaded doesn't.
+    private var annotatable: Bool { !loading && entry?.stale == false && preview?.revision.isEmpty == false }
     private var request: String {
         state.serverID + "|" + state.selectedID + "|" + (state.selected?.cwd ?? "") + "|" + String(active) + "|" + String(revision) + "|" + String(workspace.filePreviews.revision)
     }
@@ -788,7 +792,7 @@ struct FilePane: View {
                     Button(state.annotationState.replacement == nil && state.annotationState.selectionDraft == nil ? "Annotate selection" : "Use selected range") { beginAnnotation() }
                         .font(.kit(size: 11)).buttonStyle(.plain)
                         .help("Annotate up to 200 selected lines")
-                        .disabled(selectedLines == nil || loading || entry?.stale == true ||
+                        .disabled(selectedLines == nil || !annotatable ||
                             state.annotationState.pending || state.annotationState.editor != nil)
                 }
                 Button { revision += 1 } label: { IconView(.arrowClockwise, size: 12) }
@@ -800,7 +804,7 @@ struct FilePane: View {
                 Rule()
             }
             if let error {
-                Text((preview == nil ? "" : "Showing an older preview. ") + error)
+                Text((preview == nil ? "" : "Showing what loaded before. ") + error)
                     .font(.kit(size: 12)).foregroundStyle(theme.muted).padding(12)
                 Rule()
             }
@@ -841,7 +845,7 @@ struct FilePane: View {
                 } else if let preview {
                     if let client = state.catalogClient as? any AnnotationClient {
                         AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
-                            client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false,
+                            client: client, session: state.selectedID, canAnnotate: annotatable,
                             lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)
                             .id(preview.workspace.workspaceId + preview.revision + ":" + String(preview.returnedBytes)).clipped()
                     } else {
@@ -871,11 +875,11 @@ struct FilePane: View {
                   state.annotationState.evidenceConflict == .staleFile || state.annotationState.evidenceConflict == .staleWorkspace else { return }
             workspace.filePreviews.invalidate(path)
         }.task(id: request) {
-            guard active, !state.isDemo, let client = state.catalogClient as? any WorkspaceFileClient else { return }
+            guard active, !state.isDemo, let client = state.catalogClient as? any FileDownloadClient else { return }
             guard let cwd = state.selected?.cwd else { return }
             do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
             await workspace.filePreviews.load(path, session: state.selectedID, cwd: cwd,
-                client: client, force: revision > 0)
+                client: client, force: revision > 0, refresh: revision)
             if let annotationClient = state.catalogClient as? any AnnotationClient {
                 let annotations = state.annotationState
                 try? await annotations.refresh(client: annotationClient, session: state.selectedID)

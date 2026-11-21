@@ -81,7 +81,7 @@ extension ViewedFile {
         case .image(let image):
             guard image.sessionId == session, matches(image.path), imageTypes.contains(image.mediaType),
                   let data = Data(base64Encoded: image.data), data.count == image.size, data.count <= maxImageBytes,
-                  image.width > 0, image.height > 0, image.width * image.height <= maxImagePixels else { throw ClientError.invalidPayload }
+                  image.width > 0, image.height > 0, image.width <= maxImagePixels / image.height else { throw ClientError.invalidPayload }
             return ViewedFile(path: image.path, size: image.size,
                               content: .image(data, mediaType: image.mediaType, width: image.width, height: image.height))
         }
@@ -112,18 +112,25 @@ extension ViewedFile {
             guard data.count <= maxImageBytes, Int64(data.count) == size else {
                 throw data.count > maxImageBytes ? ViewedFileError.imageTooLarge : ViewedFileError.changed
             }
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
-                  let height = properties[kCGImagePropertyPixelHeight] as? Int, width > 0, height > 0 else {
-                throw ViewedFileError.unsupported
-            }
-            guard width * height <= maxImagePixels else { throw ViewedFileError.imageTooLarge }
-            return ViewedFile(path: path, size: size, content: .image(data, mediaType: mediaType, width: width, height: height))
+            return try image(data, mediaType: mediaType, path: path, size: size)
         }
         let data = header + (try handle.read(upToCount: maxTextBytes + 4 - header.count) ?? Data())
         let (text, truncated) = try preview(data, complete: Int64(data.count) >= size)
         return ViewedFile(path: path, size: size, content: .text(text, truncated: truncated))
+    }
+
+    /// A complete supported image of `mediaType`, checked against the bounds
+    /// Kit shows images within.
+    public static func image(_ data: Data, mediaType: String, path: String, size: Int64) throws -> ViewedFile {
+        guard data.count <= maxImageBytes else { throw ViewedFileError.imageTooLarge }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int, width > 0, height > 0 else {
+            throw ViewedFileError.unsupported
+        }
+        guard width <= maxImagePixels / height else { throw ViewedFileError.imageTooLarge }
+        return ViewedFile(path: path, size: size, content: .image(data, mediaType: mediaType, width: width, height: height))
     }
 
     /// The supported image type `header` begins, or nil.

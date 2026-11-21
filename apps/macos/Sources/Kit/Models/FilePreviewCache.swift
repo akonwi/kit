@@ -12,15 +12,17 @@ final class FilePreviewCache {
         var loading = false
         var stale = true
         var token = UUID()
-        /// The whole file, downloaded because the preview was cut off; it
-        /// replaces the preview's content (ADR 0074).
+        /// The downloaded text that `preview` shows (ADR 0074).
         var whole: WholeFileDownload.Text?
+        /// The Refresh count at which its download was cancelled, so it
+        /// isn't loaded again until the next Refresh.
+        var cancelled: Int?
     }
     private(set) var entries: [String: Entry] = [:]
     private var recent: [String] = []
     private(set) var revision = 0
     private var activity: [String]?
-    /// Downloads of whole files, by path.
+    /// Downloads of files, by path.
     private(set) var downloads: [String: WholeFileDownload] = [:]
     let byteLimit: Int
     let entryLimit: Int
@@ -47,74 +49,63 @@ final class FilePreviewCache {
         entries.removeValue(forKey: path); recent.removeAll { $0 == path }
     }
 
-    func load(_ path: String, session: String, cwd: String, client: any WorkspaceFileClient, force: Bool = false) async {
+    /// Loads a file with one download (ADR 0074). `refresh` counts the
+    /// pane's Refreshes.
+    func load(_ path: String, session: String, cwd: String, client: any FileDownloadClient, force: Bool = false,
+              refresh: Int = 0) async {
         recent.removeAll { $0 == path }; recent.append(path)
         if !force, entries[path]?.preview != nil, entries[path]?.stale == false { return }
+        if let cancelled = entries[path]?.cancelled, cancelled == refresh { return }
         let token = UUID()
         var entry = entries[path] ?? Entry()
-        let expected = entry.preview?.revision
-        entry.token = token; entry.loading = true; entry.error = nil; entry.binary = false
+        entry.token = token; entry.loading = true; entry.error = nil; entry.binary = false; entry.cancelled = nil
         entries[path] = entry
         defer { if entries[path]?.token == token { entries[path]?.loading = false } }
         do {
-            let value: WireWorkspaceFileRead
-            do {
-                value = try await client.readWorkspaceFile(session, path: path, expectedRevision: expected)
-            } catch WorkspaceFileError.response(409) where expected != nil {
-                // The guarded observation changed. Fetch one fresh bounded snapshot;
-                // another concurrent change is surfaced rather than retried forever.
-                try Task.checkCancellation()
-                value = try await client.readWorkspaceFile(session, path: path, expectedRevision: nil)
-            }
+            let workspace = try await client.workspace(session)
             try Task.checkCancellation()
             guard entries[path]?.token == token else { return }
-            guard value.sessionId == session, value.path == path, value.workspace.cwd == cwd else { throw ClientError.invalidPayload }
-            // A reread of a file whose whole text already shows keeps it
-            // while the revision is unchanged, rather than flashing back to
-            // the preview. A download without a revision can't be validated
-            // that way, so it's fetched again.
-            if value.truncated, let shown = entries[path]?.preview, shown.revision == value.revision,
-               shown.workspace.workspaceId == value.workspace.workspaceId, let whole = entries[path]?.whole {
-                entries[path]?.stale = false
-                if whole.revision == nil, let downloads = client as? any FileDownloadClient {
-                    await loadWhole(path, preview: value, session: session, token: token, client: downloads)
+            guard workspace.cwd == cwd else { throw ClientError.invalidPayload }
+            let download = downloads[path] ?? WholeFileDownload()
+            downloads[path] = download
+            let outcome = await download.load(.workspace(id: workspace.workspaceId, path: path), session: session, client: client,
+                                              store: downloadStore)
+            guard !Task.isCancelled, entries[path]?.token == token else { return }
+            switch outcome {
+            case .binary, .image:
+                entries[path]?.error = WorkspaceFileError.response(415).localizedDescription
+                entries[path]?.binary = true
+                entries[path]?.stale = true
+            case .stopped:
+                if case .failed(let message) = download.state {
+                    entries[path]?.error = message
+                } else {
+                    entries[path]?.error = "Loading canceled."
+                    entries[path]?.cancelled = refresh
                 }
-                return
-            }
-            entries[path]?.preview = value
-            entries[path]?.whole = nil
-            entries[path]?.stale = false
-            trim(keeping: path)
-            if value.truncated, let downloads = client as? any FileDownloadClient {
-                await loadWhole(path, preview: value, session: session, token: token, client: downloads)
+                entries[path]?.stale = true
+            case .text(let text):
+                let shown = entries[path]?.preview
+                // A copy the server says is current stays as it shows.
+                if let revision = text.revision, let shown, shown.revision == revision,
+                   shown.workspace.workspaceId == workspace.workspaceId, entries[path]?.whole?.limited == text.limited {
+                    entries[path]?.stale = false
+                    return
+                }
+                entries[path]?.preview = WireWorkspaceFileRead(
+                    content: text.content, encoding: "utf-8", modifiedAt: text.modifiedAt, path: path,
+                    returnedBytes: text.content.utf8.count, returnedLines: FileFind.searchedLines(text.content, truncated: true),
+                    revision: text.revision ?? "", sessionId: session, size: text.size ?? Int64(text.content.utf8.count),
+                    truncated: text.limited, truncationReason: text.limited ? "byte_limit" : nil, workspace: workspace)
+                entries[path]?.whole = text
+                entries[path]?.stale = false
+                trim(keeping: path)
             }
         } catch is CancellationError {} catch {
             guard !Task.isCancelled, entries[path]?.token == token else { return }
             entries[path]?.error = error.localizedDescription
-            if case WorkspaceFileError.response(415) = error { entries[path]?.binary = true }
             entries[path]?.stale = true
         }
-    }
-    /// Downloads the whole of a cut-off file and shows it in place of the
-    /// preview. The preview stays when the download can't replace it.
-    private func loadWhole(_ path: String, preview: WireWorkspaceFileRead, session: String, token: UUID, client: any FileDownloadClient) async {
-        let download = downloads[path] ?? WholeFileDownload()
-        downloads[path] = download
-        guard let whole = await download.load(.workspace(id: preview.workspace.workspaceId, path: path), session: session, client: client,
-                                               store: downloadStore),
-              entries[path]?.token == token else { return }
-        var value = preview
-        value.content = whole.content
-        value.returnedBytes = whole.content.utf8.count
-        value.returnedLines = FileFind.searchedLines(whole.content, truncated: true)
-        value.truncated = whole.limited
-        value.truncationReason = whole.limited ? "byte_limit" : nil
-        value.highlight = nil
-        if let revision = whole.revision { value.revision = revision }
-        if let size = whole.size { value.size = size }
-        entries[path]?.preview = value
-        entries[path]?.whole = whole
-        trim(keeping: path)
     }
 
     private func trim(keeping path: String) {

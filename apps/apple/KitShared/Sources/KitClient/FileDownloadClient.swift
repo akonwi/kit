@@ -78,7 +78,7 @@ public struct FileDownloadResult: Equatable, Sendable {
 
 /// Why a download failed.
 public enum FileDownloadError: LocalizedError, Equatable {
-    /// The server predates downloads; read a bounded preview instead.
+    /// The server predates downloads.
     case serverNeedsUpdate
     case invalidTarget
     /// The server answered with a declared failure.
@@ -86,8 +86,9 @@ public enum FileDownloadError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .serverNeedsUpdate: "This server’s Kit is too old to download whole files."
+        case .serverNeedsUpdate: "This server’s Kit needs an update to open files."
         case .invalidTarget: "This isn’t a file Kit can download."
+        case .response(403): "Kit doesn’t have permission to read this file."
         case .response(404): "This file no longer exists."
         case .response(409): "The workspace changed. Refresh to read the latest version."
         case .response(429): "The server is busy. Try again shortly."
@@ -104,6 +105,12 @@ public protocol FileDownloadClient: SessionClient {
     /// file's size when known.
     func downloadFile(_ session: String, target: FileDownloadTarget, cachedRevision: String?, maxBytes: Int64?,
                       to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) async throws -> FileDownloadResult
+    /// A file's current metadata without its content: the cheap way to learn
+    /// whether a downloaded copy is current. Call it only on a server known
+    /// to serve downloads; its `404` means the file is gone.
+    func checkFile(_ session: String, target: FileDownloadTarget) async throws -> FileDownloadInfo
+    /// The session's current workspace, whose ID a workspace download names.
+    func workspace(_ session: String) async throws -> WireWorkspaceRef
 }
 
 extension ServerClient: FileDownloadClient {
@@ -111,6 +118,14 @@ extension ServerClient: FileDownloadClient {
                              to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) async throws -> FileDownloadResult {
         try await resolve().downloadFile(session, target: target, cachedRevision: cachedRevision, maxBytes: maxBytes,
                                          to: destination, progress: progress)
+    }
+
+    public func checkFile(_ session: String, target: FileDownloadTarget) async throws -> FileDownloadInfo {
+        try await resolve().checkFile(session, target: target)
+    }
+
+    public func workspace(_ session: String) async throws -> WireWorkspaceRef {
+        try await resolve().workspace(session)
     }
 }
 

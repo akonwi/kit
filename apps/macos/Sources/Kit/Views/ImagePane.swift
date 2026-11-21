@@ -71,13 +71,15 @@ struct ImageViewer<Leading: View>: View {
     let pane: WorkspacePane
     let image: LoadedImage
     let title: String
+    /// Said after the image's size, such as that it changed while it loaded.
+    var note: String?
     @ViewBuilder var leading: () -> Leading
     @State private var zoom = ImageZoom()
     @State private var error: String?
 
-    init(workspace: WorkspaceState, pane: WorkspacePane, image: LoadedImage, title: String,
+    init(workspace: WorkspaceState, pane: WorkspacePane, image: LoadedImage, title: String, note: String? = nil,
          @ViewBuilder leading: @escaping () -> Leading = { EmptyView() }) {
-        self.workspace = workspace; self.pane = pane; self.image = image; self.title = title; self.leading = leading
+        self.workspace = workspace; self.pane = pane; self.image = image; self.title = title; self.note = note; self.leading = leading
     }
 
     /// Zoom shortcuts apply only to the image in the focused tile.
@@ -102,7 +104,8 @@ struct ImageViewer<Leading: View>: View {
         HStack(spacing: 12) {
             leading()
             Text(title).font(.kit(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-            Text("\(image.width) × \(image.height) · " + ByteCountFormatter.string(fromByteCount: Int64(image.data.count), countStyle: .file))
+            Text("\(image.width) × \(image.height) · " + ByteCountFormatter.string(fromByteCount: Int64(image.data.count), countStyle: .file) +
+                 (note.map { " · " + $0 } ?? ""))
                 .font(.kit(size: 11)).foregroundStyle(theme.muted).lineLimit(1)
             Spacer(minLength: 8)
             ZoomControls(zoom: zoom)

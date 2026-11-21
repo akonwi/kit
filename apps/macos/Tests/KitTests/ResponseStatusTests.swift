@@ -105,28 +105,6 @@ struct ResponseStatusTests {
         #expect(try await readStatus(19803, .init(status: 418, body: "")) == 418)
     }
 
-    @MainActor @Test func aReadOfAChangedFileTriesOnceMoreFresh() async throws {
-        let client = try client(19804) { line in
-            if line.hasSuffix("/workspace") { return .init(status: 200, body: workspace) }
-            return .init(status: 200, body: fileRead(revision: "rev_1"))
-        }
-        let cache = FilePreviewCache()
-        await cache.load("main.swift", session: "s", cwd: "/tmp/repo", client: client)
-        #expect(cache.entries["main.swift"]?.preview?.revision == "rev_1")
-        let stale = #"{"error":{"code":"stale_file","message":"Changed.","details":{}}}"#
-        StatusResponse.serve(19804) { line in
-            if line.hasSuffix("/workspace") { return .init(status: 200, body: workspace) }
-            return StatusResponse.requests(19804).count == 2 ? .init(status: 409, body: stale) : .init(status: 200, body: fileRead(revision: "rev_2"))
-        }
-        await cache.load("main.swift", session: "s", cwd: "/tmp/repo", client: client, force: true)
-        #expect(cache.entries["main.swift"]?.preview?.revision == "rev_2")
-        #expect(cache.entries["main.swift"]?.error == nil)
-        let reads = StatusResponse.requests(19804).filter { $0.line.hasSuffix("/files/read") }
-        let expected = try reads.map { try JSONSerialization.jsonObject(with: $0.body) as? [String: Any] }
-            .map { $0?["expectedFileRevision"] as? String }
-        #expect(expected == ["rev_1", nil])
-    }
-
     @Test func aHistoryPageTheServerRefusesKeepsItsStatus() async throws {
         let stale = try client(19805) { _ in .init(status: 409, body: refusal("conflict")) }
         let conflict = await status { _ = try await stale.history("s", before: "5") }

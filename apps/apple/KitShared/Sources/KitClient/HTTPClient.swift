@@ -1123,13 +1123,20 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         }
     }
 
+    /// The session's workspace, when it is ready.
+    public func workspace(_ id: String) async throws -> WireWorkspaceRef {
+        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
+        let output = try await api.getWorkspace(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
+        guard case let .ok(response) = output else { throw WorkspaceFileError.unavailable }
+        let workspace: WireWorkspaceRef = try generated(try response.body.json, as: WireWorkspaceRef.self)
+        guard workspace.sessionId == id, workspace.state == "ready" else { throw WorkspaceFileError.unavailable }
+        return workspace
+    }
+
     private func readWorkspaceFileNow(_ id: String, path: String, expectedRevision: String?) async throws -> WireWorkspaceFileRead {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { throw ClientError.invalidPayload }
-        let workspaceOutput = try await api.getWorkspace(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51))
-        guard case let .ok(workspaceResponse) = workspaceOutput else { throw WorkspaceFileError.unavailable }
-        let workspace: WireWorkspaceRef = try generated(try workspaceResponse.body.json, as: WireWorkspaceRef.self)
-        guard workspace.sessionId == id, workspace.state == "ready" else { throw WorkspaceFileError.unavailable }
+        let workspace = try await self.workspace(id)
         do {
             let input = WireReadWorkspaceFileInput(workspaceId: workspace.workspaceId, path: path, expectedFileRevision: expectedRevision)
             let body: Components.Schemas.ReadWorkspaceFileInput = try generated(input, as: Components.Schemas.ReadWorkspaceFileInput.self)
@@ -1382,6 +1389,23 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
             }
             return FileDownloadResult(info: file, notModified: false, bytes: written, truncated: truncated)
         } onCancel: { bytes.task.cancel() }
+    }
+
+    public func checkFile(_ id: String, target: FileDownloadTarget) async throws -> FileDownloadInfo {
+        let target = target.normalized
+        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }), target.isValid else {
+            throw FileDownloadError.invalidTarget
+        }
+        var request = try request("v1/sessions/" + id + "/files/content", query: target.query)
+        request.httpMethod = "HEAD"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await TransportFailures.bytes(session, request, reporting: failures)
+        bytes.task.cancel()
+        guard let http = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
+        // A HEAD answer has no body to tell an older server's 404 from a
+        // declared one; callers check only files they have downloaded.
+        guard http.statusCode == 200 else { throw FileDownloadError.response(http.statusCode) }
+        return try Self.downloadInfo(http, session: id, target: target)
     }
 
     /// A file revision: a workspace `file_` or a host `hostfile_` token.

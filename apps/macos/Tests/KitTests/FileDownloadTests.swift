@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Synchronization
 import Testing
@@ -228,6 +229,8 @@ struct FileDownloadTests {
                                         revision: revision, size: Int64(body.utf8.count), modifiedAt: "2026-11-18T12:00:00Z")
             return FileDownloadResult(info: info, notModified: false, bytes: Int64(body.utf8.count), truncated: false)
         }
+        func checkFile(_ session: String, target: FileDownloadTarget) async throws -> FileDownloadInfo { throw ClientError.invalidPayload }
+        func workspace(_ session: String) async throws -> WireWorkspaceRef { throw ClientError.invalidPayload }
         func waitForRequests(_ count: Int) async {
             while waiting.count < count { await Task.yield() }
         }
@@ -301,15 +304,15 @@ struct FileDownloadTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 1)
     }
 
-    @Test func anOlderServerLeavesThePreview() async throws {
+    @Test func anOlderServerNeedsAnUpdate() async throws {
         let server = try await Server([Self.response(status: "404 Not Found", headers: ["Content-Type": "text/plain"], body: "404 page not found\n")])
         let directory = Self.destination()
         defer { try? FileManager.default.removeItem(at: directory) }
         let download = await WholeFileDownload()
-        let text = await download.load(Self.target, session: Self.session, client: try server.client(),
-                                       store: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
-        #expect(text == nil)
-        #expect(await download.state == .idle)
+        let outcome = await download.load(Self.target, session: Self.session, client: try server.client(),
+                                          store: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
+        #expect(outcome == .stopped)
+        #expect(await download.state == .failed("This server’s Kit needs an update to open files."))
     }
 
     @Test func aDeclaredMissingFileIsAFailureNotAnOlderServer() async throws {
@@ -323,15 +326,74 @@ struct FileDownloadTests {
         }
     }
 
-    @Test func aDownloadReplacesAPreviewWithTheWholeText() async throws {
-        let server = try await Server([Self.response(headers: Self.identity(revision: Self.changed), body: "line one\nline two\n")])
+    @Test func aDownloadIsTheFilesTextOnceItsRevisionIsChecked() async throws {
+        let server = try await Server([
+            Self.response(headers: Self.identity(revision: Self.changed), body: "line one\nline two\n"),
+            Self.response(headers: Self.identity(revision: Self.changed), length: 18),
+        ])
         let directory = Self.destination()
         defer { try? FileManager.default.removeItem(at: directory) }
         let download = await WholeFileDownload()
-        let text = await download.load(Self.target, session: Self.session, client: try server.client(),
-                                       store: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
-        #expect(text == WholeFileDownload.Text(content: "line one\nline two\n", revision: Self.changed, size: 18, limited: false))
+        let outcome = await download.load(Self.target, session: Self.session, client: try server.client(),
+                                          store: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
+        #expect(outcome == .text(WholeFileDownload.Text(content: "line one\nline two\n", path: "notes.txt", revision: Self.changed, size: 18,
+                                                        modifiedAt: "2026-11-18T12:00:00.123456789Z", limited: false)))
         #expect(await download.state == .idle)
+        #expect(server.http.requests.count == 2)
+        #expect(server.http.requests[1].hasPrefix("HEAD /v1/sessions/session_test/files/content?workspaceId=\(Self.workspace)&path=notes.txt "))
+    }
+
+    @Test func aCheckReportsTheFilesRevisionOrThatItIsGone() async throws {
+        let server = try await Server([
+            Self.response(headers: Self.identity(), length: 10),
+            Self.response(status: "404 Not Found", headers: ["Content-Type": "application/json"]),
+        ])
+        let client = try server.client()
+        let info = try await client.checkFile(Self.session, target: Self.target)
+        #expect(info == FileDownloadInfo(session: Self.session, workspace: Self.workspace, path: "notes.txt", revision: Self.revision,
+                                         size: 10, modifiedAt: "2026-11-18T12:00:00.123456789Z"))
+        await #expect(throws: FileDownloadError.response(404)) { try await client.checkFile(Self.session, target: Self.target) }
+    }
+
+    /// A 2-by-1 PNG.
+    static let png: Data = {
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4,
+                                      hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        return bitmap.representation(using: .png, properties: [:])!
+    }()
+
+    static func hostHeaders(_ path: String, revision: String = "hostfile_" + String(repeating: "B", count: 43)) -> [String: String] {
+        var headers = identity(revision: revision, path: path)
+        headers.removeValue(forKey: "X-Kit-Workspace-ID")
+        return headers
+    }
+
+    @Test func anImageDownloadsAsAnImageWhereThePaneShowsThem() async throws {
+        var response = Self.response(headers: Self.hostHeaders("/tmp/shot.png"), length: Self.png.count)
+        response.append(Self.png)
+        let server = try await Server([response, Self.response(headers: Self.hostHeaders("/tmp/shot.png"), length: Self.png.count)])
+        let directory = Self.destination()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let download = await WholeFileDownload()
+        let outcome = await download.load(.host(path: "/tmp/shot.png"), session: Self.session, client: try server.client(), images: true,
+                                          store: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
+        guard case .image(let image, let revision, _) = outcome else { Issue.record("outcome = \(outcome)"); return }
+        #expect(image.file.content == .image(Self.png, mediaType: "image/png", width: 2, height: 1))
+        #expect(image.loaded.width == 2 && image.loaded.height == 1)
+        #expect(image.file.path == "/tmp/shot.png" && revision == "hostfile_" + String(repeating: "B", count: 43))
+        #expect(server.http.requests.first?.contains("Range: bytes=0-\(ViewedFile.maxImageBytes - 1)") == true)
+    }
+
+    @Test func anImageIsBinaryWhereThePaneShowsOnlyText() async throws {
+        var response = Self.response(headers: Self.identity(), length: Self.png.count)
+        response.append(Self.png)
+        let server = try await Server([response])
+        let directory = Self.destination()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let download = await WholeFileDownload()
+        let outcome = await download.load(Self.target, session: Self.session, client: try server.client(),
+                                          store: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
+        #expect(outcome == .binary)
     }
 
     @Test func decodingKeepsCompleteLinesAndRefusesBinary() {
@@ -339,8 +401,9 @@ struct FileDownloadTests {
         #expect(WholeFileDownload.decode(Data("one\ntwo\nthr".utf8), limited: false) == "one\ntwo\nthr")
         // A limit inside a character cuts back to the last line.
         #expect(WholeFileDownload.decode(Data("one\nwe\u{301}".utf8).dropLast(), limited: true) == "one\n")
-        // A cut-off file with no line end keeps its preview.
-        #expect(WholeFileDownload.decode(Data("one line".utf8), limited: true) == nil)
+        // A cut-off file with no line end ends at its last whole character.
+        #expect(WholeFileDownload.decode(Data("one line".utf8), limited: true) == "one line")
+        #expect(WholeFileDownload.decode(Data("caf\u{e9}".utf8).dropLast(), limited: true) == "caf")
         #expect(WholeFileDownload.decode(Data([0x61, 0x00, 0x62]), limited: false) == nil)
         #expect(WholeFileDownload.decode(Data([0x61, 0xFF, 0x62]), limited: false) == nil)
     }
@@ -389,34 +452,97 @@ struct FileDownloadTests {
         #expect(FileFooter.truncation(previewTruncated: true, whole: nil, download: nil) == " · Preview truncated")
         let limited = WholeFileDownload.Text(content: String(repeating: "x\n", count: 1024), revision: Self.revision, size: 1 << 30, limited: true)
         #expect(WholeFileDownload.note(.idle, text: limited) == "Showing the first 2 KB")
-        #expect(WholeFileDownload.note(.downloading(written: 1 << 20, size: 4 << 20), text: nil) == "Loading the whole file… 25%")
-        #expect(WholeFileDownload.note(.cancelled, text: nil) == "Preview truncated")
+        #expect(WholeFileDownload.note(.downloading(written: 1 << 20, size: 4 << 20), text: nil) == "Loading file… 25%")
+        #expect(WholeFileDownload.note(.cancelled, text: limited) == "Showing the first 2 KB")
+        let changed = WholeFileDownload.Text(content: "x\n", revision: nil, size: 2, limited: false, changed: true)
+        #expect(WholeFileDownload.note(.idle, text: changed) == "Changed while loading")
     }
 
-    @MainActor @Test func aHostFileTabShowsTheWholeFileAndKeepsItOnReload() async throws {
-        let hostRevision = "hostfile_" + String(repeating: "B", count: 43)
-        var headers = Self.identity(revision: hostRevision, path: "/var/log/app.log")
-        headers.removeValue(forKey: "X-Kit-Workspace-ID")
+    @MainActor @Test func aHostFileTabShowsItsDownloadAndKeepsItOnReload() async throws {
+        let headers = Self.hostHeaders("/var/log/app.log")
+        let hostRevision = headers["ETag"]!.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         var notModified = headers
         notModified.removeValue(forKey: "Content-Type")
         let server = try await Server([
             Self.response(headers: headers, body: "one\ntwo\nthree\n"),
+            Self.response(headers: headers, length: 14),
             Self.response(status: "304 Not Modified", headers: notModified),
+            Self.response(headers: headers, length: 14),
         ])
         let directory = Self.destination()
         defer { try? FileManager.default.removeItem(at: directory) }
         let loader = ExternalFileLoader(downloadStore: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
-        let preview = ViewedFile(path: "/var/log/app.log", size: 14, content: .text("one\n", truncated: true))
-        let client = try server.client()
-        await loader.load(.init(attempt: 0, activity: 0)) { preview }
-        await loader.loadWhole(session: Self.session, client: client)
+        let source = ExternalFileLoader.Download(path: "/var/log/app.log", session: Self.session, client: try server.client())
+        await loader.load(.init(attempt: 0, activity: 0), download: source)
         #expect(loader.phase.file == ViewedFile(path: "/var/log/app.log", size: 14, content: .text("one\ntwo\nthree\n", truncated: false)))
 
-        // A reload whose preview agrees keeps the whole file while it revalidates.
-        await loader.load(.init(attempt: 1, activity: 0)) { preview }
+        // A reload revalidates the copy shown, which stays.
+        await loader.load(.init(attempt: 1, activity: 0), download: source)
         #expect(loader.phase.file?.content == .text("one\ntwo\nthree\n", truncated: false))
-        await loader.loadWhole(session: Self.session, client: client)
-        #expect(loader.phase.file?.content == .text("one\ntwo\nthree\n", truncated: false))
-        #expect(server.http.requests.count == 2)
+        #expect(server.http.requests.count == 4)
+        #expect(server.http.requests[2].contains("If-None-Match: \"\(hostRevision)\""))
+    }
+
+    @MainActor @Test func aHostImageTabShowsTheImage() async throws {
+        var response = Self.response(headers: Self.hostHeaders("/tmp/shot.png"), length: Self.png.count)
+        response.append(Self.png)
+        let server = try await Server([response, Self.response(headers: Self.hostHeaders("/tmp/shot.png"), length: Self.png.count)])
+        let directory = Self.destination()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let loader = ExternalFileLoader(downloadStore: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
+        await loader.load(.init(attempt: 0, activity: 0), download: .init(path: "/tmp/shot.png", session: Self.session, client: try server.client()))
+        guard case .loaded(let file, let image) = loader.phase else { Issue.record("phase = \(loader.phase)"); return }
+        #expect(file.content == .image(Self.png, mediaType: "image/png", width: 2, height: 1))
+        #expect(image?.width == 2 && image?.height == 1)
+    }
+
+    @MainActor @Test func aHostImageThatKeepsChangingSaysSo() async throws {
+        func revision(_ letter: Character) -> String { "hostfile_" + String(repeating: letter, count: 43) }
+        func image(_ letter: Character) -> Data {
+            var response = Self.response(headers: Self.hostHeaders("/tmp/shot.png", revision: revision(letter)), length: Self.png.count)
+            response.append(Self.png)
+            return response
+        }
+        func check(_ letter: Character) -> Data {
+            Self.response(headers: Self.hostHeaders("/tmp/shot.png", revision: revision(letter)), length: Self.png.count)
+        }
+        let server = try await Server([image("B"), check("C"), image("C"), check("D")])
+        let directory = Self.destination()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let loader = ExternalFileLoader(downloadStore: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
+        await loader.load(.init(attempt: 0, activity: 0), download: .init(path: "/tmp/shot.png", session: Self.session, client: try server.client()))
+        #expect(loader.phase.file?.content == .image(Self.png, mediaType: "image/png", width: 2, height: 1))
+        #expect(loader.whole?.changed == true && loader.whole?.revision == nil)
+        #expect(server.http.requests.count == 4)
+    }
+
+    @MainActor @Test func aRetryWithAnImageThatCantShowKeepsTheChangedImage() async throws {
+        func revision(_ letter: Character) -> String { "hostfile_" + String(repeating: letter, count: 43) }
+        // A PNG whose header is sound but which has no pixel data: its size
+        // reads, but it doesn't decode.
+        let pixels = Self.png.range(of: Data("IDAT".utf8))!
+        let corrupt = Self.png.prefix(upTo: pixels.lowerBound - 4) + Data([0, 0, 0, 0]) + Data("IEND".utf8) + Data([0xAE, 0x42, 0x60, 0x82])
+        func image(_ letter: Character, _ data: Data) -> Data {
+            var response = Self.response(headers: Self.hostHeaders("/tmp/shot.png", revision: revision(letter)), length: data.count)
+            response.append(data)
+            return response
+        }
+        let check = Self.response(headers: Self.hostHeaders("/tmp/shot.png", revision: revision("C")), length: Self.png.count)
+        let server = try await Server([image("B", Self.png), check, image("C", corrupt)])
+        let directory = Self.destination()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let loader = ExternalFileLoader(downloadStore: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
+        await loader.load(.init(attempt: 0, activity: 0), download: .init(path: "/tmp/shot.png", session: Self.session, client: try server.client()))
+        #expect(loader.phase.file?.content == .image(Self.png, mediaType: "image/png", width: 2, height: 1))
+        #expect(loader.whole?.changed == true && loader.whole?.revision == nil)
+    }
+
+    @MainActor @Test func aBinaryHostFileSaysWhatKitShows() async throws {
+        let server = try await Server([Self.response(headers: Self.hostHeaders("/bin/ls"), body: "\u{7f}ELF\u{0}\u{0}")])
+        let directory = Self.destination()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let loader = ExternalFileLoader(downloadStore: FileDownloadStore(directory: directory, maxTotalBytes: 1 << 20))
+        await loader.load(.init(attempt: 0, activity: 0), download: .init(path: "/bin/ls", session: Self.session, client: try server.client()))
+        #expect(loader.phase == .failed("Kit shows text files and PNG, JPEG, GIF, or WebP images."))
     }
 }

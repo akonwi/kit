@@ -69,7 +69,8 @@ struct ExternalFilePane: View {
     var body: some View {
         Group {
             if case .loaded(let file, .some(let image)) = loader.phase {
-                ImageViewer(workspace: workspace, pane: pane, image: image, title: file.path) { LocationTag(location: location) }
+                ImageViewer(workspace: workspace, pane: pane, image: image, title: file.path,
+                            note: loader.whole?.changed == true ? "Changed while loading" : nil) { LocationTag(location: location) }
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     header
@@ -79,7 +80,7 @@ struct ExternalFilePane: View {
                         Rule()
                     }
                     if let note = loader.note {
-                        Text("Showing an older preview. " + note)
+                        Text("Showing what loaded before. " + note)
                             .font(.kit(size: 12)).foregroundStyle(theme.muted).padding(12)
                         Rule()
                     }
@@ -93,24 +94,22 @@ struct ExternalFilePane: View {
             if loader.waitsForActivityToSettle(version) {
                 do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
             }
-            await loader.load(version, read: reader())
-            if case .hostFile = pane, !state.isDemo, let client = state.catalogClient as? any FileDownloadClient {
-                await loader.loadWhole(session: state.selectedID, client: client)
+            if case .hostFile = pane {
+                guard !state.isDemo, let client = state.catalogClient as? any FileDownloadClient else {
+                    await loader.load(version) { throw ExternalFileUnavailable() }
+                    return
+                }
+                await loader.load(version, download: .init(path: path, session: state.selectedID, client: client))
+            } else {
+                await loader.load(version, read: reader())
             }
         }
     }
 
-    /// Reads the tab's file from its machine.
+    /// Reads a file on this Mac.
     private func reader() -> @MainActor () async throws -> ViewedFile {
         let path = path
-        if case .localFile = pane {
-            return { try await Task.detached(priority: .userInitiated) { try ViewedFile.readLocal(path: path) }.value }
-        }
-        guard !state.isDemo, let client = state.catalogClient as? any HostFileClient else {
-            return { throw ExternalFileUnavailable() }
-        }
-        let session = state.selectedID
-        return { try await client.readHostFile(session, path: path) }
+        return { try await Task.detached(priority: .userInitiated) { try ViewedFile.readLocal(path: path) }.value }
     }
 
     private var header: some View {
@@ -189,12 +188,21 @@ final class ExternalFileLoader {
     private(set) var note: String?
     /// Whether a read is under way.
     private(set) var reading = false
-    /// The whole file, shown in place of a cut-off preview (ADR 0074).
+    /// The downloaded text shown (ADR 0074), or nil when the tab shows a
+    /// bounded read.
     private(set) var whole: WholeFileDownload.Text?
     let download = WholeFileDownload()
-    /// The latest preview read, which the whole file replaces.
-    private var preview: ViewedFile?
+    /// The Refresh count at which the download was cancelled, so the tab
+    /// waits for the next Refresh.
+    private var cancelled: Int?
     private let downloadStore: FileDownloadStore
+
+    /// A host file to download, and where from.
+    struct Download {
+        let path: String
+        let session: String
+        let client: any FileDownloadClient
+    }
 
     init(downloadStore: FileDownloadStore = .shared) { self.downloadStore = downloadStore }
     /// The version last read to completion, so showing the tab again
@@ -203,7 +211,9 @@ final class ExternalFileLoader {
     private var generation = 0
 
     /// Whether the tab should read `version`: it shows, and hasn't read it.
-    func needsRead(_ version: Version, visible: Bool) -> Bool { visible && completed != version }
+    func needsRead(_ version: Version, visible: Bool) -> Bool {
+        visible && completed != version && cancelled != version.attempt
+    }
 
     /// Whether a read of `version` follows only session activity on a file
     /// already read, so it waits out a burst of activity first.
@@ -212,55 +222,70 @@ final class ExternalFileLoader {
         return completed.attempt == version.attempt
     }
 
-    /// Reads `version` with `read`, unless a later read starts or the task
-    /// is cancelled first.
+    /// Reads `version` of a host file with one download (ADR 0074), unless a
+    /// later read starts or the task is cancelled first.
+    func load(_ version: Version, download source: Download) async {
+        await load(version) { [self] generation in
+            switch await download.load(.host(path: source.path), session: source.session, client: source.client, images: true,
+                                       store: downloadStore) {
+            case .text(let text):
+                let file = ViewedFile(path: text.path.isEmpty ? source.path : text.path,
+                                      size: text.size ?? Int64(text.content.utf8.count),
+                                      content: .text(text.content, truncated: text.limited))
+                return (await ExternalFilePhase.loaded(file), text)
+            case .image(let image, let revision, let changed):
+                // An image has no text; this records its revision for the
+                // next reload and whether it changed while it downloaded.
+                let text = WholeFileDownload.Text(content: "", path: image.file.path, revision: revision, size: image.file.size,
+                                                  limited: false, changed: changed)
+                return (.loaded(image.file, image.loaded), text)
+            case .binary:
+                return (.failed(ViewedFileError.unsupported.localizedDescription), nil)
+            case .stopped:
+                guard !Task.isCancelled, self.generation == generation else { return nil }
+                if case .failed(let message) = download.state { return (.failed(message), nil) }
+                cancelled = version.attempt
+                return (.failed("Loading canceled."), nil)
+            }
+        }
+    }
+
+    /// Reads `version` with `read`, as a file on this Mac is read, unless a
+    /// later read starts or the task is cancelled first.
     func load(_ version: Version, read: @MainActor () async throws -> ViewedFile) async {
+        await load(version) { _ in
+            do {
+                return (await ExternalFilePhase.loaded(try await read()), nil)
+            } catch is CancellationError {
+                return nil
+            } catch {
+                return (.failed(error.localizedDescription), nil)
+            }
+        }
+    }
+
+    /// Reads `version` with `next`, which returns what the tab shows and the
+    /// download it shows, or nil to show nothing new.
+    private func load(_ version: Version,
+                      _ next: @MainActor (Int) async -> (ExternalFilePhase, WholeFileDownload.Text?)?) async {
         generation += 1
         let generation = generation
         reading = true
         defer { if self.generation == generation { reading = false } }
-        let next: ExternalFilePhase
-        do {
-            let file = try await read()
-            next = await ExternalFilePhase.loaded(file)
-        } catch is CancellationError {
-            return
-        } catch {
-            next = .failed(error.localizedDescription)
-        }
-        guard !Task.isCancelled, self.generation == generation else { return }
+        cancelled = nil
+        guard let (next, text) = await next(generation), !Task.isCancelled, self.generation == generation else { return }
         if case .failed(let message) = next, phase.file != nil {
             note = message
-        } else if let file = next.file, keepsWhole(file) {
-            // The whole file already shows and the new preview agrees with
-            // it, so it stays while the download is revalidated.
-            preview = file
+        } else if let text, let whole, text.revision != nil, text.revision == whole.revision, text.limited == whole.limited,
+                  phase.file != nil {
+            // The copy shown is current; it stays as it is.
             note = nil
         } else {
             phase = next
-            preview = next.file
-            whole = nil
+            whole = text
             note = nil
         }
         completed = version
-    }
-
-    /// Downloads the whole of a cut-off text preview and shows it instead,
-    /// or revalidates the whole file already shown.
-    func loadWhole(session: String, client: any FileDownloadClient) async {
-        guard let preview, case .text(_, truncated: true) = preview.content else { return }
-        let generation = generation
-        guard let next = await download.load(.host(path: preview.path), session: session, client: client, store: downloadStore),
-              self.generation == generation, self.preview == preview else { return }
-        guard next != whole else { return }
-        whole = next
-        phase = .loaded(ViewedFile(path: preview.path, size: next.size ?? preview.size, content: .text(next.content, truncated: next.limited)), nil)
-    }
-
-    /// Whether the whole file shows and begins with `file`'s preview.
-    private func keepsWhole(_ file: ViewedFile) -> Bool {
-        guard let whole, case .text(let text, truncated: true) = file.content, file.path == phase.file?.path else { return false }
-        return whole.content.hasPrefix(text)
     }
 }
 
