@@ -57,39 +57,9 @@ func TestTypedPathsLoseQuotesAndShellEscapes(t *testing.T) {
 	}
 }
 
-func TestProjectMakesTextUnannotatableAndScalesImages(t *testing.T) {
-	text, err := project(protocol.HostFileRead{Payload: protocol.HostTextFile{
-		SessionID: "s", Path: "/etc/hosts", Size: 10, Encoding: "utf-8", Content: "127.0.0.1\n", ReturnedBytes: 10, ReturnedLines: 1,
-	}}, 100, 100)
-	if err != nil || text.Image || text.Text.Path != "/etc/hosts" || text.Text.Content != "127.0.0.1\n" || text.Text.Revision != "" || text.Text.Size != 10 {
-		t.Fatalf("text = %+v, %v", text, err)
-	}
-	picture := image.NewNRGBA(image.Rect(0, 0, 400, 100))
-	for x := range 400 {
-		for y := range 100 {
-			picture.Set(x, y, color.NRGBA{B: 255, A: 255})
-		}
-	}
-	var encoded bytes.Buffer
-	if err := png.Encode(&encoded, picture); err != nil {
-		t.Fatal(err)
-	}
-	read := protocol.HostFileRead{Payload: protocol.HostImageFile{
-		SessionID: "s", Path: "/tmp/wide.png", Size: int64(encoded.Len()), MediaType: "image/png", Width: 400, Height: 100, Data: encoded.Bytes(),
-	}}
-	file, err := project(read, 100, 100)
-	if err != nil || !file.Image || file.Width != 400 || file.Height != 100 || file.Pixels.Width != 100 || file.Pixels.Height != 25 ||
-		file.Text.Path != "/tmp/wide.png" || file.MediaType != "image/png" {
-		t.Fatalf("image = %+v, %v", file.Text, err)
-	}
-	if _, err := project(protocol.HostFileRead{}, 100, 100); err == nil {
-		t.Fatal("a read without a kind was projected")
-	}
-}
-
 func TestDescribeExplainsHostReadFailures(t *testing.T) {
 	for err, want := range map[error]Problem{
-		&kit.UnsupportedError{Capability: "readHostFile"}:                                                                               {"Server needs an update", "This server's Kit can't open files outside the working directory."},
+		&kit.UnsupportedError{Capability: "readHostFile"}:                                                                               {"Server needs an update", "This server's Kit can't download files."},
 		&protocol.WorkspaceError{Code: protocol.WorkspaceErrorBinary, Message: "x"}:                                                     {"Can't show this file", "Kit shows text files and PNG, JPEG, GIF, or WebP images."},
 		&protocol.WorkspaceError{Code: protocol.WorkspaceErrorNotFile, Message: "x"}:                                                    {"Not a file", "The path names a directory or another kind of file."},
 		&protocol.WorkspaceError{Code: protocol.WorkspaceErrorPermissionDenied, Message: "x"}:                                           {"File is unreadable", "Permission was denied by the server."},
@@ -103,11 +73,9 @@ func TestDescribeExplainsHostReadFailures(t *testing.T) {
 	}
 }
 
-// hostSession downloads one file's content, and answers the bounded host
-// read with a text preview.
+// hostSession downloads one file's content.
 type hostSession struct {
 	content string
-	reads   int
 }
 
 func (s *hostSession) DownloadFile(_ context.Context, input protocol.DownloadFileInput, conditions protocol.DownloadConditions) (protocol.FileDownloadResponse, io.ReadCloser, error) {
@@ -125,16 +93,11 @@ func (s *hostSession) CheckFile(context.Context, protocol.DownloadFileInput) (pr
 	return protocol.DownloadedFileInfo{Revision: "hostfile_1"}, nil
 }
 
-func (s *hostSession) ReadHostFile(context.Context, protocol.ReadHostFileInput) (protocol.HostFileRead, error) {
-	s.reads++
-	return protocol.HostFileRead{Payload: protocol.HostTextFile{SessionID: "s", Path: "/home/me/notes.txt", Size: 3, Encoding: "utf-8", Content: "old", ReturnedBytes: 3, ReturnedLines: 1}}, nil
-}
-
 func TestReadDownloadsTextWithARevisionItCantBeAnnotatedAt(t *testing.T) {
 	session := &hostSession{content: "a\nb\n"}
 	file, err := read(t.Context(), session, "~/notes.txt", 100, 100, "")
 	if err != nil || file.Text.Content != "a\nb\n" || file.Text.Path != "/home/me/notes.txt" || file.Text.Revision != "" ||
-		file.Revision != "hostfile_1" || file.Text.ReturnedLines != 2 || file.Image || session.reads != 0 {
+		file.Revision != "hostfile_1" || file.Text.ReturnedLines != 2 || file.Image {
 		t.Fatalf("file = %+v, %v", file, err)
 	}
 	file, err = read(t.Context(), session, "~/notes.txt", 100, 100, "hostfile_1")
@@ -143,10 +106,32 @@ func TestReadDownloadsTextWithARevisionItCantBeAnnotatedAt(t *testing.T) {
 	}
 }
 
-func TestReadFallsBackToTheBoundedReadForWhatIsntText(t *testing.T) {
-	session := &hostSession{content: "\x89PNG\r\n\x1a\n\x00\x00"}
-	file, err := read(t.Context(), session, "~/notes.txt", 100, 100, "")
-	if err != nil || file.Text.Content != "old" || file.Revision != "" || session.reads != 1 {
-		t.Fatalf("file = %+v, %v", file, err)
+func TestReadDecodesAnImageToFitItsBounds(t *testing.T) {
+	picture := image.NewNRGBA(image.Rect(0, 0, 400, 100))
+	for x := range 400 {
+		for y := range 100 {
+			picture.Set(x, y, color.NRGBA{B: 255, A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, picture); err != nil {
+		t.Fatal(err)
+	}
+	file, err := read(t.Context(), &hostSession{content: encoded.String()}, "~/notes.txt", 100, 100, "")
+	if err != nil || !file.Image || file.Width != 400 || file.Height != 100 || file.Pixels.Width != 100 || file.Pixels.Height != 25 ||
+		file.Text.Path != "/home/me/notes.txt" || file.Text.Size != int64(encoded.Len()) || file.MediaType != "image/png" || file.Revision != "hostfile_1" {
+		t.Fatalf("image = %+v, %v", file.Text, err)
+	}
+}
+
+func TestReadRefusesWhatIsntTextOrAnImage(t *testing.T) {
+	for name, content := range map[string]string{
+		"binary":             "\x7fELF\x02\x01\x01\x00",
+		"an undecodable PNG": "\x89PNG\r\n\x1a\n\x00\x00",
+	} {
+		_, err := read(t.Context(), &hostSession{content: content}, "~/notes.txt", 100, 100, "")
+		if got := Describe(err); got != (Problem{"Can't show this file", "Kit shows text files and PNG, JPEG, GIF, or WebP images."}) {
+			t.Errorf("%s: %+v, %v", name, got, err)
+		}
 	}
 }

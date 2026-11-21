@@ -73,7 +73,7 @@ func DecodeBytes(encoded []byte, maxWidth, maxHeight int) (Pixels, error) {
 	if err != nil {
 		return Pixels{}, fmt.Errorf("unsupported image: %w", err)
 	}
-	if config.Width <= 0 || config.Height <= 0 || config.Width*config.Height > maxSourcePixels {
+	if config.Width <= 0 || config.Height <= 0 || config.Width > maxSourcePixels/config.Height {
 		return Pixels{}, errors.New("image dimensions are too large to preview")
 	}
 	source, _, err := image.Decode(bytes.NewReader(encoded))

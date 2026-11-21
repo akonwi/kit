@@ -1,8 +1,15 @@
 package filedownload
 
 import (
+	"bytes"
 	"context"
+	bigendian "encoding/binary"
+	"errors"
+	"hash/crc32"
+	"image"
+	"image/png"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -23,7 +30,6 @@ type fakeSession struct {
 	versions  []version
 	downloads int
 	checks    int
-	read      int
 	held      []string
 	err       error
 	checkErr  error
@@ -71,11 +77,6 @@ func (s *fakeSession) CheckFile(ctx context.Context, _ protocol.DownloadFileInpu
 	return protocol.DownloadedFileInfo{Revision: s.current(s.downloads).revision}, nil
 }
 
-func (s *fakeSession) ReadWorkspaceFile(_ context.Context, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
-	s.read++
-	return protocol.WorkspaceFileRead{Path: input.Path, Revision: "file_preview", Content: "preview\n", ReturnedBytes: 8, ReturnedLines: 1}, nil
-}
-
 type counted struct {
 	reader io.Reader
 	count  *int
@@ -87,7 +88,19 @@ func (c *counted) Read(buffer []byte) (int, error) {
 	return n, err
 }
 
-var input = protocol.ReadWorkspaceFileInput{WorkspaceID: "w", Path: "main.go"}
+var input = protocol.DownloadFileInput{HasWorkspace: true, WorkspaceID: "w", Path: "main.go"}
+
+// workspace downloads the workspace file at input as a workspace File tab
+// does, refusing images as binary.
+func workspace(ctx context.Context, session Downloader, input protocol.DownloadFileInput, held string) (Read, error) {
+	return Download(ctx, session, input, held, nil)
+}
+
+// binary reports whether err refuses a file as binary.
+func binary(err error) bool {
+	var failure *protocol.WorkspaceError
+	return errors.As(err, &failure) && failure.Code == protocol.WorkspaceErrorBinary
+}
 
 func TestAFileWithinTheLimitsDownloadsWhole(t *testing.T) {
 	session := &fakeSession{versions: []version{{"file_1", "package main\n\nfunc main() {}\n"}}}
@@ -96,8 +109,8 @@ func TestAFileWithinTheLimitsDownloadsWhole(t *testing.T) {
 		SessionID: "s", Workspace: protocol.WorkspaceRef{SessionID: "s", WorkspaceID: "w"}, Path: "main.go", Revision: "file_1", Size: 29, ModifiedAt: "2026-01-02T03:04:05Z",
 		Encoding: "utf-8", Content: "package main\n\nfunc main() {}\n", ReturnedBytes: 29, ReturnedLines: 3,
 	}
-	if err != nil || read != (Read{File: want}) || session.downloads != 1 || session.checks != 1 || session.read != 0 {
-		t.Fatalf("read = %+v, %v; %d downloads, %d checks, %d preview reads", read, err, session.downloads, session.checks, session.read)
+	if err != nil || read.File != want || read.Image != nil || read.Changed || session.downloads != 1 || session.checks != 1 {
+		t.Fatalf("read = %+v, %v; %d downloads, %d checks", read, err, session.downloads, session.checks)
 	}
 }
 
@@ -125,24 +138,26 @@ func TestAFilePastTheLineLimitStopsAtTheLimit(t *testing.T) {
 	}
 }
 
-func TestAnOlderServerGetsTheBoundedRead(t *testing.T) {
+func TestAnOlderServerIsUnsupported(t *testing.T) {
 	session := &fakeSession{err: &kit.UnsupportedError{Capability: "downloadFile"}}
-	read, err := workspace(t.Context(), session, input, "file_1")
-	if err != nil || read.File.Content != "preview\n" || read.File.Revision != "file_preview" || read.Unchanged || session.read != 1 {
-		t.Fatalf("read = %+v, %v", read, err)
+	if _, err := workspace(t.Context(), session, input, "file_1"); !Unsupported(err) {
+		t.Fatalf("err = %v, want unsupported", err)
+	}
+	if Unsupported(errBinary()) {
+		t.Fatal("a binary file counted as an older server")
 	}
 }
 
-func TestFilesTheDownloadCantShowGetTheBoundedRead(t *testing.T) {
+func TestFilesThatArentTextAreBinary(t *testing.T) {
 	for name, content := range map[string]string{
-		"binary":            "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + strings.Repeat("\x00", MaxBytes),
-		"not UTF-8":         "caf\xe9\n",
-		"one long line":     strings.Repeat("x", MaxBytes+1),
-		"invalid past head": strings.Repeat("a", 600) + "\xff",
+		"binary":             "\x00\x01\x02" + strings.Repeat("\x00", MaxBytes),
+		"not UTF-8":          "caf\xe9\n",
+		"invalid past head":  strings.Repeat("a", 600) + "\xff",
+		"ends mid-character": strings.Repeat("a", 600) + "\xc3",
+		"an image":           "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR",
 	} {
 		session := &fakeSession{versions: []version{{"file_1", content}}}
-		read, err := workspace(t.Context(), session, input, "")
-		if err != nil || read.File.Content != "preview\n" || session.read != 1 {
+		if read, err := workspace(t.Context(), session, input, ""); !binary(err) {
 			t.Errorf("%s: read = %+v, %v", name, read.File, err)
 		}
 		if name == "binary" && session.served > 4096 {
@@ -151,19 +166,51 @@ func TestFilesTheDownloadCantShowGetTheBoundedRead(t *testing.T) {
 	}
 }
 
-func TestACharacterSplitByTheSniffedHeadIsText(t *testing.T) {
-	content := strings.Repeat("a", sniffBytes-1) + "é\n"
+func TestAFirstLinePastTheByteLimitIsCutAtACharacter(t *testing.T) {
+	content := strings.Repeat("x", MaxBytes-1) + "é" + strings.Repeat("y", 10)
 	session := &fakeSession{versions: []version{{"file_1", content}}}
 	read, err := workspace(t.Context(), session, input, "")
-	if err != nil || read.File.Content != content || session.read != 0 {
-		t.Fatalf("read = %+v, %v", read.File, err)
+	if err != nil || read.File.Content != strings.Repeat("x", MaxBytes-1) || read.File.ReturnedLines != 1 ||
+		!read.File.Truncated || read.File.TruncationReason != "byte_limit" {
+		t.Fatalf("read = %d bytes, %q, %v", read.File.ReturnedBytes, read.File.TruncationReason, err)
+	}
+}
+
+func TestImagesDownloadWholeWhenAskedFor(t *testing.T) {
+	// A PNG past the text limit: an image with trailing bytes.
+	large := pngOf(t, 2, 1) + strings.Repeat("\x00", MaxBytes+10)
+	session := &fakeSession{versions: []version{{"hostfile_1", large}}}
+	read, err := Download(t.Context(), session, protocol.DownloadFileInput{Path: "/tmp/shot.png"}, "", bounds)
+	if err != nil || string(read.Image) != large || read.MediaType != "image/png" || read.File.Path != "/tmp/shot.png" ||
+		read.File.Size != int64(len(large)) || read.File.Revision != "hostfile_1" {
+		t.Fatalf("read = %d bytes, %q, %+v, %v", len(read.Image), read.MediaType, read.File, err)
+	}
+	huge := &fakeSession{versions: []version{{"hostfile_1", "GIF89a" + strings.Repeat("\x00", MaxImageBytes)}}}
+	var failure *protocol.WorkspaceError
+	if _, err := Download(t.Context(), huge, protocol.DownloadFileInput{Path: "/tmp/big.gif"}, "", bounds); !errors.As(err, &failure) ||
+		failure.Code != protocol.WorkspaceErrorLimit {
+		t.Fatalf("a huge image: err = %v", err)
+	}
+}
+
+func TestImageFormatsAreKnownByTheirBytes(t *testing.T) {
+	for want, data := range map[string]string{
+		"image/png":  "\x89PNG\r\n\x1a\nrest",
+		"image/jpeg": "\xff\xd8\xff\xe0",
+		"image/gif":  "GIF87a",
+		"image/webp": "RIFF\x00\x00\x00\x00WEBPVP8 ",
+		"":           "RIFF\x00\x00\x00\x00WAVE",
+	} {
+		if got := imageType([]byte(data)); got != want {
+			t.Errorf("imageType(%q) = %q, want %q", data, got, want)
+		}
 	}
 }
 
 func TestAHeldRevisionThatIsCurrentIsUnchanged(t *testing.T) {
 	session := &fakeSession{versions: []version{{"file_1", "a\n"}}}
 	read, err := workspace(t.Context(), session, input, "file_1")
-	if err != nil || read != (Read{Unchanged: true}) || session.held[0] != "file_1" || session.checks != 0 {
+	if err != nil || !reflect.DeepEqual(read, Read{Unchanged: true}) || session.held[0] != "file_1" || session.checks != 0 {
 		t.Fatalf("read = %+v, %v; held %v", read, err, session.held)
 	}
 }
@@ -223,13 +270,10 @@ func TestAFileWithoutARevisionIsntChecked(t *testing.T) {
 func TestOtherFailuresAreReported(t *testing.T) {
 	failure := &protocol.WorkspaceError{Code: protocol.WorkspaceErrorStaleWorkspace, Message: "stale"}
 	session := &fakeSession{err: failure}
-	if _, err := workspace(t.Context(), session, input, ""); err != failure || session.read != 0 {
+	if _, err := workspace(t.Context(), session, input, ""); err != failure {
 		t.Fatalf("err = %v", err)
 	}
-	if Fallback(failure) || !Fallback(errNotText) || !Fallback(&kit.UnsupportedError{}) {
-		t.Fatal("Fallback misclassified")
-	}
-	if _, err := readText(io.MultiReader(strings.NewReader("ab"), &failing{})); err == nil {
+	if _, _, err := readBody(io.MultiReader(strings.NewReader("ab"), &failing{}), false); err == nil {
 		t.Fatal("a failed body read was not reported")
 	}
 }
@@ -254,4 +298,67 @@ func TestAnUnknownLengthCutShortReportsOnlyWhatShows(t *testing.T) {
 	if err != nil || read.File.ReturnedBytes != shown || read.File.Size != int64(shown) || read.File.TruncationReason != "byte_limit" {
 		t.Fatalf("read = %d of %d bytes, %q, %v", read.File.ReturnedBytes, read.File.Size, read.File.TruncationReason, err)
 	}
+}
+
+var bounds = &ImageBounds{Width: 100, Height: 100}
+
+// pngOf is a PNG of width by height pixels as its header says; only a 2 by
+// 1 image has pixels to match.
+func pngOf(t *testing.T, width, height uint32) string {
+	t.Helper()
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 2, 1))); err != nil {
+		t.Fatal(err)
+	}
+	data := encoded.Bytes()
+	// The IHDR chunk's data starts at 16; its CRC covers its type and data.
+	bigendian.BigEndian.PutUint32(data[16:], width)
+	bigendian.BigEndian.PutUint32(data[20:], height)
+	bigendian.BigEndian.PutUint32(data[29:], crc32.ChecksumIEEE(data[12:29]))
+	return string(data)
+}
+
+func TestImagesAreCheckedBeforeTheyAreShown(t *testing.T) {
+	host := protocol.DownloadFileInput{Path: "/tmp/shot.png"}
+	read, err := Download(t.Context(), &fakeSession{versions: []version{{"hostfile_1", pngOf(t, 2, 1)}}}, host, "", bounds)
+	if err != nil || read.Width != 2 || read.Height != 1 || read.MediaType != "image/png" {
+		t.Fatalf("read = %dx%d %q, %v", read.Width, read.Height, read.MediaType, err)
+	}
+	var failure *protocol.WorkspaceError
+	_, err = Download(t.Context(), &fakeSession{versions: []version{{"hostfile_1", pngOf(t, 10_000, 10_000)}}}, host, "", bounds)
+	if !errors.As(err, &failure) || failure.Code != protocol.WorkspaceErrorLimit {
+		t.Fatalf("a huge image: %v", err)
+	}
+	if _, err := Download(t.Context(), &fakeSession{versions: []version{{"hostfile_1", "\x89PNG\r\n\x1a\nbroken"}}}, host, "", bounds); !binary(err) {
+		t.Fatalf("a broken image: %v", err)
+	}
+}
+
+func TestARetryWithAnImageThatCantShowKeepsTheChangedCopy(t *testing.T) {
+	host := protocol.DownloadFileInput{Path: "/tmp/shot.png"}
+	first := pngOf(t, 2, 1)
+	for name, retry := range map[string]string{
+		"broken":         "\x89PNG\r\n\x1a\nbroken",
+		"too large":      pngOf(t, 10_000, 10_000),
+		"corrupt pixels": corruptPixels(t),
+	} {
+		session := &fakeSession{versions: []version{{"hostfile_1", first}, {"hostfile_2", retry}}}
+		read, err := Download(t.Context(), session, host, "", bounds)
+		if err != nil || string(read.Image) != first || !read.Changed || read.File.Revision != "" || session.downloads != 2 {
+			t.Errorf("%s: read = %d bytes, changed %t, %q, %v", name, len(read.Image), read.Changed, read.File.Revision, err)
+		}
+	}
+}
+
+// corruptPixels is a PNG whose header is sound but whose pixel data isn't.
+func corruptPixels(t *testing.T) string {
+	data := []byte(pngOf(t, 2, 1))
+	start := bytes.Index(data, []byte("IDAT")) + 4
+	for index := start; index < start+8; index++ {
+		data[index] ^= 0xFF
+	}
+	if _, _, err := image.DecodeConfig(bytes.NewReader(data)); err != nil {
+		t.Fatalf("the header doesn't decode: %v", err)
+	}
+	return string(data)
 }

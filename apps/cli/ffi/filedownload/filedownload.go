@@ -1,7 +1,7 @@
 // Package filedownload reads the text a File tab shows with one download of
 // the file (ADR 0074), up to the limits a terminal pane scrolls smoothly at.
-// A server that predates downloads, and a file the download can't show as
-// text, get the bounded preview read instead, which classifies the file.
+// It classifies what it downloads: UTF-8 text, a supported image where the
+// caller shows images, or a binary file it refuses.
 package filedownload
 
 import (
@@ -9,20 +9,25 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
 	"io"
 	"unicode/utf8"
 
 	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/apps/cli/ffi/attachmentbridge"
 )
 
 const (
-	// MaxBytes is the most of a file a pane shows. Scrolling costs a frame
-	// time that grows with the lines shown, and these limits hold it to
-	// about 12 ms.
+	// MaxBytes is the most of a text file a pane shows. Scrolling costs a
+	// frame time that grows with the lines shown, and these limits hold it
+	// to about 12 ms.
 	MaxBytes = 2 << 20
 	// MaxLines is the most lines a pane shows.
 	MaxLines = 65_536
+	// MaxImageBytes and MaxImagePixels bound the images a pane shows.
+	MaxImageBytes  = 16 << 20
+	MaxImagePixels = 24_000_000
 	// attempts is how many times a file that changes while it downloads is
 	// downloaded before its last copy is kept.
 	attempts = 2
@@ -31,44 +36,47 @@ const (
 	sniffBytes = 512
 )
 
-// errNotText reports a download that isn't UTF-8 text, or whose first line
-// doesn't fit within MaxBytes.
-var errNotText = errors.New("download is not text that fits")
-
-// Read is a text file as a File tab shows it.
+// Read is a file as a File tab shows it.
 type Read struct {
 	// File is the text as a preview read reports it: Truncated, with
-	// "byte_limit" or "line_limit", when it stops before the file's end.
+	// "byte_limit" or "line_limit", when it stops before the file's end. An
+	// image's File carries only its path and size.
 	File protocol.WorkspaceFileRead
+	// Image is a supported image's encoded bytes, when the caller asked for
+	// images and the file is one; MediaType names its format, Width and
+	// Height its size in pixels, and Pixels the image decoded to fit the
+	// caller's bounds.
+	Image         []byte
+	MediaType     string
+	Width, Height int
+	Pixels        attachmentbridge.Pixels
 	// Unchanged reports that the file still has the revision the caller
 	// holds; File is empty.
 	Unchanged bool
 	// Changed reports that the file changed while it downloaded, so File
-	// may not match any one revision of it.
+	// may not match any one revision of it. It has no revision.
 	Changed bool
 }
 
 // Workspace reads a workspace file. held is the revision of the copy the
-// caller shows, or empty for none.
+// caller shows, or empty for none. A binary file fails with a
+// binary_file WorkspaceError, and a server that predates downloads with an
+// UnsupportedError.
 func Workspace(session *kit.Session, ctx context.Context, input protocol.ReadWorkspaceFileInput, held string) (Read, error) {
 	if session == nil {
 		return Read{}, errors.New("session is unavailable")
 	}
-	return workspace(ctx, session, input, held)
+	return Download(ctx, session, protocol.DownloadFileInput{HasWorkspace: true, WorkspaceID: input.WorkspaceID, Path: input.Path}, held, nil)
 }
 
-// Download downloads a text file on the session's server by absolute, "~",
-// or "~/…" path. An error that Fallback accepts asks for the bounded host
-// read instead, which also shows images. held is as for Workspace.
-func Download(ctx context.Context, source Downloader, path, held string) (Read, error) {
-	return download(ctx, source, protocol.DownloadFileInput{Path: path}, held)
+// Unsupported reports whether err says the server predates downloads.
+func Unsupported(err error) bool {
+	return errors.Is(err, kit.ErrUnsupported)
 }
 
-// Fallback reports whether err asks for the bounded read: the server
-// predates downloads, or the file isn't text that fits.
-func Fallback(err error) bool {
-	var unsupported *kit.UnsupportedError
-	return errors.Is(err, errNotText) || errors.As(err, &unsupported)
+// ImageBounds are the pixels a caller shows an image within.
+type ImageBounds struct {
+	Width, Height int
 }
 
 // Downloader is the part of a session downloads use; *kit.Session is one.
@@ -77,28 +85,16 @@ type Downloader interface {
 	CheckFile(context.Context, protocol.DownloadFileInput) (protocol.DownloadedFileInfo, error)
 }
 
-type workspaceSource interface {
-	Downloader
-	ReadWorkspaceFile(context.Context, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
-}
-
-func workspace(ctx context.Context, source workspaceSource, input protocol.ReadWorkspaceFileInput, held string) (Read, error) {
-	read, err := download(ctx, source, protocol.DownloadFileInput{HasWorkspace: true, WorkspaceID: input.WorkspaceID, Path: input.Path}, held)
-	if Fallback(err) {
-		file, err := source.ReadWorkspaceFile(ctx, input)
-		return Read{File: file}, err
-	}
-	return read, err
-}
-
-// download fetches up to MaxBytes of a file and checks afterwards that the
-// file still has the revision it downloaded, downloading it once more if
-// not. A copy that changed while it downloaded keeps no revision: it can't
-// be revalidated or annotated. It is kept if the next download fails.
-func download(ctx context.Context, source Downloader, input protocol.DownloadFileInput, held string) (Read, error) {
+// Download fetches a file and checks afterwards that it still has the
+// revision it downloaded, downloading it once more if not. A copy that
+// changed while it downloaded keeps no revision: it can't be revalidated or
+// annotated. It is kept if the next download fails. images asks for
+// supported images, decoded to fit its bounds, rather than refusing them as
+// binary.
+func Download(ctx context.Context, source Downloader, input protocol.DownloadFileInput, held string, images *ImageBounds) (Read, error) {
 	var kept Read
 	for attempt := range attempts {
-		read, known, err := fetch(ctx, source, input, held)
+		read, known, err := fetch(ctx, source, input, held, images)
 		if err != nil {
 			if attempt > 0 && ctx.Err() == nil {
 				return kept, nil
@@ -123,9 +119,9 @@ func download(ctx context.Context, source Downloader, input protocol.DownloadFil
 	return kept, nil
 }
 
-// fetch downloads up to MaxBytes of a file, and reports whether the file
-// has a known length and revision.
-func fetch(ctx context.Context, source Downloader, input protocol.DownloadFileInput, held string) (Read, bool, error) {
+// fetch downloads a file, and reports whether it has a known length and
+// revision.
+func fetch(ctx context.Context, source Downloader, input protocol.DownloadFileInput, held string, images *ImageBounds) (Read, bool, error) {
 	response, body, err := source.DownloadFile(ctx, input, protocol.DownloadConditions{CachedRevision: held})
 	if err != nil {
 		return Read{}, false, err
@@ -133,25 +129,41 @@ func fetch(ctx context.Context, source Downloader, input protocol.DownloadFileIn
 	if response.NotModified {
 		return Read{Unchanged: true}, false, nil
 	}
-	data, err := readText(body)
+	data, mediaType, err := readBody(body, images != nil)
 	body.Close()
-	if err != nil {
-		return Read{}, false, err
-	}
-	content, reason, err := text(data)
 	if err != nil {
 		return Read{}, false, err
 	}
 	info := response.Info
 	file := protocol.WorkspaceFileRead{
-		SessionID: info.SessionID, Path: info.Path, Revision: info.Revision, Size: info.Size,
-		ModifiedAt: info.ModifiedAt, Encoding: "utf-8", Content: string(content),
-		ReturnedBytes: len(content), ReturnedLines: lineCount(content),
-		Truncated: reason != "", TruncationReason: reason,
+		SessionID: info.SessionID, Path: info.Path, Revision: info.Revision, Size: info.Size, ModifiedAt: info.ModifiedAt,
 	}
 	if input.HasWorkspace {
 		file.Workspace = protocol.WorkspaceRef{SessionID: info.SessionID, WorkspaceID: info.WorkspaceID}
 	}
+	if mediaType != "" {
+		config, _, err := image.DecodeConfig(bytes.NewReader(data))
+		if err != nil {
+			return Read{}, false, errBinary()
+		}
+		if config.Width <= 0 || config.Height <= 0 || config.Width > MaxImagePixels/config.Height {
+			return Read{}, false, &protocol.WorkspaceError{Code: protocol.WorkspaceErrorLimit, Message: "image is too large", Details: map[string]string{"limit": "image_pixels"}}
+		}
+		// The whole image is decoded here, so a copy that can't show fails
+		// the download rather than replacing one that can.
+		pixels, err := attachmentbridge.DecodeBytes(data, images.Width, images.Height)
+		if err != nil {
+			return Read{}, false, errBinary()
+		}
+		if info.Size < 0 {
+			file.Size = int64(len(data))
+		}
+		return Read{File: file, Image: data, MediaType: mediaType, Width: config.Width, Height: config.Height, Pixels: pixels}, info.KnownLength(), nil
+	}
+	content, reason := text(data)
+	file.Encoding, file.Content = "utf-8", string(content)
+	file.ReturnedBytes, file.ReturnedLines = len(content), lineCount(content)
+	file.Truncated, file.TruncationReason = reason != "", reason
 	if info.Size < 0 {
 		// A file of unknown length that was read to its end has the length
 		// read; one cut short has at least what shows.
@@ -181,14 +193,25 @@ func changed(ctx context.Context, source Downloader, input protocol.DownloadFile
 	return false, nil
 }
 
-// readText reads up to one byte past MaxBytes of body, stopping after its
-// first bytes when they aren't text, so an image or other binary file costs
-// little before the bounded read classifies it.
-func readText(body io.Reader) ([]byte, error) {
-	reader := bufio.NewReader(io.LimitReader(body, MaxBytes+1))
+// readBody reads a download, judging it by its first bytes: a supported
+// image, when images is set, up to one byte past MaxImageBytes; otherwise
+// UTF-8 text up to one byte past MaxBytes. Anything else stops after its
+// first bytes as binary. It returns the image's media type, or "" for text.
+func readBody(body io.Reader, images bool) ([]byte, string, error) {
+	reader := bufio.NewReaderSize(body, sniffBytes)
 	head, err := reader.Peek(sniffBytes)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
+		return nil, "", err
+	}
+	if mediaType := imageType(head); images && mediaType != "" {
+		data, err := io.ReadAll(io.LimitReader(reader, MaxImageBytes+1))
+		if err != nil {
+			return nil, "", err
+		}
+		if len(data) > MaxImageBytes {
+			return nil, "", &protocol.WorkspaceError{Code: protocol.WorkspaceErrorLimit, Message: "image is too large", Details: map[string]string{"limit": "image_bytes"}}
+		}
+		return data, mediaType, nil
 	}
 	if len(head) == sniffBytes {
 		// The head may end inside a character.
@@ -197,25 +220,66 @@ func readText(body io.Reader) ([]byte, error) {
 		}
 	}
 	if bytes.IndexByte(head, 0) >= 0 || !utf8.Valid(head) {
-		return nil, errNotText
+		return nil, "", errBinary()
 	}
-	return io.ReadAll(reader)
+	data, err := io.ReadAll(io.LimitReader(reader, MaxBytes+1))
+	if err != nil {
+		return nil, "", err
+	}
+	// Only what can show is judged; a copy cut at the limit may end inside
+	// a character.
+	shown := data
+	if len(shown) > MaxBytes {
+		shown = cutAtCharacter(shown[:MaxBytes])
+	}
+	if bytes.IndexByte(shown, 0) >= 0 || !utf8.Valid(shown) {
+		return nil, "", errBinary()
+	}
+	return data, "", nil
 }
 
-// text is the part of data a pane shows, and why it stops early, if it
-// does. data past MaxBytes is cut at its last line's end.
-func text(data []byte) ([]byte, string, error) {
+func errBinary() error {
+	return &protocol.WorkspaceError{Code: protocol.WorkspaceErrorBinary, Message: "binary files cannot be shown"}
+}
+
+// imageType is the supported image format data begins, or "".
+func imageType(data []byte) string {
+	switch {
+	case bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")):
+		return "image/png"
+	case bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}):
+		return "image/jpeg"
+	case bytes.HasPrefix(data, []byte("GIF87a")), bytes.HasPrefix(data, []byte("GIF89a")):
+		return "image/gif"
+	case len(data) >= 12 && bytes.HasPrefix(data, []byte("RIFF")) && string(data[8:12]) == "WEBP":
+		return "image/webp"
+	}
+	return ""
+}
+
+// cutAtCharacter drops a character that data's last bytes begin but don't
+// finish, as a download cut at a byte limit may leave.
+func cutAtCharacter(data []byte) []byte {
+	for trim := 0; trim < utf8.UTFMax-1 && len(data) > 0 && !utf8.Valid(data); trim++ {
+		data = data[:len(data)-1]
+	}
+	return data
+}
+
+// text is the part of valid UTF-8 data a pane shows, and why it stops
+// early, if it does. data past MaxBytes is cut at its last line's end in
+// MaxBytes, or, when its first line doesn't fit, at its last whole
+// character there.
+func text(data []byte) ([]byte, string) {
 	reason := ""
 	if len(data) > MaxBytes {
-		end := bytes.LastIndexByte(data[:MaxBytes], '\n')
-		if end < 0 {
-			return nil, "", errNotText
+		data = data[:MaxBytes]
+		if end := bytes.LastIndexByte(data, '\n'); end >= 0 {
+			data = data[:end+1]
+		} else {
+			data = cutAtCharacter(data)
 		}
-		data = data[:end+1]
 		reason = "byte_limit"
-	}
-	if bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
-		return nil, "", errNotText
 	}
 	if lineCount(data) > MaxLines {
 		end := 0
@@ -225,7 +289,7 @@ func text(data []byte) ([]byte, string, error) {
 		data = data[:end]
 		reason = "line_limit"
 	}
-	return data, reason, nil
+	return data, reason
 }
 
 // lineCount counts lines as preview reads do: a final newline ends the last

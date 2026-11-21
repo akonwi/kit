@@ -351,6 +351,20 @@ fn truncation(file: protocol::WorkspaceFileRead) Str {
 
 // What a failed read shows.
 fn failure(error: Error) Failure {
+  match filedownload::Unsupported(error) {
+    true => {
+      Failure{
+        title: "Server needs an update",
+        detail: "This server's Kit can't download files.",
+        stale: false,
+      }
+    },
+    false => read_failure(error),
+  }
+}
+
+// What a failed read shows, for a server that downloads files.
+private fn read_failure(error: Error) Failure {
   let canceled = Failure{
     title: "Load canceled",
     detail: "It loads again when this tab is next shown.",
@@ -733,8 +747,8 @@ impl Pane {
                       match {
                         file.Unchanged => { self.failed = Maybe::new<Failure>() },
                         file.Image => {
-                          self.revision = ""
-                          self.changed = false
+                          self.revision = file.Revision
+                          self.changed = file.Changed
                           self.loaded_image(file, matte)
                         },
                         _ => {

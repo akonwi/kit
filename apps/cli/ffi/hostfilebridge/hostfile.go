@@ -1,5 +1,5 @@
-// Package hostfilebridge adapts host file reads (ADR 0050) to the terminal
-// client: Ard cannot switch over the HostFileRead union or decode images.
+// Package hostfilebridge adapts host file downloads (ADR 0050, ADR 0074) to
+// the terminal client: Ard cannot decode images.
 package hostfilebridge
 
 import (
@@ -16,7 +16,7 @@ import (
 // workspace-style read that names no workspace or revision, so its lines
 // cannot be annotated, or an image decoded for the terminal.
 type File struct {
-	// Text is the preview of a text file, with the absolute path that was
+	// Text is the text of a text file, with the absolute path that was
 	// read.
 	Text protocol.WorkspaceFileRead
 	// Image reports that the file is an image; Text then carries only the
@@ -28,19 +28,18 @@ type File struct {
 	Height    int
 	// Pixels is the image scaled to fit the requested bounds.
 	Pixels attachmentbridge.Pixels
-	// Revision is the downloaded text's revision, to revalidate it with; it
-	// is empty for an image, a preview read, or a file without one.
+	// Revision is the download's revision, to revalidate it with; it is
+	// empty for a file without one.
 	Revision string
 	// Unchanged and Changed are as for filedownload.Read.
 	Unchanged bool
 	Changed   bool
 }
 
-// Read reads path, absolute or "~/…", on the session's server: text with
-// one download, as filedownload.Host does, and an image, or text a server
-// that predates downloads has, with the bounded host read. An image is
-// scaled to fit within maxWidth by maxHeight pixels. held is the revision
-// of the text the caller shows, or empty.
+// Read downloads path, absolute or "~/…", on the session's server, as
+// filedownload.Download does: text, or a supported image scaled to fit
+// within maxWidth by maxHeight pixels. held is the revision of the file the
+// caller shows, or empty.
 func Read(session *kit.Session, ctx context.Context, path string, maxWidth, maxHeight int, held string) (File, error) {
 	if session == nil {
 		return File{}, errors.New("session is unavailable")
@@ -48,49 +47,21 @@ func Read(session *kit.Session, ctx context.Context, path string, maxWidth, maxH
 	return read(ctx, session, path, maxWidth, maxHeight, held)
 }
 
-type source interface {
-	filedownload.Downloader
-	ReadHostFile(context.Context, protocol.ReadHostFileInput) (protocol.HostFileRead, error)
-}
-
-func read(ctx context.Context, session source, path string, maxWidth, maxHeight int, held string) (File, error) {
-	text, err := filedownload.Download(ctx, session, path, held)
-	if err == nil {
-		// The text names no revision, so it can't be annotated.
-		revision := text.File.Revision
-		text.File.Revision = ""
-		return File{Text: text.File, Revision: revision, Unchanged: text.Unchanged, Changed: text.Changed}, nil
-	}
-	if !filedownload.Fallback(err) {
-		return File{}, err
-	}
-	read, err := session.ReadHostFile(ctx, protocol.ReadHostFileInput{Path: path})
+func read(ctx context.Context, session filedownload.Downloader, path string, maxWidth, maxHeight int, held string) (File, error) {
+	bounds := &filedownload.ImageBounds{Width: maxWidth, Height: maxHeight}
+	download, err := filedownload.Download(ctx, session, protocol.DownloadFileInput{Path: path}, held, bounds)
 	if err != nil {
 		return File{}, err
 	}
-	return project(read, maxWidth, maxHeight)
-}
-
-func project(read protocol.HostFileRead, maxWidth, maxHeight int) (File, error) {
-	if text := read.Text(); text != nil {
-		return File{Text: protocol.WorkspaceFileRead{
-			SessionID: text.SessionID, Path: text.Path, Size: text.Size, ModifiedAt: text.ModifiedAt,
-			Encoding: text.Encoding, Content: text.Content, ReturnedBytes: text.ReturnedBytes,
-			ReturnedLines: text.ReturnedLines, Truncated: text.Truncated, TruncationReason: text.TruncationReason,
-		}}, nil
+	// The text names no revision, so it can't be annotated.
+	revision := download.File.Revision
+	download.File.Revision = ""
+	file := File{Text: download.File, Revision: revision, Unchanged: download.Unchanged, Changed: download.Changed}
+	if download.Image == nil {
+		return file, nil
 	}
-	image := read.Image()
-	if image == nil {
-		return File{}, errors.New("host file read has no kind")
-	}
-	pixels, err := attachmentbridge.DecodeBytes(image.Data, maxWidth, maxHeight)
-	if err != nil {
-		return File{}, err
-	}
-	return File{
-		Text:  protocol.WorkspaceFileRead{SessionID: image.SessionID, Path: image.Path, Size: image.Size, ModifiedAt: image.ModifiedAt},
-		Image: true, MediaType: image.MediaType, Width: image.Width, Height: image.Height, Pixels: pixels,
-	}, nil
+	file.Image, file.MediaType, file.Width, file.Height, file.Pixels = true, download.MediaType, download.Width, download.Height, download.Pixels
+	return file, nil
 }
 
 // Target is where a path the terminal client shows opens: a workspace file
@@ -113,7 +84,7 @@ type Problem struct {
 // a missing file or a canceled read.
 func Describe(err error) Problem {
 	if errors.Is(err, kit.ErrUnsupported) {
-		return Problem{"Server needs an update", "This server's Kit can't open files outside the working directory."}
+		return Problem{"Server needs an update", "This server's Kit can't download files."}
 	}
 	var failure *protocol.WorkspaceError
 	if !errors.As(err, &failure) {
