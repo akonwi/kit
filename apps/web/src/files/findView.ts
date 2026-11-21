@@ -1,7 +1,8 @@
-// The find bar's side of the page: the texts a file view shows, read from
-// what it drew, and the matches drawn back over them with the CSS Custom
-// Highlight API, so the browser paints only what's on screen and the lines
-// themselves never redraw.
+// The find bar's side of the page: the texts a file view shows, which are a
+// source's lines or what a rendered file drew, and the matches drawn back
+// over the ones on the page with the CSS Custom Highlight API, so the
+// browser paints only what's on screen and the lines themselves never
+// redraw.
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { FileFind, type FindCorpus, type FindMatch, type FindPosition, pageFindAction } from "./fileFind";
 
@@ -17,14 +18,8 @@ const BLOCKS = "p, h1, h2, h3, h4, h5, h6, li, td, th, pre, dt, dd";
 /** What a rendered Markdown file draws rather than shows as text, and fence chrome. */
 const UNSEARCHED = "figure.diagram, figure.figure, figcaption, button, svg, input, .callout-head";
 
-/** The pieces root shows: a source's lines, or a rendered Markdown file's texts. */
-export function collectPieces(root: Element, corpus: FindCorpus): DomPiece[] {
-  if (corpus === "source")
-    return Array.from(root.querySelectorAll(".file-code"), (element) => {
-      const nodes = textNodes(element);
-      return { text: nodes.map((node) => node.data).join(""), nodes, element };
-    });
-  if (corpus !== "rendered") return [];
+/** A rendered Markdown file's texts, as root shows them. */
+export function collectPieces(root: Element): DomPiece[] {
   const pieces: DomPiece[] = [];
   let last: DomPiece | undefined;
   for (const node of textNodes(root.querySelector(".markdown") ?? root)) {
@@ -42,6 +37,86 @@ export function collectPieces(root: Element, corpus: FindCorpus): DomPiece[] {
   return pieces;
 }
 
+/**
+ * The texts find searches and where the page draws them. A rendered file
+ * draws all of its texts; a source draws only the lines near the view, so
+ * a piece may have no place on the page until it's drawn.
+ */
+export interface PieceSource {
+  texts: readonly string[];
+  /** Where a piece is drawn, or undefined when the page doesn't draw it now. */
+  drawn(piece: number): DomPiece | undefined;
+  /** Where in the pieces a DOM boundary falls, or undefined when it's outside them. */
+  position(node: Node, offset: number): FindPosition | undefined;
+  /** The first piece at least partly below the top of scroller, at its start. */
+  top(scroller: Element): FindPosition;
+}
+
+/** The texts of a rendered Markdown file, all drawn. */
+export function renderedSource(root: Element): PieceSource {
+  const pieces = collectPieces(root);
+  return {
+    texts: pieces.map((piece) => piece.text),
+    drawn: (piece) => pieces[piece],
+    position: (node, offset) => positionOf(pieces, node, offset),
+    top: (scroller) => topPosition(pieces, scroller),
+  };
+}
+
+/**
+ * A source's lines, one piece each, drawn by the rows under root that the
+ * page has now. Each row is a `.file-row` with its line number in
+ * `data-line` and its text in a `.file-code`.
+ */
+export function lineSource(root: Element, lines: readonly string[]): PieceSource {
+  const rows = Array.from(root.querySelectorAll<HTMLElement>(".file-row[data-line]"));
+  const byLine = new Map<number, HTMLElement>();
+  for (const row of rows) byLine.set(Number(row.dataset.line), row);
+  const pieceOf = (row: Element | undefined): DomPiece | undefined => {
+    const element = row?.querySelector(".file-code");
+    if (!element) return undefined;
+    const nodes = textNodes(element);
+    return { text: nodes.map((node) => node.data).join(""), nodes, element };
+  };
+  return {
+    texts: lines,
+    drawn(piece) {
+      const drawn = pieceOf(byLine.get(piece + 1));
+      return drawn && drawn.text === lines[piece] ? drawn : undefined;
+    },
+    position(node, offset) {
+      const row = (node instanceof Element ? node : node.parentElement)?.closest(".file-row[data-line]");
+      if (!row || !root.contains(row)) return undefined;
+      const piece = Number((row as HTMLElement).dataset.line) - 1;
+      const drawn = pieceOf(row);
+      return { piece, offset: drawn ? positionIn(drawn, node, offset) : 0 };
+    },
+    top(scroller) {
+      const top = scroller.getBoundingClientRect().top;
+      let low = 0;
+      let high = rows.length;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        const row = rows[middle];
+        if (row && row.getBoundingClientRect().bottom <= top) low = middle + 1;
+        else high = middle;
+      }
+      const row = rows[low];
+      return { piece: row ? Number(row.dataset.line) - 1 : 0, offset: 0 };
+    },
+  };
+}
+
+/** Where in a drawn piece's text a DOM boundary falls, at its start when the boundary is outside its text. */
+function positionIn(piece: DomPiece, node: Node, offset: number): number {
+  let base = 0;
+  for (const text of piece.nodes) {
+    if (text === node) return base + offset;
+    base += text.data.length;
+  }
+  return 0;
+}
+
 /** Whether element sits in something unsearched: drawings, controls, or a callout's kind and title, which every client treats as chrome. */
 function unsearched(element: Element): boolean {
   return element.closest(UNSEARCHED) !== null;
@@ -55,9 +130,8 @@ function textNodes(root: Element): Text[] {
   return nodes;
 }
 
-/** A match as a DOM range, or undefined when the page no longer has its text. */
-export function matchRange(pieces: readonly DomPiece[], match: FindMatch): Range | undefined {
-  const piece = pieces[match.piece];
+/** A match as a DOM range in the piece it's in, or undefined when the page doesn't draw its text. */
+export function matchRange(piece: DomPiece | undefined, match: FindMatch): Range | undefined {
   if (!piece || match.end > piece.text.length) return undefined;
   const range = document.createRange();
   let base = 0;
@@ -133,18 +207,18 @@ export class FindPainter {
   private drawn: readonly FindMatch[] | undefined;
   private ranges: Range[] = [];
 
-  paint(pieces: readonly DomPiece[], matches: readonly FindMatch[], current: FindMatch | undefined): void {
+  paint(source: PieceSource, matches: readonly FindMatch[], current: FindMatch | undefined): void {
     if (!highlights) return;
     if (this.drawn !== matches) {
       this.drawn = matches;
       this.ranges = [];
       for (const match of matches) {
-        const range = matchRange(pieces, match);
+        const range = matchRange(source.drawn(match.piece), match);
         if (range) this.ranges.push(range);
       }
       CSS.highlights.set("kit-find", new Highlight(...this.ranges));
     }
-    const range = current && matchRange(pieces, current);
+    const range = current && matchRange(source.drawn(current.piece), current);
     if (!range) {
       CSS.highlights.delete("kit-find-current");
       return;
@@ -191,6 +265,10 @@ export interface FileFindView {
 export function createFileFind(options: {
   scroller: () => HTMLElement | undefined;
   corpus: Accessor<FindCorpus>;
+  /** A source's lines, which it may draw only some of. */
+  lines: Accessor<readonly string[]>;
+  /** Draws a source's line, numbered from 1, if the page doesn't now, so it can be shown. */
+  drawLine(line: number): void;
   /** The lines a cut-short file arrived with, or 0. */
   searchedLines: Accessor<number>;
   path: Accessor<string>;
@@ -209,7 +287,13 @@ export function createFileFind(options: {
   const dismissRequest = createMemo(() => state(() => find.dismissRequest));
   const painter = new FindPainter();
   let field: HTMLInputElement | undefined;
-  let pieces: DomPiece[] = [];
+  const none: PieceSource = {
+    texts: [],
+    drawn: () => undefined,
+    position: () => undefined,
+    top: () => ({ piece: 0, offset: 0 }),
+  };
+  let pieces = none;
   // Whether the page changed since pieces were read from it.
   let piecesStale = true;
   let markedBlock: Element | undefined;
@@ -222,12 +306,15 @@ export function createFileFind(options: {
     piecesStale = false;
     const corpus = options.corpus();
     const scroller = options.scroller();
-    pieces = scroller ? collectPieces(scroller, corpus) : [];
+    pieces = !scroller
+      ? none
+      : corpus === "source"
+        ? lineSource(scroller, options.lines())
+        : corpus === "rendered"
+          ? renderedSource(scroller)
+          : none;
     painter.invalidate();
-    find.setPieces(
-      pieces.map((piece) => piece.text),
-      corpus,
-    );
+    find.setPieces(pieces.texts, corpus);
   };
   const paint = () => {
     const match = find.isOpen ? find.currentMatch : undefined;
@@ -236,7 +323,8 @@ export function createFileFind(options: {
       painter.paint(pieces, find.matches, match);
     } else painter.clear();
     // A rendered file marks the margin of the block the current match is in.
-    const block = match && find.corpus === "rendered" ? topBlock(pieces[match.piece]?.element) : undefined;
+    const block =
+      match && find.corpus === "rendered" ? topBlock(pieces.drawn(match.piece)?.element) : undefined;
     if (block === markedBlock) return;
     markedBlock?.removeAttribute("data-find-current");
     block?.setAttribute("data-find-current", "");
@@ -260,7 +348,9 @@ export function createFileFind(options: {
 
   find.visibleAnchor = () => {
     const scroller = options.scroller();
-    return scroller ? topPosition(pieces, scroller) : { piece: 0, offset: 0 };
+    if (!scroller) return { piece: 0, offset: 0 };
+    syncPieces();
+    return pieces.top(scroller);
   };
   find.selectedText = () => {
     const scroller = options.scroller();
@@ -269,7 +359,7 @@ export function createFileFind(options: {
     const range = selection.getRangeAt(0);
     if (!scroller.contains(range.startContainer)) return undefined;
     syncPieces();
-    const start = positionOf(pieces, range.startContainer, range.startOffset) ?? find.visibleAnchor();
+    const start = pieces.position(range.startContainer, range.startOffset) ?? find.visibleAnchor();
     return { text: selection.toString(), start };
   };
 
@@ -282,13 +372,30 @@ export function createFileFind(options: {
     on(
       revealRequest,
       () => {
-        const scroller = options.scroller();
         const match = find.currentMatch;
-        const range = match && matchRange(pieces, match);
-        if (!range || !scroller) return;
-        // A source's line numbers stay at its start as it scrolls sideways.
-        const gutter = find.corpus === "source" ? scroller.querySelector(".file-num") : null;
-        reveal(range, scroller, gutter?.getBoundingClientRect().width ?? 0);
+        if (!match) return;
+        const show = () => {
+          const scroller = options.scroller();
+          if (!scroller || find.currentMatch !== match) return;
+          const range = matchRange(pieces.drawn(match.piece), match);
+          if (!range) return;
+          // A source's line numbers stay at its start as it scrolls sideways.
+          const gutter = find.corpus === "source" ? scroller.querySelector(".file-num") : null;
+          reveal(range, scroller, gutter?.getBoundingClientRect().width ?? 0);
+        };
+        if (find.corpus !== "source" || pieces.drawn(match.piece)) {
+          show();
+          return;
+        }
+        // A source's line may be far from what the page draws. The page
+        // draws it once this effect is done, so it shows a moment later.
+        options.drawLine(match.piece + 1);
+        queueMicrotask(() => {
+          piecesStale = true;
+          syncPieces();
+          paint();
+          show();
+        });
       },
       { defer: true },
     ),
@@ -300,7 +407,7 @@ export function createFileFind(options: {
       dismissRequest,
       () => {
         options.scroller()?.focus({ preventScroll: true });
-        const range = lastCurrent && matchRange(pieces, lastCurrent);
+        const range = lastCurrent && matchRange(pieces.drawn(lastCurrent.piece), lastCurrent);
         const selection = getSelection();
         if (range && selection && matchMedia("(pointer: fine)").matches) {
           selection.removeAllRanges();
@@ -322,7 +429,7 @@ export function createFileFind(options: {
     ),
   );
   // Another mode or another read reads the page again; so does anything it redraws.
-  createEffect(on(options.corpus, pageChanged));
+  createEffect(on([options.corpus, options.lines], pageChanged));
   createEffect(() => {
     const searched = options.searchedLines();
     if (searched === find.searchedLines) return;

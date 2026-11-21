@@ -56,6 +56,21 @@ describe("packageNotice", () => {
     });
   });
 
+  test("takes a license named in another case, and adds the package's NOTICE", async () => {
+    const dir = await fixture(
+      "noticed",
+      { name: "noticed", version: "0.5.2", license: "apache-2.0" },
+      { "LICENSE.md": "Apache License\n", "NOTICE.md": "Theme sources\n" },
+    );
+    expect(await packageNotice(dir)).toEqual({
+      name: "noticed",
+      version: "0.5.2",
+      license: "Apache-2.0",
+      source: undefined,
+      text: "Apache License\n\nTheme sources",
+    });
+  });
+
   test("refuses a license the client doesn't ship, or none", async () => {
     const gpl = await fixture("gpl", { name: "gpl", license: "GPL-3.0" }, { LICENSE: "GPL" });
     await expect(packageNotice(gpl)).rejects.toThrow(

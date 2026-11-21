@@ -65,21 +65,41 @@ function source(pkg: PackageJson): string | undefined {
   return url?.replace(/^git\+/, "").replace(/\.git$/, "");
 }
 
-/** Reads an installed package's notice; refuses one without a license file or allowed license. */
+/** An allowed license by its SPDX name, whatever case a package writes it in. */
+function allowedLicense(name: string): string | undefined {
+  const lower = name.toLowerCase();
+  return [...ALLOWED_LICENSES].find((license) => license.toLowerCase() === lower);
+}
+
+/**
+ * Reads an installed package's notice: its license file, then its NOTICE
+ * file if it has one, which Apache-2.0 asks a distributor to pass on.
+ * Refuses a package without a license file or allowed license.
+ */
 export async function packageNotice(dir: string): Promise<Notice> {
   const pkg = (await Bun.file(join(dir, "package.json")).json()) as PackageJson;
   const name = pkg.name ?? dir;
-  const license = typeof pkg.license === "string" ? pkg.license : "";
-  if (!ALLOWED_LICENSES.has(license)) {
+  const named = typeof pkg.license === "string" ? pkg.license : "";
+  const license = allowedLicense(named);
+  if (!license) {
     throw new Error(
-      `${name} is licensed ${license ? `as ${license}` : "with no license named"}, which the client doesn’t ship.`,
+      `${name} is licensed ${named ? `as ${named}` : "with no license named"}, which the client doesn’t ship.`,
     );
   }
-  const file = (await readdir(dir)).find((entry) => /^(licen[cs]e|copying)(\.(md|txt))?$/i.test(entry));
+  const entries = await readdir(dir);
+  const file = entries.find((entry) => /^(licen[cs]e|copying)(\.(md|txt))?$/i.test(entry));
   if (!file) throw new Error(`${name} has no license file to ship with it.`);
   const text = (await Bun.file(join(dir, file)).text()).trim();
   if (!text) throw new Error(`${name}’s license file is empty.`);
-  return { name, version: pkg.version ?? "", license, source: source(pkg), text };
+  const noticeFile = entries.find((entry) => /^notice(\.(md|txt))?$/i.test(entry));
+  const notice = noticeFile ? (await Bun.file(join(dir, noticeFile)).text()).trim() : "";
+  return {
+    name,
+    version: pkg.version ?? "",
+    license,
+    source: source(pkg),
+    text: notice ? `${text}\n\n${notice}` : text,
+  };
 }
 
 /** The notices file: a header, then each component with its license text. */

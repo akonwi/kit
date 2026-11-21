@@ -30,7 +30,6 @@ import {
   type PromptInput,
   type PromptSubmission,
   type ReadFileDiffInput,
-  type ReadWorkspaceFileInput,
   type RedeemPairingResult,
   type RestoreFollowUpsResult,
   type Scratchpad,
@@ -47,7 +46,6 @@ import {
   type TranscriptPage,
   type UpdateScratchpadInput,
   type WorkingTreePage,
-  type WorkspaceFileRead,
 } from "./types";
 
 /** A declared failure from the session API, by its stable code. */
@@ -93,6 +91,16 @@ interface RequestOptions {
   instance?: boolean;
   /** Lets the request finish after the page goes away; its body must stay small. */
   keepalive?: boolean;
+  /** Headers beyond the ones every request carries, replacing them where they share a name. */
+  headers?: Record<string, string>;
+  /** Unsuccessful statuses returned as responses rather than thrown, such as 304. */
+  accept?: readonly number[];
+}
+
+/** A file in the session's folder, as a download names it (ADR 0074). */
+export interface WorkspaceFileTarget {
+  workspaceId: string;
+  path: string;
 }
 
 export class Api {
@@ -346,13 +354,39 @@ export class Api {
     });
   }
 
-  /** A file in the session's folder, as text, up to the server's bound. */
-  readWorkspaceFile(
+  /**
+   * Starts downloading a file in the session's folder, returning the
+   * response with its body unread. With `revision`, a file that still has it
+   * answers 304 with no body.
+   */
+  downloadFile(
     id: string,
-    input: ReadWorkspaceFileInput,
+    target: WorkspaceFileTarget,
+    options: { revision?: string; signal?: AbortSignal } = {},
+  ): Promise<Response> {
+    return this.send("GET", `/v1/sessions/${segment(id)}/files/content`, {
+      query: { workspaceId: target.workspaceId, path: target.path },
+      headers: {
+        Accept: "*/*",
+        ...(options.revision ? { "If-None-Match": quoteRevision(options.revision) } : {}),
+      },
+      accept: options.revision ? [304] : [],
+      signal: options.signal,
+    });
+  }
+
+  /** A file's current revision, from a request with no body; undefined when it has none. */
+  async fileRevision(
+    id: string,
+    target: WorkspaceFileTarget,
     signal?: AbortSignal,
-  ): Promise<WorkspaceFileRead> {
-    return this.request("POST", `/v1/sessions/${segment(id)}/workspace/files/read`, { body: input, signal });
+  ): Promise<string | undefined> {
+    const response = await this.send("HEAD", `/v1/sessions/${segment(id)}/files/content`, {
+      query: { workspaceId: target.workspaceId, path: target.path },
+      headers: { Accept: "*/*" },
+      signal,
+    });
+    return fileRevision(response);
   }
 
   /** A page of a subagent's stored conversation, newest first unless `before` is given. */
@@ -438,6 +472,7 @@ export class Api {
     if (options.protocol !== false && options.instance !== false) {
       headers["X-Kit-Protocol-Version"] = String(PROTOCOL_VERSION);
     }
+    Object.assign(headers, options.headers);
     let body: string | FormData | undefined = options.form;
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -467,9 +502,20 @@ export class Api {
       if (isAbort(error)) throw error;
       throw new NetworkError("Kit’s server can’t be reached.");
     }
-    if (!response.ok) throw await decodeError(response);
+    if (!response.ok && !options.accept?.includes(response.status)) throw await decodeError(response);
     return response;
   }
+}
+
+/** A download's revision, from its strong `ETag`; undefined when it has none or another kind. */
+export function fileRevision(response: Response): string | undefined {
+  const tag = response.headers.get("ETag");
+  const match = tag ? /^"([^"]+)"$/.exec(tag) : null;
+  return match?.[1];
+}
+
+function quoteRevision(revision: string): string {
+  return `"${revision}"`;
 }
 
 /** Reads the contract's error body: `{"error": {"code", "message"}}`. */

@@ -60,8 +60,10 @@ controls. It needs the server to be reachable; it does not work offline.
   sent.
 - **Open File…**, in the session menu, searches the session folder's files.
   A file also opens from a Read or Edit tool call, a row in Changes, and a
-  comment. It shows the source, colored by the server, or Markdown as a
-  preview, and takes comments on its lines like Changes.
+  comment. It downloads the whole file, up to 8 MiB, and shows its source,
+  colored in the browser, or Markdown as a preview, and takes comments on its
+  lines like Changes. A file that changed while it downloaded can't take
+  comments until it loads again.
 - **Scratchpad**, in the session menu, edits the Markdown notes a session
   shares with its forks and the agent. It saves a moment after you stop
   typing and when you leave. If the shared copy changes while you have

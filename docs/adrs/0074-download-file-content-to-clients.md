@@ -252,6 +252,16 @@ such as the macOS or iOS app, colors the downloaded text itself. A
 highlighter that keeps per-line state can color lines as the bytes arrive. A
 client without a highlighter shows the text plain.
 
+The browser client colors files with
+[`@pierre/highlights`](https://www.npmjs.com/package/@pierre/highlights), a
+WebAssembly highlighter it loads the first time a file opens. The
+highlighter tokenizes the whole text, and the client asks it for a line's
+token kinds when it draws the line. Each kind maps to one of the tones the
+other clients draw code in, through classes, so no color arrives as an
+inline style under the client's Content Security Policy (ADR 0059). Languages
+it has no lexer for, such as Ard, show plain, as do lines longer than 4,096
+characters.
+
 ### Clients show files with downloads alone
 
 `readWorkspaceFile` and `readHostFile` are deprecated. The contract marks
@@ -297,10 +307,10 @@ treats that as "not supported" and says that the server needs an update.
   `416`, and header behavior above. The server serves a known-length file
   from a fixed-length section of the descriptor, and an unknown-length file
   by copying until end of file.
-- The macOS app and the TUI show files with the route alone. The browser
-  client needs a virtualized line list and its own highlighter before it can
-  ([#296](https://github.com/akonwi/kit/issues/296)). The iOS app moves off
-  the deprecated reads as the macOS app did
+- The macOS app, the TUI, and the browser client show files with the route
+  alone. The browser client shows up to 8 MiB and draws only the lines near
+  its view, in blocks, so a long file costs it about what a short one does.
+  The iOS app moves off the deprecated reads as the macOS app did
   ([#297](https://github.com/akonwi/kit/issues/297)).
 - A client that relies on the route shows no files from a server that
   predates it, until that server is updated.

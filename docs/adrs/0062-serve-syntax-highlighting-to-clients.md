@@ -129,9 +129,9 @@ required to use these fields.
 
 ## Consequences
 
-- The browser client colors code with the same grammars and queries as the
-  terminal client, including Ard, with no grammar downloads and no change to
-  its Content Security Policy.
+- The browser client colors code in replies and diffs with the same grammars
+  and queries as the terminal client, including Ard, with no grammar
+  downloads. It colors files itself, as ADR 0074 describes.
 - Colors for files and diffs need no separate request and no client-side
   synchronization with the text.
 - Code in a streaming reply is plain until the reply completes, then colors

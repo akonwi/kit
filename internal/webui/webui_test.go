@@ -67,7 +67,7 @@ func serve(handler *Handler, method, target string, headers map[string]string) *
 func assertSecurityHeaders(t *testing.T, response *httptest.ResponseRecorder) {
 	t.Helper()
 	want := map[string]string{
-		"Content-Security-Policy":    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+		"Content-Security-Policy":    "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
 		"X-Content-Type-Options":     "nosniff",
 		"Referrer-Policy":            "no-referrer",
 		"Cross-Origin-Opener-Policy": "same-origin",

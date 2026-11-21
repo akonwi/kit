@@ -101,8 +101,10 @@ Any script running in the client's origin can read the token, so the client
 treats the origin as a security boundary:
 
 - Responses carry a Content Security Policy that allows scripts, styles, and
-  fonts only from the client's own origin, with no inline script and no
-  third-party content.
+  fonts only from the client's own origin, with no inline script, no inline
+  style, and no third-party content. Those scripts may compile WebAssembly
+  (`'wasm-unsafe-eval'`), which the file viewer's highlighter is; the policy
+  allows no evaluation of JavaScript.
 - Remote and persisted content, including Markdown, renders as untrusted text
   unless it crosses an explicit sanitization boundary.
 - The client never opens HTML, SVG, or other active content from a session in

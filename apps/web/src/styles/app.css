@@ -3552,7 +3552,8 @@ button.sent-comment-where {
 
 .file-lines {
   inline-size: max-content;
-  min-inline-size: 100%;
+  /* Lines out of view aren't drawn, so the longest line sets the width. */
+  min-inline-size: max(100%, calc(var(--gutter, 5ch) + var(--longest, 0ch) + 1rem));
   padding-block: 0.5rem 1rem;
   font-family: var(--font-mono);
   font-variant-ligatures: none;
@@ -3560,6 +3561,7 @@ button.sent-comment-where {
   line-height: 1.25rem;
   .file-view[data-wrap] & {
     inline-size: auto;
+    min-inline-size: 100%;
   }
 }
 
@@ -3601,6 +3603,11 @@ button.sent-comment-where {
   &:hover:not(:disabled) {
     background: var(--color-fill-hover);
   }
+  /* A copy that can't take comments still reads its numbers plainly. */
+  &:disabled {
+    opacity: 1;
+    cursor: default;
+  }
   &:focus-visible {
     outline-offset: -2px;
   }
@@ -3631,6 +3638,13 @@ button.sent-comment-where {
 .file-note {
   margin: 0;
   padding: 0.75rem 1rem;
+}
+
+.file-changed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
 }
 
 .file-inset .comment-editor {

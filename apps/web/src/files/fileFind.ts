@@ -277,6 +277,7 @@ export class FileFind {
 }
 
 function samePieces(a: readonly string[], b: readonly string[]): boolean {
+  if (a === b) return true;
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return false;
   return true;

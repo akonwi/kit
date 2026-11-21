@@ -18,7 +18,8 @@ if (!/^https?:$/.test(target.protocol)) {
 const port = Number(process.env.PORT ?? 5199);
 const outdir = fileURLToPath(new URL("../.dev-build", import.meta.url));
 const csp =
-  "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; " +
+  "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; " +
+  "img-src 'self' blob: data:; " +
   "connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 let building: Promise<void> = bundle({ outdir, minify: false });

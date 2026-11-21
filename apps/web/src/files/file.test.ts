@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { ApiError } from "../api/client";
 import {
+  blockLines,
+  blockOf,
   fileHash,
   fileLines,
   fileProblem,
@@ -9,7 +11,6 @@ import {
   parseFileHash,
   pickProblem,
   tapFileLine,
-  truncationNote,
 } from "./file";
 
 describe("file fragments", () => {
@@ -66,47 +67,28 @@ test("Markdown files open as a preview", () => {
 });
 
 describe("fileLines", () => {
-  test("numbers each line and drops carriage returns", () => {
-    expect(fileLines({ content: "a\r\nb\n" })).toEqual([
-      { number: 1, text: "a" },
-      { number: 2, text: "b" },
-    ]);
-    expect(fileLines({ content: "" })).toEqual([]);
-  });
-
-  test("colors lines the server colored", () => {
-    const highlight = { language: "go", roles: ["keyword"], lines: [[0, 7, 0], []] };
-    expect(fileLines({ content: "package main\n\n", highlight })).toEqual([
-      { number: 1, text: "package main", runs: [{ text: "package", tone: "keyword" }, { text: " main" }] },
-      { number: 2, text: "", runs: [] },
-    ]);
-  });
-
-  test("draws plain when the colors don't fit the text", () => {
-    const highlight = { language: "go", roles: ["keyword"], lines: [[0, 7, 0]] };
-    expect(fileLines({ content: "a\nb\n", highlight })).toEqual([
-      { number: 1, text: "a" },
-      { number: 2, text: "b" },
-    ]);
+  test("splits at line ends and drops the carriage return before one", () => {
+    expect(fileLines("a\r\nb\n")).toEqual(["a", "b"]);
+    expect(fileLines("a\n\nb")).toEqual(["a", "", "b"]);
+    expect(fileLines("")).toEqual([]);
   });
 });
 
-test("a cut-off read says how much it shows", () => {
-  expect(truncationNote({ truncated: false, returnedLines: 3 })).toBeUndefined();
-  expect(truncationNote({ truncated: true, truncationReason: "line_limit", returnedLines: 5000 })).toBe(
-    "Showing the first 5,000 lines. The rest of the file is too long to show.",
-  );
-  expect(truncationNote({ truncated: true, truncationReason: "byte_limit", returnedLines: 812 })).toBe(
-    "Showing the start of the file. The rest is too large to show.",
-  );
+test("blocks hold 128 lines, the last what's left", () => {
+  expect(blockOf(1)).toBe(0);
+  expect(blockOf(128)).toBe(0);
+  expect(blockOf(129)).toBe(1);
+  expect(blockLines(0, 3)).toEqual([1, 2, 3]);
+  expect(blockLines(1, 130)).toEqual([129, 130]);
+  expect(blockLines(2, 130)).toEqual([]);
 });
 
 test("failures read as sentences", () => {
-  expect(fileProblem(new ApiError(415, "binary_file", "binary"))).toBe(
-    "This file isn’t text, so it can’t be shown.",
-  );
   expect(fileProblem(new ApiError(404, "not_found", "missing"))).toBe(
     "This file isn’t in the session’s folder.",
+  );
+  expect(fileProblem(new ApiError(404, "http_404", "The server answered 404."))).toBe(
+    "This server’s Kit needs an update to open files.",
   );
   expect(fileProblem(new Error("boom"))).toBeUndefined();
 });

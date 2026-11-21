@@ -1,9 +1,8 @@
 // A file in the session's folder: where the reader asked to open it, how it
 // reads as lines, and the lines picked for a comment.
 import { ApiError } from "../api/client";
-import type { WorkspaceFileRead } from "../api/types";
 import { MAX_COMMENT_LINES } from "../changes/comments";
-import { codeLines, coloredLineList, type Run } from "../markdown/highlight";
+import { codeLines } from "../markdown/highlight";
 
 /** A file to show, and the lines to bring into view and mark. */
 export interface FileLocation {
@@ -85,31 +84,28 @@ export function isMarkdown(path: string): boolean {
   return /\.(md|markdown|mdx)$/i.test(path);
 }
 
-/** One line of a file, numbered from 1, in its colors when the server gave them. */
-export interface FileLine {
-  number: number;
-  text: string;
-  runs?: Run[];
+/** A file's lines, split at \n, where a final \n ends the last line, without a \r before it. */
+export function fileLines(text: string): string[] {
+  return codeLines(text).map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
 }
 
-export function fileLines(read: Pick<WorkspaceFileRead, "content" | "highlight">): FileLine[] {
-  const texts = codeLines(read.content).map((line) => line.replace(/\r$/, ""));
-  const colors = read.highlight ? coloredLineList(texts, read.highlight) : undefined;
-  return texts.map((text, index) => {
-    const runs = colors?.[index];
-    return runs ? { number: index + 1, text, runs } : { number: index + 1, text };
-  });
+/** How many lines the view draws or leaves out together, by whether any are near what's in view. */
+export const BLOCK_LINES = 128;
+
+/** The block a line, numbered from 1, is in. */
+export function blockOf(line: number): number {
+  return Math.floor((line - 1) / BLOCK_LINES);
 }
 
-/** What a cut-off read says at its end, or undefined when the whole file came. */
-export function truncationNote(
-  read: Pick<WorkspaceFileRead, "truncated" | "truncationReason" | "returnedLines">,
-): string | undefined {
-  if (!read.truncated) return undefined;
-  if (read.truncationReason === "line_limit")
-    return `Showing the first ${read.returnedLines.toLocaleString("en-US")} lines. The rest of the file is too long to show.`;
-  return "Showing the start of the file. The rest is too large to show.";
+/** The lines, numbered from 1, of a block of a file with lineCount lines. */
+export function blockLines(block: number, lineCount: number): number[] {
+  const first = block * BLOCK_LINES + 1;
+  const last = Math.min(lineCount, first + BLOCK_LINES - 1);
+  return Array.from({ length: Math.max(0, last - first + 1) }, (_, index) => first + index);
 }
+
+/** What the view says of a file that isn't text. */
+export const NOT_TEXT = "This file isn’t text, so it can’t be shown.";
 
 /** Why a file can't be shown, in a sentence, or undefined for an unexpected failure. */
 export function fileProblem(error: unknown): string | undefined {
@@ -117,8 +113,6 @@ export function fileProblem(error: unknown): string | undefined {
   switch (error.code) {
     case "not_found":
       return "This file isn’t in the session’s folder.";
-    case "binary_file":
-      return "This file isn’t text, so it can’t be shown.";
     case "not_file":
     case "not_directory":
       return "This isn’t a file.";
@@ -135,6 +129,9 @@ export function fileProblem(error: unknown): string | undefined {
     case "capacity_exceeded":
     case "rate_limited":
       return "The server is busy. Try again in a moment.";
+    // A server without downloads answers 404 with no error body.
+    case "http_404":
+      return "This server’s Kit needs an update to open files.";
     default:
       return undefined;
   }
