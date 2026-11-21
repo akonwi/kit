@@ -4,7 +4,8 @@
 
 Accepted. Extends the workspace file contract of
 [ADR 0019](0019-expose-session-workspace-files.md) and the host file reads of
-[ADR 0050](0050-view-files-outside-the-working-directory.md). Research:
+[ADR 0050](0050-view-files-outside-the-working-directory.md), and deprecates
+their bounded reads, `readWorkspaceFile` and `readHostFile`. Research:
 [`docs/research/stream-file-content.md`](../research/stream-file-content.md).
 
 ## Context
@@ -249,16 +250,37 @@ response records.
 The download carries no highlighting. A client with its own highlighter,
 such as the macOS or iOS app, colors the downloaded text itself. A
 highlighter that keeps per-line state can color lines as the bytes arrive. A
-client without a highlighter shows the text plain, or reads a highlighted
-preview with `readWorkspaceFile`.
+client without a highlighter shows the text plain.
+
+### Clients show files with downloads alone
+
+`readWorkspaceFile` and `readHostFile` are deprecated. The contract marks
+both operations `deprecated`, and the Go client marks its methods for them.
+Servers keep serving them until a later release removes them
+([#298](https://github.com/akonwi/kit/issues/298)). Clients show workspace
+and host files with this route alone and don't fall back to the bounded
+reads.
+
+A client classifies what it downloads:
+
+- **Text:** UTF-8 with no NUL bytes. The client shows it up to its own byte
+  and line limits, cut at the last line end within the byte limit. When the
+  first line doesn't fit, the cut is at the last whole character instead.
+- **Image:** a PNG, JPEG, GIF, or WebP file, known by its first bytes, of
+  at most 16 MiB and 24 megapixels, where the client shows images, as host
+  file tabs do.
+- **Binary:** anything else. The client says it can't show the file.
+
+After downloading a file of known length, the client checks the revision as
+the Consistency section describes. A copy that changed again while it
+downloaded is shown without a revision, so it can't be annotated.
 
 ### Compatibility
 
 The route is additive, and the session protocol version doesn't change.
-`readWorkspaceFile`, `readHostFile`, and directory listings stay as they are.
-An older server answers the new route with an unrouted `404` whose body
-doesn't decode as an error body. A client treats that as "not supported" and
-falls back to the bounded read.
+Directory listings stay as they are. An older server answers the new route
+with an unrouted `404` whose body doesn't decode as an error body. A client
+treats that as "not supported" and says that the server needs an update.
 
 ## Consequences
 
@@ -275,7 +297,11 @@ falls back to the bounded read.
   `416`, and header behavior above. The server serves a known-length file
   from a fixed-length section of the descriptor, and an unknown-length file
   by copying until end of file.
-- The macOS app adopts the route first. The web client needs a virtualized
-  line list before it can show files well past today's preview bounds. The
-  TUI and iOS app can keep the bounded read until a need appears.
+- The macOS app and the TUI show files with the route alone. The browser
+  client needs a virtualized line list and its own highlighter before it can
+  ([#296](https://github.com/akonwi/kit/issues/296)). The iOS app moves off
+  the deprecated reads as the macOS app did
+  ([#297](https://github.com/akonwi/kit/issues/297)).
+- A client that relies on the route shows no files from a server that
+  predates it, until that server is updated.
 - Diffs and directory listings keep their bounded, paginated contracts.

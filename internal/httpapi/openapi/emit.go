@@ -82,6 +82,9 @@ func Emit() ([]byte, error) {
 		if descriptor.Unauthenticated {
 			operation["security"] = []any{}
 		}
+		if descriptor.Deprecated {
+			operation["deprecated"] = true
+		}
 		if stream := descriptor.Stream; stream != nil {
 			operation["x-kit-stream"] = map[string]any{
 				"records": stream.Records, "resumable": stream.Resumable, "maxRecordBytes": stream.MaxRecordBytes,

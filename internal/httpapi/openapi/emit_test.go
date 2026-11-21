@@ -413,3 +413,29 @@ func TestDownloadPublishesHeadersAndEmptyResponses(t *testing.T) {
 		}
 	}
 }
+
+func TestBoundedFileReadsAreDeprecatedForDownloads(t *testing.T) {
+	document, err := Emit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Paths map[string]map[string]map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(document, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]any{
+		"/v1/sessions/{sessionID}/workspace/files/read": true,
+		"/v1/sessions/{sessionID}/host-files/read":      true,
+	} {
+		if got := decoded.Paths[path]["post"]["deprecated"]; got != want {
+			t.Errorf("POST %s deprecated = %v, want %v", path, got, want)
+		}
+	}
+	for _, method := range []string{"get", "head"} {
+		if deprecated, ok := decoded.Paths["/v1/sessions/{sessionID}/files/content"][method]["deprecated"]; ok {
+			t.Errorf("%s files/content deprecated = %v, want absent", method, deprecated)
+		}
+	}
+}

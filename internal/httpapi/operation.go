@@ -31,6 +31,9 @@ type Operation[Params, In, Out any] struct {
 	// EmptyResponses are statuses, such as HTTP conditional responses, that
 	// carry no body.
 	EmptyResponses []EmptyResponse
+	// Deprecated marks an operation clients should stop using; servers keep
+	// serving it until a later release removes it.
+	Deprecated bool
 }
 
 // ResponseHeader declares one header of an operation's success and empty
@@ -73,6 +76,7 @@ type Descriptor struct {
 	Unauthenticated                     bool
 	ResponseHeaders                     []ResponseHeader
 	EmptyResponses                      []EmptyResponse
+	Deprecated                          bool
 }
 
 // Describe projects a typed operation into its reflection-friendly form.
@@ -80,7 +84,7 @@ func (op Operation[Params, In, Out]) Describe() Descriptor {
 	return Descriptor{ID: op.ID, Tag: op.Tag, Method: op.Method, Path: op.Path, Success: op.Success,
 		Params: typeOf[Params](), Input: typeOf[In](), Output: typeOf[Out](), AdditionalSuccess: append([]int(nil), op.AdditionalSuccess...), Errors: mergeErrorResponses(op.Errors, CommonErrorResponses),
 		RequestMediaType: op.RequestMediaType, ResponseMediaType: op.ResponseMediaType, ResponseMediaTypes: append([]string(nil), op.ResponseMediaTypes...), NoProtocol: op.NoProtocol,
-		OptionalInstance: op.OptionalInstance, Unauthenticated: op.Unauthenticated,
+		OptionalInstance: op.OptionalInstance, Unauthenticated: op.Unauthenticated, Deprecated: op.Deprecated,
 		ResponseHeaders: append([]ResponseHeader(nil), op.ResponseHeaders...), EmptyResponses: append([]EmptyResponse(nil), op.EmptyResponses...)}
 }
 

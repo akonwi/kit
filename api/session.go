@@ -480,6 +480,9 @@ func (c *Session) ListDirectory(ctx context.Context, input protocol.ListDirector
 	})
 }
 
+// ReadWorkspaceFile reads a bounded UTF-8 preview of a workspace file.
+//
+// Deprecated: Use DownloadFile, which returns the whole file (ADR 0074).
 func (c *Session) ReadWorkspaceFile(ctx context.Context, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
 	return sessionProjectedResult(c, ctx, projectWorkspaceError, func(operation context.Context) (protocol.WorkspaceFileRead, error) {
 		return c.transport.ReadWorkspaceFile(operation, c.id, input)
@@ -492,6 +495,8 @@ func (c *Session) ReadWorkspaceFile(ctx context.Context, input protocol.ReadWork
 // to the session's working directory.
 //
 // A server that predates the operation fails with an UnsupportedError.
+//
+// Deprecated: Use DownloadFile, which returns the whole file (ADR 0074).
 func (c *Session) ReadHostFile(ctx context.Context, input protocol.ReadHostFileInput) (protocol.HostFileRead, error) {
 	return sessionProjectedResult(c, ctx, projectHostFileError, func(operation context.Context) (protocol.HostFileRead, error) {
 		return c.transport.ReadHostFile(operation, c.id, input)

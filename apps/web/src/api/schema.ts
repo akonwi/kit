@@ -634,6 +634,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
+        /** @deprecated */
         post: operations["readHostFile"];
         delete?: never;
         options?: never;
@@ -1082,6 +1083,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
+        /** @deprecated */
         post: operations["readWorkspaceFile"];
         delete?: never;
         options?: never;

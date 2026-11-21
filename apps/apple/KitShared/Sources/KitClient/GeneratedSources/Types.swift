@@ -160,6 +160,7 @@ public protocol APIProtocol: Sendable {
     func forkSession(_ input: Operations.ForkSession.Input) async throws -> Operations.ForkSession.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/host-files/read`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/host-files/read/post(readHostFile)`.
+    @available(*, deprecated)
     func readHostFile(_ input: Operations.ReadHostFile.Input) async throws -> Operations.ReadHostFile.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/interactions/{interactionID}/response`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/interactions/{interactionID}/response/post(respondInteraction)`.
@@ -247,6 +248,7 @@ public protocol APIProtocol: Sendable {
     func listWorkspaceDirectory(_ input: Operations.ListWorkspaceDirectory.Input) async throws -> Operations.ListWorkspaceDirectory.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/files/read`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/files/read/post(readWorkspaceFile)`.
+    @available(*, deprecated)
     func readWorkspaceFile(_ input: Operations.ReadWorkspaceFile.Input) async throws -> Operations.ReadWorkspaceFile.Output
     /// - Remark: HTTP `GET /v1/settings`.
     /// - Remark: Generated from `#/paths//v1/settings/get(getServerSettings)`.
@@ -814,6 +816,7 @@ extension APIProtocol {
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/host-files/read`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/host-files/read/post(readHostFile)`.
+    @available(*, deprecated)
     public func readHostFile(
         path: Operations.ReadHostFile.Input.Path,
         headers: Operations.ReadHostFile.Input.Headers,
@@ -1167,6 +1170,7 @@ extension APIProtocol {
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/files/read`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/files/read/post(readWorkspaceFile)`.
+    @available(*, deprecated)
     public func readWorkspaceFile(
         path: Operations.ReadWorkspaceFile.Input.Path,
         headers: Operations.ReadWorkspaceFile.Input.Headers,

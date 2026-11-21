@@ -26999,6 +26999,7 @@
     },
     "/v1/sessions/{sessionID}/host-files/read": {
       "post": {
+        "deprecated": true,
         "operationId": "readHostFile",
         "parameters": [
           {
@@ -38602,6 +38603,7 @@
     },
     "/v1/sessions/{sessionID}/workspace/files/read": {
       "post": {
+        "deprecated": true,
         "operationId": "readWorkspaceFile",
         "parameters": [
           {

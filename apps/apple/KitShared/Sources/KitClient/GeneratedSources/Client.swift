@@ -14934,6 +14934,7 @@ public struct Client: APIProtocol {
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/host-files/read`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/host-files/read/post(readHostFile)`.
+    @available(*, deprecated)
     public func readHostFile(_ input: Operations.ReadHostFile.Input) async throws -> Operations.ReadHostFile.Output {
         try await client.send(
             input: input,
@@ -24246,6 +24247,7 @@ public struct Client: APIProtocol {
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/files/read`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/files/read/post(readWorkspaceFile)`.
+    @available(*, deprecated)
     public func readWorkspaceFile(_ input: Operations.ReadWorkspaceFile.Input) async throws -> Operations.ReadWorkspaceFile.Output {
         try await client.send(
             input: input,

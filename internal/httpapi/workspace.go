@@ -128,8 +128,8 @@ var (
 var (
 	GetWorkspace           = Operation[SessionPath, NoBody, protocol.WorkspaceRef]{ID: "getWorkspace", Tag: "workspace", Method: http.MethodGet, Path: "/v1/sessions/{sessionID}/workspace", Success: http.StatusOK, Errors: workspaceErrors()}
 	ListWorkspaceDirectory = Operation[SessionPath, protocol.ListDirectoryInput, protocol.DirectoryPage]{ID: "listWorkspaceDirectory", Tag: "workspace", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/workspace/directories", Success: http.StatusOK, Errors: workspaceErrors()}
-	ReadWorkspaceFile      = Operation[SessionPath, protocol.ReadWorkspaceFileInput, protocol.WorkspaceFileRead]{ID: "readWorkspaceFile", Tag: "workspace", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/workspace/files/read", Success: http.StatusOK, Errors: workspaceErrors()}
+	ReadWorkspaceFile      = Operation[SessionPath, protocol.ReadWorkspaceFileInput, protocol.WorkspaceFileRead]{ID: "readWorkspaceFile", Tag: "workspace", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/workspace/files/read", Success: http.StatusOK, Errors: workspaceErrors(), Deprecated: true}
 	// ReadHostFile reads one file anywhere on the server's machine, view-only.
-	ReadHostFile        = Operation[SessionPath, protocol.ReadHostFileInput, protocol.HostFileRead]{ID: "readHostFile", Tag: "workspace", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/host-files/read", Success: http.StatusOK, Errors: hostFileErrors()}
+	ReadHostFile        = Operation[SessionPath, protocol.ReadHostFileInput, protocol.HostFileRead]{ID: "readHostFile", Tag: "workspace", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/host-files/read", Success: http.StatusOK, Errors: hostFileErrors(), Deprecated: true}
 	GetSessionFileIndex = Operation[FileIndexParams, NoBody, protocol.SessionFileIndex]{ID: "getSessionFileIndex", Tag: "workspace", Method: http.MethodGet, Path: "/v1/sessions/{sessionID}/files", Success: http.StatusOK, Errors: workspaceErrors()}
 )
