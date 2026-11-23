@@ -61,8 +61,10 @@ final class SessionTab: Identifiable {
     var statusLabel: String? { serverIssue ?? status.label ?? (finished ? "Finished" : nil) }
     /// The session's working directory, which names its project on a top tab.
     var directory: String { session?.cwd ?? session?.workspace ?? "" }
+    /// The session whose model created this one, until its server describes it.
+    fileprivate var createdBy: String?
     /// The session this one came from, as a fork or an agent's work.
-    var parentSessionID: String? { isLauncher ? nil : session?.parentSessionID }
+    var parentSessionID: String? { isLauncher ? nil : session?.parentSessionID ?? createdBy }
 }
 
 extension ServerStatus {
@@ -557,6 +559,50 @@ final class SessionWindowModel: Identifiable {
         return tab
     }
 
+    /// Whether another window has a tab for the session. The registry sets it.
+    @ObservationIgnored var showsElsewhere: (SessionIdentity) -> Bool = { _ in false }
+
+    /// Opens each session that `creator`'s session created as a tab after
+    /// the creator and the tabs after it that descend from it, in order. The
+    /// selection, focus, and collapsed families stay as they are. A session
+    /// that already has a tab in any window keeps it where it is.
+    func openCreated(_ sessions: [CreatedSessionTabs.Created], by creator: SessionTab) {
+        guard !creator.isLauncher, tabs.contains(where: { $0 === creator }) else { return }
+        var opened = false
+        for created in sessions {
+            let identity = SessionIdentity(server: creator.identity.server, session: created.id)
+            guard tab(for: identity) == nil, !showsElsewhere(identity) else { continue }
+            let tab = SessionTab(identity: identity, servers: servers)
+            tab.savedTitle = created.name
+            tab.createdBy = creator.identity.session
+            tabs.insert(tab, at: endOfFamily(creator))
+            opened = true
+        }
+        if opened { onChange(self) }
+    }
+
+    /// The index just past `ancestor` and the tabs right after it that descend from it.
+    private func endOfFamily(_ ancestor: SessionTab) -> Int {
+        guard var index = tabs.firstIndex(where: { $0 === ancestor }) else { return tabs.count }
+        index += 1
+        while index < tabs.count, descends(tabs[index], from: ancestor) { index += 1 }
+        return index
+    }
+
+    /// Whether `tab`'s session came from `ancestor`'s, through sessions open
+    /// in this window or, for those closed, its server's catalog.
+    private func descends(_ tab: SessionTab, from ancestor: SessionTab) -> Bool {
+        guard tab.identity.server == ancestor.identity.server else { return false }
+        var parent = tab.parentSessionID
+        var visited: Set<String> = [tab.identity.session]
+        while let session = parent, visited.insert(session).inserted {
+            if session == ancestor.identity.session { return true }
+            let identity = SessionIdentity(server: tab.identity.server, session: session)
+            parent = self.tab(for: identity)?.parentSessionID ?? catalogEntry(identity)?.parentSessionID
+        }
+        return false
+    }
+
     /// Opens a launcher tab, reusing an open one.
     func openLauncher() {
         if let launcher = tabs.first(where: \.isLauncher) {
@@ -675,6 +721,10 @@ final class SessionWindowModel: Identifiable {
         store.onMissing = { [weak self, weak tab, weak store] in
             guard let self, let tab, let store, tab.store === store else { return }
             self.close(tab, from: nil)
+        }
+        store.onCreatedSessions = { [weak self, weak tab, weak store] created in
+            guard let self, let tab, let store, tab.store === store else { return }
+            self.openCreated(created, by: tab)
         }
         store.attach()
         observeStatus(of: tab, store: store)

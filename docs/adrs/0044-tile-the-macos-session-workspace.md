@@ -42,6 +42,14 @@ tab shows a spinner while the session runs, a warning marker while it waits for
 the user, and a check when a turn finished while the user was elsewhere. A
 waiting or finished tab keeps a full-strength title until the user opens it.
 
+A session that the model in an open session tab creates with create_session
+opens as a session tab in that tab's window, once. It goes after its creator
+and any of the creator's descendants that follow it, nests under the creator
+in the sidebar, and isn't selected or given focus. Only a call that finishes
+while the tab is attached opens a tab, so loading history or catching up after
+a reconnect opens nothing, and a tab the user closes stays closed. A session
+that already has a tab in any window keeps that tab.
+
 Native macOS window tabs are not used for session navigation.
 
 ### Tiled workspace

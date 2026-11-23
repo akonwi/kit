@@ -77,6 +77,16 @@ final class SessionWindowRegistry: NSObject {
                                        titles: saved?.titles ?? [:], sidebar: saved?.sidebar ?? sidebarDefaults.load())
         model.onChange = { [weak self] in self?.capture($0) }
         model.onSidebarChange = { [sidebarDefaults] in sidebarDefaults.save($0) }
+        model.showsElsewhere = { [weak self, weak model] identity in
+            guard let self else { return false }
+            let live = self.liveModels
+            if live.contains(where: { $0 !== model && $0.tab(for: identity) != nil }) { return true }
+            // A saved window not yet restored will show its sessions.
+            let shown = Set(live.map(\.id))
+            return self.restoration.windows.contains { window in
+                window.id != model?.id && !shown.contains(window.id) && window.sessions.contains(identity)
+            }
+        }
         models[request.windowID] = WeakModel(model)
         return model
     }

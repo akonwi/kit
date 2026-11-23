@@ -596,7 +596,20 @@ final class SessionStore {
             self?.reconcileInteractions(session)
             self?.openRequestedURLs(session)
             self?.reconcileSubagentTabs(session)
+            self?.openCreatedSessions(session)
         }
+    }
+
+    /// Called with the sessions the shown session's create_session calls
+    /// created live, oldest first, to open their tabs.
+    @ObservationIgnored var onCreatedSessions: (@MainActor ([CreatedSessionTabs.Created]) -> Void)?
+    /// create_session calls already handled, so each opens at most one tab.
+    @ObservationIgnored private var createSessionCalls: Set<String> = []
+
+    private func openCreatedSessions(_ session: SessionExcerpt) {
+        guard !isDemo, session.id == selectedID else { return }
+        let created = CreatedSessionTabs.pending(in: session.messages, handled: &createSessionCalls)
+        if !created.isEmpty { onCreatedSessions?(created) }
     }
 
     /// Each session's subagent tabs, by session, as its roster last stood.
