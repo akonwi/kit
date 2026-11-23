@@ -256,3 +256,39 @@ func flockNonBlocking(file *os.File) error {
 func unlock(file *os.File) error {
 	return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 }
+
+// A session can outlive its working directory. Its user-level stdio servers
+// then start in the user's home directory, and in the session cwd again once
+// it exists.
+func TestStdioServerStartsInHomeWhileSessionCWDIsMissing(t *testing.T) {
+	launcher, err := NewLauncher(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	launcher.homeDir = func() (string, error) { return home, nil }
+	cwd := filepath.Join(t.TempDir(), "removed")
+	command, args := helperExecutable(t)
+	servers, err := launcher.Servers(cwd, []mcpconfig.Server{{
+		Name: "user", Transport: mcpconfig.TransportStdio, Command: command, Args: args,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := func() string {
+		transport, err := servers[0].Transport(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return transport.(*stdioTransport).spec.Dir
+	}
+	if got := directory(); got != home {
+		t.Fatalf("directory with a missing cwd = %q, want home %q", got, home)
+	}
+	if err := os.Mkdir(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := directory(); got != cwd {
+		t.Fatalf("directory once the cwd exists = %q, want %q", got, cwd)
+	}
+}

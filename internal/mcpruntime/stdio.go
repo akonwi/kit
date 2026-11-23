@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -37,14 +39,10 @@ const (
 // has already passed to the SDK at that point, so without this the server would
 // survive until runtime shutdown and accumulate one process per failed call.
 func (l *Launcher) stdioFactory(server mcpconfig.Server, cwd string) func(context.Context) (sdkmcp.Transport, error) {
-	dir := server.Cwd
-	if dir == "" {
-		dir = cwd
-	}
 	spec := childproc.Spec{
 		Path: server.Command,
 		Args: slices.Clone(server.Args),
-		Dir:  dir,
+		Dir:  server.Cwd,
 		Env:  environ(server.Env),
 	}
 	owner := &processOwner{name: server.Name}
@@ -52,8 +50,25 @@ func (l *Launcher) stdioFactory(server mcpconfig.Server, cwd string) func(contex
 		// The agent core calls a factory only when it holds no live session for
 		// this namespace, so any process retained here is from a failed attempt.
 		owner.reclaim()
-		return &stdioTransport{name: server.Name, lifetime: l.lifetime, spec: spec, owner: owner}, nil
+		started := spec
+		if started.Dir == "" {
+			started.Dir = l.sessionDirectory(cwd)
+		}
+		return &stdioTransport{name: server.Name, lifetime: l.lifetime, spec: started, owner: owner}, nil
 	}
+}
+
+// sessionDirectory is where a server without a configured cwd starts: the
+// session cwd, or the user's home directory while the session cwd is missing,
+// so a session that outlived its directory keeps its user-level servers.
+func (l *Launcher) sessionDirectory(cwd string) string {
+	if info, err := os.Stat(cwd); err == nil && info.IsDir() {
+		return cwd
+	}
+	if home, err := l.homeDir(); err == nil && filepath.IsAbs(home) {
+		return home
+	}
+	return cwd
 }
 
 // processOwner retains the most recent connection for one namespace so an

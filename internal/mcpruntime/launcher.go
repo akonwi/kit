@@ -35,6 +35,7 @@ type Launcher struct {
 	authorize      func(context.Context, mcp.AuthorizationRequest) (string, error)
 	canAuthorize   func(context.Context) bool
 	oauthTimeout   time.Duration
+	homeDir        func() (string, error)
 }
 
 // MCPAuthStore is the private credential surface needed by HTTP OAuth.
@@ -91,6 +92,7 @@ func NewLauncher(lifetime context.Context, opts ...Option) (*Launcher, error) {
 		oauthTimeout:   oauthAuthorizationTimeout,
 		authorize:      mcp.Authorize,
 		canAuthorize:   mcp.CanAuthorize,
+		homeDir:        os.UserHomeDir,
 	}
 	for _, opt := range opts {
 		opt(launcher)
