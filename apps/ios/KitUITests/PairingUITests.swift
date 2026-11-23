@@ -53,7 +53,7 @@ final class PairingUITests: XCTestCase {
         pair.tap()
 
         // Pairing opens the new server's sessions; its row is under Servers.
-        XCTAssertTrue(app.staticTexts["No sessions yet"].waitForExistence(timeout: 15), "The paired server's sessions open")
+        XCTAssertTrue(app.navigationBars["Sessions"].waitForExistence(timeout: 15), "The paired server's sessions open")
         attach(app, "Sessions")
         app.buttons["Servers"].tap()
         let row = app.staticTexts[host]
