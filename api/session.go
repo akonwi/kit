@@ -51,8 +51,6 @@ type sessionTransport interface {
 	RefreshSessionFileIndex(context.Context, string) (protocol.SessionFileIndex, error)
 	GetWorkspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListWorkspaceDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
-	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
-	ReadHostFile(context.Context, string, protocol.ReadHostFileInput) (protocol.HostFileRead, error)
 	DownloadFile(context.Context, string, protocol.DownloadFileInput, protocol.DownloadConditions) (protocol.FileDownloadResponse, io.ReadCloser, error)
 	CheckFile(context.Context, string, protocol.DownloadFileInput) (protocol.DownloadedFileInfo, error)
 	ListDiffTargets(context.Context, string, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
@@ -480,29 +478,6 @@ func (c *Session) ListDirectory(ctx context.Context, input protocol.ListDirector
 	})
 }
 
-// ReadWorkspaceFile reads a bounded UTF-8 preview of a workspace file.
-//
-// Deprecated: Use DownloadFile, which returns the whole file (ADR 0074).
-func (c *Session) ReadWorkspaceFile(ctx context.Context, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
-	return sessionProjectedResult(c, ctx, projectWorkspaceError, func(operation context.Context) (protocol.WorkspaceFileRead, error) {
-		return c.transport.ReadWorkspaceFile(operation, c.id, input)
-	})
-}
-
-// ReadHostFile reads one file anywhere on the server's machine: a bounded
-// UTF-8 preview or a complete supported image. The path is absolute, or "~"
-// or "~/…" for the server user's home. Reads are view-only and not confined
-// to the session's working directory.
-//
-// A server that predates the operation fails with an UnsupportedError.
-//
-// Deprecated: Use DownloadFile, which returns the whole file (ADR 0074).
-func (c *Session) ReadHostFile(ctx context.Context, input protocol.ReadHostFileInput) (protocol.HostFileRead, error) {
-	return sessionProjectedResult(c, ctx, projectHostFileError, func(operation context.Context) (protocol.HostFileRead, error) {
-		return c.transport.ReadHostFile(operation, c.id, input)
-	})
-}
-
 // DownloadFile opens the complete content of a workspace or host file
 // (ADR 0074). An input that names a workspace downloads the workspace file
 // at its canonical path; one that doesn't downloads the host file at an
@@ -510,8 +485,7 @@ func (c *Session) ReadHostFile(ctx context.Context, input protocol.ReadHostFileI
 // resume an interrupted download. The body is nil when the response is not
 // modified; otherwise the caller closes it.
 //
-// A server that predates the operation fails with an UnsupportedError, and
-// the caller reads a bounded preview instead.
+// A server that predates the operation fails with an UnsupportedError.
 func (c *Session) DownloadFile(ctx context.Context, input protocol.DownloadFileInput, conditions protocol.DownloadConditions) (protocol.FileDownloadResponse, io.ReadCloser, error) {
 	operation, cancel, err := c.operationContext(ctx)
 	if err != nil {
@@ -540,13 +514,6 @@ func (c *Session) CheckFile(ctx context.Context, input protocol.DownloadFileInpu
 func projectDownloadError(err error) error {
 	if errors.Is(err, httpapi.ErrOperationNotServed) {
 		return &UnsupportedError{Capability: "downloadFile"}
-	}
-	return projectWorkspaceError(err)
-}
-
-func projectHostFileError(err error) error {
-	if errors.Is(err, httpapi.ErrOperationNotServed) {
-		return &UnsupportedError{Capability: "readHostFile"}
 	}
 	return projectWorkspaceError(err)
 }

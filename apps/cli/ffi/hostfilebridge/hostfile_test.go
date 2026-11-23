@@ -59,7 +59,7 @@ func TestTypedPathsLoseQuotesAndShellEscapes(t *testing.T) {
 
 func TestDescribeExplainsHostReadFailures(t *testing.T) {
 	for err, want := range map[error]Problem{
-		&kit.UnsupportedError{Capability: "readHostFile"}:                                                                               {"Server needs an update", "This server's Kit can't download files."},
+		&kit.UnsupportedError{Capability: "downloadFile"}:                                                                               {"Server needs an update", "This server's Kit can't download files."},
 		&protocol.WorkspaceError{Code: protocol.WorkspaceErrorBinary, Message: "x"}:                                                     {"Can't show this file", "Kit shows text files and PNG, JPEG, GIF, or WebP images."},
 		&protocol.WorkspaceError{Code: protocol.WorkspaceErrorNotFile, Message: "x"}:                                                    {"Not a file", "The path names a directory or another kind of file."},
 		&protocol.WorkspaceError{Code: protocol.WorkspaceErrorPermissionDenied, Message: "x"}:                                           {"File is unreadable", "Permission was denied by the server."},

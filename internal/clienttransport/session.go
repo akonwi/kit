@@ -14,7 +14,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -191,39 +190,6 @@ func (c *Client) ListWorkspaceDirectory(ctx context.Context, sessionID string, i
 	}
 	if output.SessionID != sessionID || output.Workspace.WorkspaceID != input.WorkspaceID || output.Path != input.Path {
 		return protocol.DirectoryPage{}, protocolErrorf("daemon directory identity mismatch")
-	}
-	return output, nil
-}
-
-// ReadWorkspaceFile returns a bounded guarded UTF-8 workspace preview.
-func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
-	output, err := httpapi.Call(ctx, c, httpapi.ReadWorkspaceFile, httpapi.SessionPath{SessionID: sessionID}, input)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	if err := output.Validate(); err != nil {
-		return protocol.WorkspaceFileRead{}, protocolErrorf("validate daemon workspace file: %w", err)
-	}
-	if output.SessionID != sessionID || output.Workspace.WorkspaceID != input.WorkspaceID || output.Path != input.Path {
-		return protocol.WorkspaceFileRead{}, protocolErrorf("daemon workspace file identity mismatch")
-	}
-	return output, nil
-}
-
-// ReadHostFile returns a bounded view of one file on the server's machine.
-func (c *Client) ReadHostFile(ctx context.Context, sessionID string, input protocol.ReadHostFileInput) (protocol.HostFileRead, error) {
-	if err := input.Validate(); err != nil {
-		return protocol.HostFileRead{}, fmt.Errorf("validate host file request: %w", err)
-	}
-	output, err := httpapi.Call(ctx, c, httpapi.ReadHostFile, httpapi.SessionPath{SessionID: sessionID}, input)
-	if err != nil {
-		return protocol.HostFileRead{}, err
-	}
-	if err := output.Validate(); err != nil {
-		return protocol.HostFileRead{}, protocolErrorf("validate daemon host file: %w", err)
-	}
-	if output.SessionID() != sessionID || !strings.HasPrefix(input.Path, "~") && output.Path() != filepath.Clean(input.Path) {
-		return protocol.HostFileRead{}, protocolErrorf("daemon host file identity mismatch")
 	}
 	return output, nil
 }

@@ -265,9 +265,9 @@ characters.
 ### Clients show files with downloads alone
 
 `readWorkspaceFile` and `readHostFile` are deprecated. The contract marks
-both operations `deprecated`, and the Go client marks its methods for them.
-Servers keep serving them until a later release removes them
-([#298](https://github.com/akonwi/kit/issues/298)). Clients show workspace
+both operations `deprecated`, and neither the Go client nor KitClient offers
+them. Servers keep serving them until the next session protocol version
+removes them ([#298](https://github.com/akonwi/kit/issues/298)). Clients show workspace
 and host files with this route alone and don't fall back to the bounded
 reads.
 
@@ -307,11 +307,11 @@ treats that as "not supported" and says that the server needs an update.
   `416`, and header behavior above. The server serves a known-length file
   from a fixed-length section of the descriptor, and an unknown-length file
   by copying until end of file.
-- The macOS app, the TUI, and the browser client show files with the route
-  alone. The browser client shows up to 8 MiB and draws only the lines near
-  its view, in blocks, so a long file costs it about what a short one does.
-  The iOS app moves off the deprecated reads as the macOS app did
-  ([#297](https://github.com/akonwi/kit/issues/297)).
+- The macOS app, the iOS app, the TUI, and the browser client show files
+  with the route alone. The browser client shows up to 8 MiB and draws only
+  the lines near its view, in blocks, so a long file costs it about what a
+  short one does. The iOS app shows up to 8 MiB of text but 2 MiB of
+  Markdown, whose preview it parses whole.
 - A client that relies on the route shows no files from a server that
   predates it, until that server is updated.
 - Diffs and directory listings keep their bounded, paginated contracts.
