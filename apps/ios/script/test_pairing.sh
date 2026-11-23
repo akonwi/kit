@@ -6,7 +6,9 @@
 #   KIT_HOME=/tmp/kit-ios-dev kit server run &
 #   KIT_HOME=/tmp/kit-ios-dev apps/ios/script/test_pairing.sh [simulator-udid]
 #
-# It reinstalls the app, so the simulator starts with no paired servers.
+# It reinstalls the app and empties its app group's folder, where paired
+# servers and drafts are kept and which outlives the app on a simulator, so
+# the app starts with no paired servers.
 set -eu
 
 : "${KIT_HOME:?Set KIT_HOME to an isolated Kit home whose server is running}"
@@ -23,6 +25,12 @@ link=$(kit server pair | sed -n 's/^ *\(http[^ ]*\/pair#[a-z2-7]*\)$/\1/p' | tai
 [ -n "$link" ] || { echo "kit server pair printed no link." >&2; exit 1; }
 
 xcrun simctl uninstall "$simulator" com.akonwi.kit.dev 2>/dev/null || true
+groups="$HOME/Library/Developer/CoreSimulator/Devices/$simulator/data/Containers/Shared/AppGroup"
+for metadata in "$groups"/*/.com.apple.mobile_container_manager.metadata.plist; do
+  [ -f "$metadata" ] || continue
+  [ "$(/usr/libexec/PlistBuddy -c 'Print :MCMMetadataIdentifier' "$metadata" 2>/dev/null)" = group.com.akonwi.kit.dev ] || continue
+  rm -rf "$(dirname "$metadata")/Library"
+done
 cd "$app_dir"
 TEST_RUNNER_KIT_PAIRING_LINK="$link" xcodebuild -project Kit.xcodeproj -scheme Kit \
   -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath .build/xcode \
