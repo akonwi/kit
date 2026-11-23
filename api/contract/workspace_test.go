@@ -56,15 +56,25 @@ func TestDirectoryOmissionsMustBeUniqueAndCanonical(t *testing.T) {
 	}
 }
 
-func TestWorkspaceFileReadValidate(t *testing.T) {
+func TestValidateWorkspaceFileChecksItsWorkspacePathAndRevision(t *testing.T) {
 	t.Parallel()
-	valid := WorkspaceFileRead{SessionID: "session_test", Workspace: WorkspaceRef{SessionID: "session_test", CWD: "/workspace", WorkspaceID: "workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", State: WorkspaceReady, Limits: DefaultWorkspaceLimits()}, Path: "file.txt", Revision: "file_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Encoding: "utf-8", Content: "hello", ReturnedBytes: 5, ReturnedLines: 1}
-	if err := valid.Validate(); err != nil {
+	workspace := "workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	revision := "file_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	if err := ValidateWorkspaceFile(workspace, "src/main.go", ""); err != nil {
 		t.Fatal(err)
 	}
-	valid.ReturnedBytes = 4
-	if err := valid.Validate(); err == nil {
-		t.Fatal("mismatched byte count validated")
+	if err := ValidateWorkspaceFile(workspace, "src/main.go", revision); err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string][3]string{
+		"another kind of token":       {"directory_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "a", ""},
+		"a path that isn't canonical": {workspace, "src/../a", ""},
+		"the workspace root":          {workspace, "", ""},
+		"a revision that isn't one":   {workspace, "a", "rev"},
+	} {
+		if ValidateWorkspaceFile(args[0], args[1], args[2]) == nil {
+			t.Errorf("accepted %s", name)
+		}
 	}
 }
 

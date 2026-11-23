@@ -115,7 +115,7 @@ struct Props {
   shown: Bool,
   // Reads a workspace file, given the revision of the copy shown, or "";
   // blocks.
-  read: (fn(protocol::ReadWorkspaceFileInput, Str) filedownload::Read!Error)?,
+  read: (fn(protocol::DownloadFileInput, Str) filedownload::Read!Error)?,
   // Reads a host file within image bounds in pixels, given the revision of
   // the text shown, or ""; blocks.
   read_host: (fn(Str, Int, Int, Str) hostfilebridge::File!Error)?,
@@ -285,7 +285,7 @@ private fn prepare(result: highlight::Result) Prepared {
 }
 
 // A read's lines before highlighting.
-private fn prepare_plain(file: protocol::WorkspaceFileRead) Prepared {
+private fn prepare_plain(file: filedownload::File) Prepared {
   prepare(code::plain(code::source_request("", file.Path, file.Content)))
 }
 
@@ -336,7 +336,7 @@ fn size_label(size: Int) Str {
 
 // What the footer says of a read that stops before the file's end. A file
 // of unknown length reports no more than what shows.
-fn truncation(file: protocol::WorkspaceFileRead) Str {
+fn truncation(file: filedownload::File) Str {
   match file.TruncationReason {
     "line_limit" => "Showing the first {file.ReturnedLines} lines",
     _ => {
@@ -533,7 +533,7 @@ private struct Pane {
   image: ui::ImageData?,
   image_label: Str,
   // The latest read, and its lines as currently highlighted.
-  read: protocol::WorkspaceFileRead?,
+  read: filedownload::File?,
   // The revision of the text shown, to revalidate it with, or "".
   revision: Str,
   // Whether the file changed while the text shown loaded.
@@ -593,7 +593,7 @@ private fn new(props: &mut Props) &mut Pane {
     height: 0,
     image: Maybe::new<ui::ImageData>(),
     image_label: "",
-    read: Maybe::new<protocol::WorkspaceFileRead>(),
+    read: Maybe::new<filedownload::File>(),
     revision: "",
     changed: false,
     rendered: is_markdown(props.tab.path),
@@ -807,7 +807,7 @@ impl Pane {
               self.generation =+ 1
               let generation = self.generation
               self.loading = true
-              let input = protocol::ReadWorkspaceFileInput{WorkspaceID: self.props.tab.workspace_id, Path: self.props.tab.path}
+              let input = protocol::DownloadFileInput{HasWorkspace: true, WorkspaceID: self.props.tab.workspace_id, Path: self.props.tab.path}
               let dispatch = context.dispatch
               let wanted = is_markdown(self.props.tab.path)
               let held = self.revision
@@ -864,7 +864,7 @@ impl Pane {
   // Shows a read whose lines were prepared off the UI thread. A copy that
   // changed while it loaded keeps no revision, so it is read again whole.
   private fn mut loaded(
-    file: protocol::WorkspaceFileRead,
+    file: filedownload::File,
     revision: Str,
     changed: Bool,
     parsed: Parsed?,
@@ -2459,7 +2459,7 @@ test fn the_header_status_gives_way_to_the_path() Void!Str {
 }
 
 test fn a_cut_read_says_how_much_of_the_file_shows() Void!Str {
-  let cut = protocol::WorkspaceFileRead{
+  let cut = filedownload::File{
     Size: Int64::from(5 * 1048576),
     ReturnedBytes: 2 * 1048576,
     ReturnedLines: 65536,

@@ -2147,21 +2147,21 @@ impl Controller {
   // the copy shown. Like `scratchpad_updater`, it captures only this
   // attachment's session and cancellation, and blocks, so callers run it off
   // the UI thread.
-  fn file_reader() (fn(protocol::ReadWorkspaceFileInput, Str) filedownload::Read!Error)? {
+  fn file_reader() (fn(protocol::DownloadFileInput, Str) filedownload::Read!Error)? {
     match self.lifetime {
       lifetime => {
         match self.session {
           session => {
             Maybe::new(
-              fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+              fn(input: protocol::DownloadFileInput, held: Str) filedownload::Read!Error {
                 filedownload::Workspace(session, lifetime.Context, input, held)
               },
             )
           },
-          _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput, Str) filedownload::Read!Error>(),
+          _ => Maybe::new<fn(protocol::DownloadFileInput, Str) filedownload::Read!Error>(),
         }
       },
-      _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput, Str) filedownload::Read!Error>(),
+      _ => Maybe::new<fn(protocol::DownloadFileInput, Str) filedownload::Read!Error>(),
     }
   }
 

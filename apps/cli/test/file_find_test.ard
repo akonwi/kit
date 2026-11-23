@@ -37,7 +37,7 @@ struct Host {
 }
 
 // A read of a whole file, as a download that fits returns it.
-fn whole(file: protocol::WorkspaceFileRead) filedownload::Read!Error {
+fn whole(file: filedownload::File) filedownload::Read!Error {
   Result::ok(filedownload::Read{File: file})
 }
 
@@ -64,9 +64,9 @@ impl cui::Component for Host {
         tab: self.props.tab,
         stale: false,
         shown: true,
-        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+        read: Maybe::new(fn(input: protocol::DownloadFileInput, held: Str) filedownload::Read!Error {
           whole(
-            protocol::WorkspaceFileRead{
+            filedownload::File{
               Path: input.Path,
               Content: content,
               Size: Int64::from(content.size()),

@@ -19,7 +19,7 @@ type DownloadFileInput struct {
 // Validate checks the request as the kind it names, never as the other.
 func (in DownloadFileInput) Validate() error {
 	if in.HasWorkspace {
-		return ReadWorkspaceFileInput{WorkspaceID: in.WorkspaceID, Path: in.Path}.Validate()
+		return ValidateWorkspaceFile(in.WorkspaceID, in.Path, "")
 	}
 	if in.WorkspaceID != "" {
 		return fmt.Errorf("download request is inconsistent")

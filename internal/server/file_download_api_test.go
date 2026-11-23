@@ -95,7 +95,7 @@ func (f *downloadFixture) do(method, target string, headers ...string) *httptest
 
 func (f *downloadFixture) revision(path string) string {
 	f.t.Helper()
-	read, err := f.service.workspaces.Read(context.Background(), "session_test", f.cwd, protocol.ReadWorkspaceFileInput{WorkspaceID: f.workspace, Path: path})
+	read, err := f.service.workspaces.ReadLineRange(context.Background(), "session_test", f.cwd, kitworkspace.LineRangeInput{WorkspaceID: f.workspace, Path: path, StartLine: 1, EndLine: 1})
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -249,6 +249,8 @@ func TestDownloadRejectsMalformedRequestsWithDeclaredErrors(t *testing.T) {
 		{"missing file", f.target("missing.txt"), "not_found", http.StatusNotFound},
 		{"directory", f.target("dir"), "not_file", http.StatusBadRequest},
 		{"other workspace", base + "?workspaceId=workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&path=notes.txt", "stale_workspace", http.StatusConflict},
+		{"missing host file", base + "?path=" + url.QueryEscape(filepath.Join(f.cwd, "missing.txt")), "not_found", http.StatusNotFound},
+		{"host directory", base + "?path=" + url.QueryEscape(filepath.Join(f.cwd, "dir")), "not_file", http.StatusBadRequest},
 		{"missing session", "/v1/sessions/session_gone/files/content?path=%2Fetc%2Fhosts", "not_found", http.StatusNotFound},
 	} {
 		response := f.do(http.MethodGet, test.target)

@@ -625,23 +625,6 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/v1/sessions/{sessionID}/host-files/read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @deprecated */
-        post: operations["readHostFile"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/sessions/{sessionID}/interactions/{interactionID}/response": {
         parameters: {
             query?: never;
@@ -1068,23 +1051,6 @@ export type paths = {
         get?: never;
         put?: never;
         post: operations["listWorkspaceDirectory"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/sessions/{sessionID}/workspace/files/read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @deprecated */
-        post: operations["readWorkspaceFile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2063,43 +2029,6 @@ export type components = {
             code: "rate_limited";
             message: string;
         };
-        HostFileRead: components["schemas"]["HostTextFile"] | components["schemas"]["HostImageFile"];
-        HostImageFile: {
-            /** Format: byte */
-            data: string;
-            height: number;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "image";
-            mediaType: string;
-            modifiedAt?: string;
-            path: string;
-            sessionId: string;
-            /** Format: int64 */
-            size: number;
-            width: number;
-        };
-        HostTextFile: {
-            content?: string;
-            encoding: string;
-            highlight?: components["schemas"]["Highlight"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "text";
-            modifiedAt?: string;
-            path: string;
-            returnedBytes?: number;
-            returnedLines?: number;
-            sessionId: string;
-            /** Format: int64 */
-            size?: number;
-            truncated?: boolean;
-            truncationReason?: string;
-        };
         ImageContent: {
             attachmentId?: string;
             filename?: string;
@@ -2583,16 +2512,6 @@ export type components = {
             path: string;
             targetId: string;
             targetRevision: string;
-        };
-        ReadHostFileInput: {
-            highlight?: boolean;
-            path: string;
-        };
-        ReadWorkspaceFileInput: {
-            expectedFileRevision?: string;
-            highlight?: boolean;
-            path: string;
-            workspaceId: string;
         };
         RedeemPairingInput: {
             code: string;
@@ -3583,22 +3502,6 @@ export type components = {
             path: string;
             startLine: number;
             workspaceId: string;
-        };
-        WorkspaceFileRead: {
-            content: string;
-            encoding: string;
-            highlight?: components["schemas"]["Highlight"];
-            modifiedAt?: string;
-            path: string;
-            returnedBytes: number;
-            returnedLines: number;
-            revision: string;
-            sessionId: string;
-            /** Format: int64 */
-            size: number;
-            truncated: boolean;
-            truncationReason?: string;
-            workspace: components["schemas"]["WorkspaceRef"];
         };
         WorkspaceInvalidPathError: {
             /**
@@ -10564,167 +10467,6 @@ export interface operations {
             };
         };
     };
-    readHostFile: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 51;
-            };
-            path: {
-                sessionID: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReadHostFileInput"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HostFileRead"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["InvalidRequestError"] | components["schemas"]["WorkspaceInvalidPathError"] | components["schemas"]["WorkspaceNotFileError"];
-                    };
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["UnauthorizedError"] | components["schemas"]["WorkspaceCredentialExpiredError"];
-                    };
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspacePermissionDeniedError"] | components["schemas"]["ForbiddenError"];
-                    };
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["NotFoundError"];
-                    };
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["InstanceMismatchError"];
-                    };
-                };
-            };
-            /** @description Request Entity Too Large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspaceLimitExceededError"];
-                    };
-                };
-            };
-            /** @description Unsupported Media Type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspaceBinaryFileError"];
-                    };
-                };
-            };
-            /** @description Misdirected Request */
-            421: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["InvalidHostError"];
-                    };
-                };
-            };
-            /** @description Upgrade Required */
-            426: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["ProtocolMismatchError"];
-                    };
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspaceCapacityExceededError"] | components["schemas"]["WorkspaceRateLimitedError"];
-                    };
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["InternalError"];
-                    };
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["UnavailableError"];
-                    };
-                };
-            };
-        };
-    };
     respondInteraction: {
         parameters: {
             query?: never;
@@ -14784,167 +14526,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DirectoryPage"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["InvalidRequestError"] | components["schemas"]["WorkspaceInvalidPathError"] | components["schemas"]["WorkspaceNotDirectoryError"] | components["schemas"]["WorkspaceNotFileError"] | components["schemas"]["WorkspaceSymlinkTraversalError"];
-                    };
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["UnauthorizedError"] | components["schemas"]["WorkspaceCredentialExpiredError"];
-                    };
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspacePermissionDeniedError"] | components["schemas"]["WorkspaceOutsideWorkspaceError"] | components["schemas"]["ForbiddenError"];
-                    };
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["NotFoundError"];
-                    };
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
-                    };
-                };
-            };
-            /** @description Request Entity Too Large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspaceLimitExceededError"];
-                    };
-                };
-            };
-            /** @description Unsupported Media Type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspaceBinaryFileError"];
-                    };
-                };
-            };
-            /** @description Misdirected Request */
-            421: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["InvalidHostError"];
-                    };
-                };
-            };
-            /** @description Upgrade Required */
-            426: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["ProtocolMismatchError"];
-                    };
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["WorkspaceCapacityExceededError"] | components["schemas"]["WorkspaceRateLimitedError"];
-                    };
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["InternalError"];
-                    };
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: components["schemas"]["UnavailableError"];
-                    };
-                };
-            };
-        };
-    };
-    readWorkspaceFile: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-Kit-Instance-ID": string;
-                "X-Kit-Protocol-Version": 51;
-            };
-            path: {
-                sessionID: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReadWorkspaceFileInput"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceFileRead"];
                 };
             };
             /** @description Bad Request */

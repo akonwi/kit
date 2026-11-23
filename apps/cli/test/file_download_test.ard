@@ -56,7 +56,7 @@ impl cui::Component for Host {
         tab: self.props.tab,
         stale: false,
         shown: model.shown,
-        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+        read: Maybe::new(fn(input: protocol::DownloadFileInput, held: Str) filedownload::Read!Error {
           let index = model.held.size()
           model.held.push(held)
           let last = model.answers.size() - 1
@@ -86,7 +86,7 @@ struct Shown {
 // A download of notes.txt with content at revision.
 fn download(content: Str, revision: Str) filedownload::Read {
   filedownload::Read{
-    File: protocol::WorkspaceFileRead{
+    File: filedownload::File{
       Path: "notes.txt",
       Revision: revision,
       Content: content,
@@ -230,7 +230,7 @@ test fn showing_the_tab_again_revalidates_what_it_shows() Void!Str {
     5,
     [
       download("alpha\n", "rev-1"),
-      filedownload::Read{File: protocol::WorkspaceFileRead{}, Unchanged: true},
+      filedownload::Read{File: filedownload::File{}, Unchanged: true},
       download("beta\ngamma\n", "rev-2"),
     ],
   )

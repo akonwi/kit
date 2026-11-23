@@ -1,10 +1,10 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -128,7 +128,7 @@ func TestWorkspaceRejectsStaleAndSymlinkTraversal(t *testing.T) {
 	if !errors.As(err, &workspaceErr) || workspaceErr.Code != StaleWorkspace {
 		t.Fatalf("stale error = %v", err)
 	}
-	_, err = service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "linked/secret"})
+	_, err = service.OpenWorkspaceDownload(t.Context(), ref.SessionID, root, protocol.DownloadFileInput{HasWorkspace: true, WorkspaceID: ref.WorkspaceID, Path: "linked/secret"})
 	if !errors.As(err, &workspaceErr) || workspaceErr.Code != SymlinkTraversal {
 		t.Fatalf("symlink error = %v", err)
 	}
@@ -247,7 +247,7 @@ func TestDirectoryCursorRejectsTampering(t *testing.T) {
 	}
 }
 
-func TestReadFinalSymlinkStaysInsideWorkspace(t *testing.T) {
+func TestDownloadFinalSymlinkStaysInsideWorkspace(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -271,22 +271,29 @@ func TestReadFinalSymlinkStaysInsideWorkspace(t *testing.T) {
 	}
 	service := NewService()
 	ref := service.Ref("session_test", root)
-	read, err := service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "inside-link"})
-	if err != nil || read.Content != "inside" {
-		t.Fatalf("inside link = %+v, %v", read, err)
+	read := func(path string) (string, error) {
+		download, err := service.OpenWorkspaceDownload(t.Context(), ref.SessionID, root, protocol.DownloadFileInput{HasWorkspace: true, WorkspaceID: ref.WorkspaceID, Path: path})
+		if err != nil {
+			return "", err
+		}
+		defer download.Close()
+		body, err := io.ReadAll(download.Section(0, download.Info.Size))
+		return string(body), err
 	}
-	read, err = service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "dir/parent-link"})
-	if err != nil || read.Content != "inside" {
-		t.Fatalf("parent link = %+v, %v", read, err)
+	if content, err := read("inside-link"); err != nil || content != "inside" {
+		t.Fatalf("inside link = %q, %v", content, err)
 	}
-	_, err = service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "outside-link"})
+	if content, err := read("dir/parent-link"); err != nil || content != "inside" {
+		t.Fatalf("parent link = %q, %v", content, err)
+	}
+	_, err := read("outside-link")
 	var workspaceErr *Error
 	if !errors.As(err, &workspaceErr) || workspaceErr.Code != OutsideWorkspace {
 		t.Fatalf("outside link error = %v", err)
 	}
 }
 
-func TestReadLineRangeReadsBeyondPreviewLimits(t *testing.T) {
+func TestReadLineRangeReadsLinesFarIntoAFile(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	service := NewService()
@@ -298,13 +305,13 @@ func TestReadLineRangeReadsBeyondPreviewLimits(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "large.txt"), []byte(strings.Join(lines, "\n")), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	preview, err := service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "large.txt"})
-	if err != nil || !preview.Truncated {
-		t.Fatalf("preview = %+v, %v", preview, err)
+	first, err := service.ReadLineRange(t.Context(), ref.SessionID, root, LineRangeInput{WorkspaceID: ref.WorkspaceID, Path: "large.txt", StartLine: 1, EndLine: 1})
+	if err != nil {
+		t.Fatal(err)
 	}
 	start := protocol.MaxWorkspacePreviewLines + 1
 	read, err := service.ReadLineRange(t.Context(), ref.SessionID, root, LineRangeInput{
-		WorkspaceID: ref.WorkspaceID, Path: "large.txt", ExpectedFileRevision: preview.Revision,
+		WorkspaceID: ref.WorkspaceID, Path: "large.txt", ExpectedFileRevision: first.Revision,
 		StartLine: start, EndLine: start + 1,
 	})
 	if err != nil || read.Content != strings.Join(lines[start-1:start+1], "\n")+"\n" {
@@ -312,28 +319,16 @@ func TestReadLineRangeReadsBeyondPreviewLimits(t *testing.T) {
 	}
 }
 
-func TestReadFileReportsBinaryTruncationAndStaleness(t *testing.T) {
+func TestReadLineRangeReportsAStaleRevision(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	service := NewService()
 	ref := service.Ref("session_test", root)
-	if err := os.WriteFile(filepath.Join(root, "binary"), []byte{1, 0, 2}, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "notes"), []byte("one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "binary"})
+	_, err := service.ReadLineRange(t.Context(), ref.SessionID, root, LineRangeInput{WorkspaceID: ref.WorkspaceID, Path: "notes", ExpectedFileRevision: "file_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", StartLine: 1, EndLine: 1})
 	var workspaceErr *Error
-	if !errors.As(err, &workspaceErr) || workspaceErr.Code != BinaryFile {
-		t.Fatalf("binary error = %v", err)
-	}
-	content := strings.Repeat("x", protocol.MaxWorkspacePreviewBytes+1)
-	if err := os.WriteFile(filepath.Join(root, "large"), []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	read, err := service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "large"})
-	if err != nil || !read.Truncated || read.TruncationReason != "byte_limit" || len(read.Content) != protocol.MaxWorkspacePreviewBytes {
-		t.Fatalf("large read = %+v, %v", read, err)
-	}
-	_, err = service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "large", ExpectedFileRevision: "file_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	if !errors.As(err, &workspaceErr) || workspaceErr.Code != StaleFile {
 		t.Fatalf("stale file error = %v", err)
 	}
@@ -368,27 +363,5 @@ func TestReadLineRangeTerminatesEverySelectedLine(t *testing.T) {
 				t.Fatalf("range = %+v, %v; want %q", read, err, test.content)
 			}
 		})
-	}
-}
-
-// A line-limited preview must not copy the rest of the buffer once per line,
-// which made a 1 MB source file cost gigabytes of allocation.
-func TestReadPreviewLineLimitAllocatesLinearly(t *testing.T) {
-	line := strings.Repeat("x", 33) + "\n"
-	source := []byte(strings.Repeat(line, protocol.MaxWorkspacePreviewBytes/len(line)))
-	var data []byte
-	var reason string
-	allocations := testing.AllocsPerRun(5, func() {
-		var err error
-		data, reason, err = readPreview(context.Background(), bytes.NewReader(source), protocol.MaxWorkspacePreviewBytes, protocol.MaxWorkspacePreviewLines)
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
-	if reason != "line_limit" || len(data) != protocol.MaxWorkspacePreviewLines*len(line) {
-		t.Fatalf("preview = %d bytes, reason %q; want %d bytes, line_limit", len(data), reason, protocol.MaxWorkspacePreviewLines*len(line))
-	}
-	if allocations > 64 {
-		t.Fatalf("line-limited preview made %.0f allocations; want at most 64", allocations)
 	}
 }

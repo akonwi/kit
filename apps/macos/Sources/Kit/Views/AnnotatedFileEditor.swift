@@ -22,7 +22,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
     /// The tab's find bar, whose matches the editor shows.
     var find: FileFind?
 
-    init(file: WireWorkspaceFileRead, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String,
+    init(file: WorkspaceFile, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String,
          canAnnotate: Bool = true, lineReveal: FileLineReveal? = nil, lineRevealed: ((FileLineReveal) -> Void)? = nil,
          find: FileFind? = nil) {
         document = AnnotationDocument(file: file); _position = position

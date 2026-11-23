@@ -18,11 +18,9 @@ struct InlineAnnotationClient: AnnotationClient {
 }
 
 @MainActor @Suite(.serialized) struct InlineAnnotationEditorTests {
-    static func file(_ source: String) throws -> WireWorkspaceFileRead {
-        var payload = try #require(JSONSerialization.jsonObject(with: Data(#"{"sessionId":"session_test","workspace":{"sessionId":"session_test","cwd":"/tmp","workspaceId":"workspace_test","state":"ready","limits":{"maxPathBytes":4096,"maxPathComponents":64,"defaultDirectoryPageSize":100,"maxDirectoryPageSize":200,"maxDirectoryEntries":10000,"maxDirectoryResponseBytes":524288,"maxDirectoryObservationBytes":8388608,"maxPreviewBytes":1000000,"maxPreviewLines":5000,"maxActiveRequests":1,"maxPendingRequests":0}},"path":"sample.swift","revision":"file_test","size":0,"encoding":"utf-8","content":"","returnedBytes":0,"returnedLines":0,"truncated":false}"#.utf8)) as? [String: Any])
-        payload["content"] = source; payload["size"] = source.utf8.count
-        payload["returnedBytes"] = source.utf8.count; payload["returnedLines"] = source.split(separator: "\n").count
-        return try JSONDecoder().decode(WireWorkspaceFileRead.self, from: JSONSerialization.data(withJSONObject: payload))
+    static func file(_ source: String) throws -> WorkspaceFile {
+        let workspace = try JSONDecoder().decode(WireWorkspaceRef.self, from: Data(#"{"sessionId":"session_test","cwd":"/tmp","workspaceId":"workspace_test","state":"ready","limits":{"maxPathBytes":4096,"maxPathComponents":64,"defaultDirectoryPageSize":100,"maxDirectoryPageSize":200,"maxDirectoryEntries":10000,"maxDirectoryResponseBytes":524288,"maxDirectoryObservationBytes":8388608,"maxPreviewBytes":1000000,"maxPreviewLines":5000,"maxActiveRequests":1,"maxPendingRequests":0}}"#.utf8))
+        return WorkspaceFile(workspace: workspace, path: "sample.swift", revision: "file_test", content: source, size: Int64(source.utf8.count))
     }
     static func controller(in view: NSView) -> TextViewController? {
         if let controller = view.nextResponder as? TextViewController { return controller }
@@ -294,7 +292,7 @@ struct InlineAnnotationClient: AnnotationClient {
     }
 
     private struct Harness: View {
-        let file: WireWorkspaceFileRead
+        let file: WorkspaceFile
         let annotations: AnnotationState
         @State private var position = SourceEditorState()
         var body: some View {

@@ -3,7 +3,6 @@ package workspace
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -79,8 +78,6 @@ type Service struct {
 	cursorKey     [32]byte
 	limits        protocol.WorkspaceLimits
 	now           func() time.Time
-	// images admits full host image decodes; see ReadHostFile.
-	images chan struct{}
 	// home returns the server user's home directory for "~" paths.
 	home func() (string, error)
 	// downloads counts each session's open download bodies, and
@@ -91,7 +88,7 @@ type Service struct {
 
 func NewService() *Service {
 	limits := protocol.DefaultWorkspaceLimits()
-	service := &Service{observations: map[string]*observation{}, sessions: map[string]*sessionGate{}, active: make(chan struct{}, limits.MaxActiveRequests*4), limits: limits, now: time.Now, images: make(chan struct{}, maxConcurrentImageReads), home: os.UserHomeDir}
+	service := &Service{observations: map[string]*observation{}, sessions: map[string]*sessionGate{}, active: make(chan struct{}, limits.MaxActiveRequests*4), limits: limits, now: time.Now, home: os.UserHomeDir}
 	if _, err := rand.Read(service.cursorKey[:]); err != nil {
 		panic(fmt.Sprintf("initialize workspace cursor key: %v", err))
 	}
@@ -424,76 +421,6 @@ func (s *Service) evictLocked() {
 	}
 }
 
-func (s *Service) Read(ctx context.Context, sessionID, cwd string, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
-	if err := input.Validate(); err != nil {
-		return protocol.WorkspaceFileRead{}, classifyInput(err, input.Path, 0)
-	}
-	release, err := s.acquire(ctx, sessionID)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	defer release()
-	ref, err := s.check(sessionID, cwd, input.WorkspaceID)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	nameChecks := 0
-	root, file, before, closeRoots, err := openWorkspaceFile(cwd, input.Path, &nameChecks)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	defer closeRoots()
-	defer file.Close()
-	revision := fileRevision(ref.WorkspaceID, before)
-	if input.ExpectedFileRevision != "" && input.ExpectedFileRevision != revision {
-		return protocol.WorkspaceFileRead{}, &Error{Code: StaleFile, Message: "workspace file changed", Details: map[string]string{"currentFileRevision": revision}}
-	}
-	data, reason, err := readPreview(ctx, file, s.limits.MaxPreviewBytes, s.limits.MaxPreviewLines)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	after, err := file.Stat()
-	if err != nil || fileRevision(ref.WorkspaceID, after) != revision {
-		return protocol.WorkspaceFileRead{}, &Error{Code: StaleFile, Message: "workspace file changed while it was read"}
-	}
-	currentParent, currentName, closeCurrent, err := openParentPath(root, input.Path, &nameChecks)
-	if err != nil {
-		var typed *Error
-		if errors.As(err, &typed) && typed.Code == LimitExceeded {
-			return protocol.WorkspaceFileRead{}, typed
-		}
-		return protocol.WorkspaceFileRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
-	}
-	defer closeCurrent()
-	currentOpenName := currentName
-	currentOpenRoot := currentParent
-	currentLstat, lstatErr := currentParent.Lstat(currentName)
-	if lstatErr != nil {
-		return protocol.WorkspaceFileRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
-	}
-	if currentLstat.Mode()&os.ModeSymlink != 0 {
-		currentOpenName, err = resolveWorkspaceSymlink(root, input.Path)
-		if err != nil {
-			return protocol.WorkspaceFileRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
-		}
-		currentOpenRoot = root
-	}
-	currentFile, err := currentOpenRoot.OpenFile(currentOpenName, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
-	}
-	currentInfo, currentErr := currentFile.Stat()
-	_ = currentFile.Close()
-	if currentErr != nil || !os.SameFile(before, currentInfo) || fileRevision(ref.WorkspaceID, currentInfo) != revision {
-		return protocol.WorkspaceFileRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
-	}
-	current, err := s.check(sessionID, cwd, input.WorkspaceID)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	return protocol.WorkspaceFileRead{SessionID: sessionID, Workspace: current, Path: input.Path, Revision: revision, Size: before.Size(), ModifiedAt: before.ModTime().UTC().Format(time.RFC3339Nano), Encoding: "utf-8", Content: string(data), ReturnedBytes: len(data), ReturnedLines: lineCount(data), Truncated: reason != "", TruncationReason: reason}, nil
-}
-
 // openWorkspaceFile opens the regular file that a canonical workspace path
 // names under cwd, following ADR 0019's containment and symbolic link rules.
 // It returns the workspace root, which stays open for later resolution, the
@@ -576,8 +503,7 @@ type LineRangeRead struct {
 // ReadLineRange securely reads complete requested lines without relying on the
 // bounded prefix preview contract.
 func (s *Service) ReadLineRange(ctx context.Context, sessionID, cwd string, input LineRangeInput) (LineRangeRead, error) {
-	validation := protocol.ReadWorkspaceFileInput{WorkspaceID: input.WorkspaceID, Path: input.Path, ExpectedFileRevision: input.ExpectedFileRevision}
-	if err := validation.Validate(); err != nil || input.StartLine <= 0 || input.EndLine < input.StartLine || input.EndLine-input.StartLine+1 > 200 {
+	if err := protocol.ValidateWorkspaceFile(input.WorkspaceID, input.Path, input.ExpectedFileRevision); err != nil || input.StartLine <= 0 || input.EndLine < input.StartLine || input.EndLine-input.StartLine+1 > 200 {
 		return LineRangeRead{}, classifyInput(fmt.Errorf("workspace line range is invalid"), input.Path, 0)
 	}
 	release, err := s.acquire(ctx, sessionID)
@@ -829,77 +755,6 @@ func projectOmissions(m map[string]int) []protocol.WorkspaceOmission {
 		}
 	}
 	return out
-}
-func readPreview(ctx context.Context, r io.Reader, maxBytes, maxLines int) ([]byte, string, error) {
-	limit := maxBytes + utf8.UTFMax + 1
-	data := make([]byte, 0, min(limit, 64<<10))
-	buf := make([]byte, 32<<10)
-	complete := false
-	for len(data) < limit {
-		if err := ctx.Err(); err != nil {
-			return nil, "", err
-		}
-		n, err := r.Read(buf[:min(len(buf), limit-len(data))])
-		data = append(data, buf[:n]...)
-		if err == io.EOF {
-			complete = true
-			break
-		}
-		if err != nil {
-			return nil, "", classify(err, NotFile)
-		}
-	}
-	if bytes.IndexByte(data, 0) >= 0 {
-		return nil, "", &Error{Code: BinaryFile, Message: "binary files cannot be previewed"}
-	}
-	reason := ""
-	if len(data) > maxBytes {
-		data = data[:maxBytes]
-		reason = "byte_limit"
-	}
-	if !utf8.Valid(data) {
-		if complete {
-			return nil, "", &Error{Code: BinaryFile, Message: "binary files cannot be previewed"}
-		}
-		trimmed := false
-		for range utf8.UTFMax - 1 {
-			if len(data) == 0 {
-				break
-			}
-			data = data[:len(data)-1]
-			if utf8.Valid(data) {
-				trimmed = true
-				break
-			}
-		}
-		if !trimmed {
-			return nil, "", &Error{Code: BinaryFile, Message: "binary files cannot be previewed"}
-		}
-		reason = "byte_limit"
-	}
-	if lineCount(data) > maxLines {
-		idx := 0
-		for n := 0; n < maxLines; n++ {
-			next := bytes.IndexByte(data[idx:], '\n')
-			if next < 0 {
-				break
-			}
-			idx += next + 1
-		}
-		data = data[:idx]
-		reason = "line_limit"
-	}
-	return data, reason, nil
-}
-func lineCount(b []byte) int {
-	if len(b) == 0 {
-		return 0
-	}
-	n := bytes.Count(b, []byte{'\n'})
-	if b[len(b)-1] != '\n' {
-		n++
-	}
-	return n
 }
 func resolveWorkspaceSymlink(root *os.Root, name string) (string, error) {
 	pending := strings.Split(name, "/")

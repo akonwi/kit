@@ -54,24 +54,12 @@ The role set is part of the contract. A client draws a role it has no color
 for as plain text, so the server may add a role without a protocol change.
 Clients resolve roles to their theme's colors at paint time.
 
-### File reads
-
-`readWorkspaceFile` and text results of `readHostFile` accept an optional
-`highlight` flag. When it is set and the content is in a supported language,
-the response carries a `highlight` for the returned content, computed by the
-server from the content it already read. Text and colors arrive in one
-response, so they cannot disagree.
-
-The language is detected from the file's path. The field is absent when the
-language is unsupported, the content exceeds the highlighter's bounds, the
-highlighter is saturated or times out, or the result fails validation. A
-client shows the content plain and does not retry for the same revision.
-
 ### Diffs
 
-`readFileDiff` accepts the same flag. The server highlights the whole old and
-new file once each, so constructs that span lines are colored correctly, and
-returns a `highlight` with an optional `old` and `new` `Highlight`, each
+`readFileDiff` accepts an optional `highlight` flag. The server highlights
+the whole old and new file once each, so constructs that span lines are
+colored correctly, and returns a `highlight` with an optional `old` and `new`
+`Highlight`, each
 covering only the lines the page returns. The old side has one entry per page
 line with an old line number (context and deletions), and the new side one
 per page line with a new line number (context and additions), each in page
@@ -79,6 +67,11 @@ order across the page's hunks; each side lists only the roles its lines use.
 A side is absent when it cannot be highlighted or the page has no lines on
 it, and the whole field is absent when neither side can be highlighted or the
 colors would take the page past the diff response bound.
+
+The language is detected from the file's path. The field is also absent when
+the language is unsupported, the content exceeds the highlighter's bounds, or
+the highlighter is saturated or times out. A client shows the page plain and
+does not retry for the same revision.
 
 Diff observations (`observeDiff`, `observeWorkingTree`) return file summaries
 without text, so they take no flag.
@@ -107,10 +100,10 @@ instance, and session protocol checks.
 
 ### Work and bounds
 
-All three uses run through the highlighting service's existing scheduler,
-cache, timeouts, and limits. They add no queue, worker pool, or cache of their
-own, and a slow parse never delays the text it would color: a file read
-returns its content plain rather than waiting past the highlighter's timeout.
+Both uses run through the highlighting service's existing scheduler, cache,
+timeouts, and limits. They add no queue, worker pool, or cache of their own,
+and a slow parse never delays the text it would color: a diff page returns
+its lines plain rather than waiting past the highlighter's timeout.
 
 Every request shares one deadline, the highlighter's timeout, across all of
 its texts: a diff page's two sides, or a batch's blocks. A request highlights
@@ -132,13 +125,13 @@ required to use these fields.
 - The browser client colors code in replies and diffs with the same grammars
   and queries as the terminal client, including Ard, with no grammar
   downloads. It colors files itself, as ADR 0074 describes.
-- Colors for files and diffs need no separate request and no client-side
+- Colors for diffs need no separate request and no client-side
   synchronization with the text.
 - Code in a streaming reply is plain until the reply completes, then colors
   in place without changing layout.
-- A highlighted file response is larger than its text: for typical source
-  the colors add about 0.7 to 0.9 times the text's size, so the response is
-  about 1.7 to 1.9 times as large. Compressing session API responses would
+- A highlighted response is larger than its text: for typical source the
+  colors add about 0.7 to 0.9 times the text's size, so the response is about
+  1.7 to 1.9 times as large. Compressing session API responses would
   recover most of that.
 - Highlighting load from remote clients shares the server's bounded
   highlighter with the terminal client; under saturation, clients see plain

@@ -1567,8 +1567,6 @@ public struct WireSessionFileIndex: Codable, Sendable {
     }
 }
 
-public typealias WireWorkspaceFileRead = Components.Schemas.WorkspaceFileRead
-
 public struct WireAttachmentInfo: Codable, Sendable {
     public let `id`: String
     public let `sessionId`: String

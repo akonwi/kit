@@ -37,12 +37,12 @@ func TestWorkspaceDownloadServesTheOpenedFile(t *testing.T) {
 	download := openTestDownload(t, s, "session_a", cwd, "~/notes.txt")
 	info := download.Info
 	read := s.Ref("session_a", cwd)
-	preview, err := s.Read(context.Background(), "session_a", cwd, protocol.ReadWorkspaceFileInput{WorkspaceID: read.WorkspaceID, Path: "~/notes.txt"})
+	lines, err := s.ReadLineRange(context.Background(), "session_a", cwd, LineRangeInput{WorkspaceID: read.WorkspaceID, Path: "~/notes.txt", StartLine: 1, EndLine: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.WorkspaceID != read.WorkspaceID || info.Path != "~/notes.txt" || info.Size != 6 || info.Revision != preview.Revision || info.Validate() != nil {
-		t.Fatalf("info = %+v, want the read's workspace, path, size 6, and revision %s", info, preview.Revision)
+	if info.WorkspaceID != read.WorkspaceID || info.Path != "~/notes.txt" || info.Size != 6 || info.Revision != lines.Revision || info.Validate() != nil {
+		t.Fatalf("info = %+v, want the workspace, path, size 6, and revision %s", info, lines.Revision)
 	}
 	body, err := io.ReadAll(download.Section(0, info.Size))
 	if err != nil || string(body) != "hello\n" {
@@ -75,7 +75,7 @@ func TestDownloadKindIsTheRequestsNeverTheOther(t *testing.T) {
 	}
 }
 
-func TestHostDownloadNamesTheFileReadHostFileReads(t *testing.T) {
+func TestHostDownloadExpandsHomeAndCleansThePath(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "notes.txt"), []byte("hello\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -87,14 +87,9 @@ func TestHostDownloadNamesTheFileReadHostFileReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer download.Close()
-	read, done, err := s.ReadHostFile(context.Background(), "session_a", protocol.ReadHostFileInput{Path: "~/./notes.txt"})
-	done()
-	if err != nil {
-		t.Fatal(err)
-	}
 	info := download.Info
-	if info.Path != read.Path() || info.Path != filepath.Join(home, "notes.txt") || info.WorkspaceID != "" || !strings.HasPrefix(info.Revision, "hostfile_") || info.Size != 6 || info.Validate() != nil {
-		t.Fatalf("info = %+v, want %s with a host revision", info, read.Path())
+	if info.Path != filepath.Join(home, "notes.txt") || info.WorkspaceID != "" || !strings.HasPrefix(info.Revision, "hostfile_") || info.Size != 6 || info.Validate() != nil {
+		t.Fatalf("info = %+v, want %s with a host revision", info, filepath.Join(home, "notes.txt"))
 	}
 }
 

@@ -5,7 +5,7 @@ import Observation
 @MainActor @Observable
 final class FilePreviewCache {
     struct Entry {
-        var preview: WireWorkspaceFileRead?
+        var preview: WorkspaceFile?
         var error: String?
         /// The file is binary, so it has no preview to retry for.
         var binary = false
@@ -92,11 +92,9 @@ final class FilePreviewCache {
                     entries[path]?.stale = false
                     return
                 }
-                entries[path]?.preview = WireWorkspaceFileRead(
-                    content: text.content, encoding: "utf-8", modifiedAt: text.modifiedAt, path: path,
-                    returnedBytes: text.content.utf8.count, returnedLines: FileFind.searchedLines(text.content, truncated: true),
-                    revision: text.revision ?? "", sessionId: session, size: text.size ?? Int64(text.content.utf8.count),
-                    truncated: text.limited, truncationReason: text.limited ? "byte_limit" : nil, workspace: workspace)
+                entries[path]?.preview = WorkspaceFile(
+                    workspace: workspace, path: path, revision: text.revision ?? "", content: text.content,
+                    size: text.size ?? Int64(text.content.utf8.count), modifiedAt: text.modifiedAt, truncated: text.limited)
                 entries[path]?.whole = text
                 entries[path]?.stale = false
                 trim(keeping: path)

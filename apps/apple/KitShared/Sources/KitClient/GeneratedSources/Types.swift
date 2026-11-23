@@ -158,10 +158,6 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
     func forkSession(_ input: Operations.ForkSession.Input) async throws -> Operations.ForkSession.Output
-    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/host-files/read`.
-    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/host-files/read/post(readHostFile)`.
-    @available(*, deprecated)
-    func readHostFile(_ input: Operations.ReadHostFile.Input) async throws -> Operations.ReadHostFile.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/interactions/{interactionID}/response`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/interactions/{interactionID}/response/post(respondInteraction)`.
     func respondInteraction(_ input: Operations.RespondInteraction.Input) async throws -> Operations.RespondInteraction.Output
@@ -246,10 +242,6 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/directories`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/directories/post(listWorkspaceDirectory)`.
     func listWorkspaceDirectory(_ input: Operations.ListWorkspaceDirectory.Input) async throws -> Operations.ListWorkspaceDirectory.Output
-    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/files/read`.
-    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/files/read/post(readWorkspaceFile)`.
-    @available(*, deprecated)
-    func readWorkspaceFile(_ input: Operations.ReadWorkspaceFile.Input) async throws -> Operations.ReadWorkspaceFile.Output
     /// - Remark: HTTP `GET /v1/settings`.
     /// - Remark: Generated from `#/paths//v1/settings/get(getServerSettings)`.
     func getServerSettings(_ input: Operations.GetServerSettings.Input) async throws -> Operations.GetServerSettings.Output
@@ -814,20 +806,6 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/host-files/read`.
-    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/host-files/read/post(readHostFile)`.
-    @available(*, deprecated)
-    public func readHostFile(
-        path: Operations.ReadHostFile.Input.Path,
-        headers: Operations.ReadHostFile.Input.Headers,
-        body: Operations.ReadHostFile.Input.Body
-    ) async throws -> Operations.ReadHostFile.Output {
-        try await readHostFile(Operations.ReadHostFile.Input(
-            path: path,
-            headers: headers,
-            body: body
-        ))
-    }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/interactions/{interactionID}/response`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/interactions/{interactionID}/response/post(respondInteraction)`.
     public func respondInteraction(
@@ -1163,20 +1141,6 @@ extension APIProtocol {
         body: Operations.ListWorkspaceDirectory.Input.Body
     ) async throws -> Operations.ListWorkspaceDirectory.Output {
         try await listWorkspaceDirectory(Operations.ListWorkspaceDirectory.Input(
-            path: path,
-            headers: headers,
-            body: body
-        ))
-    }
-    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/files/read`.
-    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/files/read/post(readWorkspaceFile)`.
-    @available(*, deprecated)
-    public func readWorkspaceFile(
-        path: Operations.ReadWorkspaceFile.Input.Path,
-        headers: Operations.ReadWorkspaceFile.Input.Headers,
-        body: Operations.ReadWorkspaceFile.Input.Body
-    ) async throws -> Operations.ReadWorkspaceFile.Output {
-        try await readWorkspaceFile(Operations.ReadWorkspaceFile.Input(
             path: path,
             headers: headers,
             body: body

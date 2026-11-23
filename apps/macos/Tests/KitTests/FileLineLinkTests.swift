@@ -267,7 +267,7 @@ private struct ReadOnlyHarness: View {
 }
 
 private struct AnnotatedHarness: View {
-    let file: WireWorkspaceFileRead
+    let file: WorkspaceFile
     @Bindable var model: RevealModel
     @State private var annotations = AnnotationState()
     var body: some View {

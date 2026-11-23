@@ -20,7 +20,6 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/attachment"
-	"github.com/akonwi/kit/internal/codehighlight"
 	"github.com/akonwi/kit/internal/fileindex"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
@@ -126,10 +125,6 @@ type sessionService interface {
 	FileIndex(context.Context, string, bool) (protocol.SessionFileIndex, error)
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
-	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
-	// ReadHostFile reads a file on this machine; the caller calls the
-	// returned func once the read is written.
-	ReadHostFile(context.Context, string, protocol.ReadHostFileInput) (protocol.HostFileRead, func(), error)
 	// OpenFileDownload opens a file to download; the caller closes it, and
 	// calls recheck immediately before sending headers (ADR 0074).
 	OpenFileDownload(ctx context.Context, sessionID string, input protocol.DownloadFileInput) (download *kitworkspace.Download, recheck func(context.Context) error, err error)
@@ -464,41 +459,6 @@ func (s runtimeSessionService) ListDirectory(ctx context.Context, sessionID stri
 	}
 	if current.CWD != record.CWD {
 		return protocol.DirectoryPage{}, staleWorkspaceError(workspaces.Ref(sessionID, current.CWD))
-	}
-	return result, nil
-}
-
-// ReadHostFile reads one file on this machine for an existing session.
-func (s runtimeSessionService) ReadHostFile(ctx context.Context, sessionID string, input protocol.ReadHostFileInput) (protocol.HostFileRead, func(), error) {
-	workspaces, err := s.workspaceService()
-	if err != nil {
-		return protocol.HostFileRead{}, func() {}, err
-	}
-	if _, err := s.manager.Get(ctx, sessionID); err != nil {
-		return protocol.HostFileRead{}, func() {}, err
-	}
-	return workspaces.ReadHostFile(ctx, sessionID, input)
-}
-
-func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID string, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
-	workspaces, err := s.workspaceService()
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	record, err := s.manager.Get(ctx, sessionID)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	result, err := workspaces.Read(ctx, sessionID, record.CWD, input)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	current, err := s.manager.Get(ctx, sessionID)
-	if err != nil {
-		return protocol.WorkspaceFileRead{}, err
-	}
-	if current.CWD != record.CWD {
-		return protocol.WorkspaceFileRead{}, staleWorkspaceError(workspaces.Ref(sessionID, current.CWD))
 	}
 	return result, nil
 }
@@ -2282,51 +2242,7 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	httpapi.HandleRaw(mux, httpapi.ReadWorkspaceFile, func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ReadWorkspaceFileInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		result, err := service.ReadWorkspaceFile(request.Context(), request.PathValue("sessionID"), input)
-		if err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		if input.Highlight {
-			result.Highlight = codehighlight.Default.Highlight(request.Context(), codehighlight.Text{Path: result.Path, Source: result.Content})
-		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid workspace file: %w", err))
-			return
-		}
-		writeJSON(writer, http.StatusOK, result)
-	})
 	registerFileDownloadRoutes(mux, service, streamShutdown)
-	// Raw, so an image stays admitted until its response is written.
-	httpapi.HandleRaw(mux, httpapi.ReadHostFile, func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ReadHostFileInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, invalidAPIError())
-			return
-		}
-		sessionID := request.PathValue("sessionID")
-		result, done, err := service.ReadHostFile(request.Context(), sessionID, input)
-		defer done()
-		if err != nil {
-			writeSessionError(writer, hostFileAPIError(err))
-			return
-		}
-		if text := result.Text(); text != nil && input.Highlight {
-			text.Highlight = codehighlight.Default.Highlight(request.Context(), codehighlight.Text{Path: text.Path, Source: text.Content})
-			result.Payload = *text
-		}
-		if err := result.Validate(); err != nil || result.SessionID() != sessionID {
-			writeSessionError(writer, internalAPIErrorCausedBy(fmt.Errorf("invalid host file read for session %q: %v", sessionID, err)))
-			return
-		}
-		writeJSON(writer, http.StatusOK, result)
-	})
 	httpapi.Handle(mux, httpOptions, httpapi.ListDiffTargets, func(ctx context.Context, params httpapi.SessionPath, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
 		if err := input.Validate(); err != nil {
 			return protocol.DiffTargetCatalog{}, invalidAPIError()

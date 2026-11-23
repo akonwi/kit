@@ -139,34 +139,6 @@ type DirectoryPage struct {
 	Omissions        []WorkspaceOmission       `json:"omissions"`
 }
 
-// ReadWorkspaceFileInput requests a guarded bounded UTF-8 preview.
-type ReadWorkspaceFileInput struct {
-	WorkspaceID          string `json:"workspaceId"`
-	Path                 string `json:"path"`
-	ExpectedFileRevision string `json:"expectedFileRevision,omitempty"`
-	// Highlight asks for the content's syntax highlighting (ADR 0062).
-	Highlight bool `json:"highlight,omitempty"`
-}
-
-// WorkspaceFileRead is one bounded current-file observation.
-type WorkspaceFileRead struct {
-	SessionID        string       `json:"sessionId"`
-	Workspace        WorkspaceRef `json:"workspace"`
-	Path             string       `json:"path"`
-	Revision         string       `json:"revision"`
-	Size             int64        `json:"size"`
-	ModifiedAt       string       `json:"modifiedAt,omitempty"`
-	Encoding         string       `json:"encoding"`
-	Content          string       `json:"content"`
-	ReturnedBytes    int          `json:"returnedBytes"`
-	ReturnedLines    int          `json:"returnedLines"`
-	Truncated        bool         `json:"truncated"`
-	TruncationReason string       `json:"truncationReason,omitempty"`
-	// Highlight colors Content when the request asked for it and the server
-	// could highlight it; it is absent otherwise.
-	Highlight *Highlight `json:"highlight,omitempty"`
-}
-
 func ValidateWorkspacePath(value string, allowRoot bool) error {
 	if value == "" {
 		if allowRoot {
@@ -211,11 +183,13 @@ func (in ListDirectoryInput) Validate() error {
 	return ValidateWorkspacePath(in.Path, true)
 }
 
-func (in ReadWorkspaceFileInput) Validate() error {
-	if !validWorkspaceToken(in.WorkspaceID, "workspace_") || in.ExpectedFileRevision != "" && !validWorkspaceToken(in.ExpectedFileRevision, "file_") {
+// ValidateWorkspaceFile checks a request for one workspace file: its
+// workspace, its canonical path, and, when given, the revision it expects.
+func ValidateWorkspaceFile(workspaceID, path, expectedRevision string) error {
+	if !validWorkspaceToken(workspaceID, "workspace_") || expectedRevision != "" && !validWorkspaceToken(expectedRevision, "file_") {
 		return fmt.Errorf("file request is invalid")
 	}
-	return ValidateWorkspacePath(in.Path, false)
+	return ValidateWorkspacePath(path, false)
 }
 
 func validWorkspaceToken(value, prefix string) bool {
@@ -254,32 +228,6 @@ func (p DirectoryPage) Validate() error {
 		previousOmission = rank
 	}
 	return nil
-}
-
-func (r WorkspaceFileRead) Validate() error {
-	if err := r.Workspace.Validate(); err != nil || r.Workspace.State != WorkspaceReady || r.SessionID != r.Workspace.SessionID || ValidateWorkspacePath(r.Path, false) != nil || !validWorkspaceToken(r.Revision, "file_") || r.Size < 0 || r.Encoding != "utf-8" || !utf8.ValidString(r.Content) || len(r.Content) != r.ReturnedBytes || workspaceLineCount(r.Content) != r.ReturnedLines || r.ReturnedBytes > MaxWorkspacePreviewBytes || r.ReturnedLines < 0 || r.ReturnedLines > MaxWorkspacePreviewLines || r.ModifiedAt != "" && parseWorkspaceTime(r.ModifiedAt) != nil {
-		return fmt.Errorf("workspace file read is invalid")
-	}
-	if r.Truncated != (r.TruncationReason != "") || (r.TruncationReason != "" && r.TruncationReason != "byte_limit" && r.TruncationReason != "line_limit") {
-		return fmt.Errorf("file truncation is invalid")
-	}
-	if r.Highlight != nil {
-		if err := r.Highlight.ValidateText(r.Content); err != nil {
-			return fmt.Errorf("workspace file highlight is invalid: %w", err)
-		}
-	}
-	return nil
-}
-
-func workspaceLineCount(value string) int {
-	if value == "" {
-		return 0
-	}
-	count := strings.Count(value, "\n")
-	if !strings.HasSuffix(value, "\n") {
-		count++
-	}
-	return count
 }
 
 func parseWorkspaceTime(value string) error {

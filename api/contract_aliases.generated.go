@@ -106,11 +106,6 @@ type (
 	HighlightCodeLimitError           = contract.HighlightCodeLimitError
 	HighlightCodeResult               = contract.HighlightCodeResult
 	HighlightedCode                   = contract.HighlightedCode
-	HostFileKind                      = contract.HostFileKind
-	HostFilePayload                   = contract.HostFilePayload
-	HostFileRead                      = contract.HostFileRead
-	HostImageFile                     = contract.HostImageFile
-	HostTextFile                      = contract.HostTextFile
 	ImageContent                      = contract.ImageContent
 	InteractionAnswer                 = contract.InteractionAnswer
 	InteractionKind                   = contract.InteractionKind
@@ -178,8 +173,6 @@ type (
 	PullRequestState                  = contract.PullRequestState
 	PullRequestStatus                 = contract.PullRequestStatus
 	ReadFileDiffInput                 = contract.ReadFileDiffInput
-	ReadHostFileInput                 = contract.ReadHostFileInput
-	ReadWorkspaceFileInput            = contract.ReadWorkspaceFileInput
 	RedeemPairingInput                = contract.RedeemPairingInput
 	RedeemPairingResult               = contract.RedeemPairingResult
 	ReloadSessionResult               = contract.ReloadSessionResult
@@ -281,7 +274,6 @@ type (
 	WorkspaceError                    = contract.WorkspaceError
 	WorkspaceErrorCode                = contract.WorkspaceErrorCode
 	WorkspaceFileAnnotationAnchor     = contract.WorkspaceFileAnnotationAnchor
-	WorkspaceFileRead                 = contract.WorkspaceFileRead
 	WorkspaceLimits                   = contract.WorkspaceLimits
 	WorkspaceOmission                 = contract.WorkspaceOmission
 	WorkspaceRef                      = contract.WorkspaceRef
@@ -356,8 +348,6 @@ const (
 	HighlightCodeLimitBlocks                = contract.HighlightCodeLimitBlocks
 	HighlightCodeLimitLanguageBytes         = contract.HighlightCodeLimitLanguageBytes
 	HighlightCodeLimitTotalBytes            = contract.HighlightCodeLimitTotalBytes
-	HostFileImage                           = contract.HostFileImage
-	HostFileText                            = contract.HostFileText
 	InteractionAuthorize                    = contract.InteractionAuthorize
 	InteractionConfirm                      = contract.InteractionConfirm
 	InteractionGuided                       = contract.InteractionGuided
@@ -424,8 +414,6 @@ const (
 	MaxHighlightLanguageBytes               = contract.MaxHighlightLanguageBytes
 	MaxHighlightRoleBytes                   = contract.MaxHighlightRoleBytes
 	MaxHighlightRoles                       = contract.MaxHighlightRoles
-	MaxHostFileImageBytes                   = contract.MaxHostFileImageBytes
-	MaxHostFileImagePixels                  = contract.MaxHostFileImagePixels
 	MaxImageAttachmentBytes                 = contract.MaxImageAttachmentBytes
 	MaxInteractionAnswerBytes               = contract.MaxInteractionAnswerBytes
 	MaxInteractionBytes                     = contract.MaxInteractionBytes

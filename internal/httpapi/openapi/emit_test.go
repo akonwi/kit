@@ -2,6 +2,7 @@ package openapi
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"reflect"
 	"sort"
@@ -414,8 +415,13 @@ func TestDownloadPublishesHeadersAndEmptyResponses(t *testing.T) {
 	}
 }
 
-func TestBoundedFileReadsAreDeprecatedForDownloads(t *testing.T) {
-	document, err := Emit()
+func TestADeprecatedOperationSaysSo(t *testing.T) {
+	type deprecationParams struct {
+		SessionID string `path:"sessionID"`
+	}
+	old := httpapi.Operation[deprecationParams, httpapi.NoBody, httpapi.NoBody]{ID: "readOld", Tag: "workspace", Method: http.MethodGet, Path: "/v1/sessions/{sessionID}/old", Success: http.StatusNoContent, Deprecated: true}
+	current := httpapi.Operation[deprecationParams, httpapi.NoBody, httpapi.NoBody]{ID: "readNew", Tag: "workspace", Method: http.MethodGet, Path: "/v1/sessions/{sessionID}/new", Success: http.StatusNoContent}
+	document, err := emit([]httpapi.Descriptor{old.Describe(), current.Describe()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,17 +431,9 @@ func TestBoundedFileReadsAreDeprecatedForDownloads(t *testing.T) {
 	if err := json.Unmarshal(document, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	for path, want := range map[string]any{
-		"/v1/sessions/{sessionID}/workspace/files/read": true,
-		"/v1/sessions/{sessionID}/host-files/read":      true,
-	} {
-		if got := decoded.Paths[path]["post"]["deprecated"]; got != want {
-			t.Errorf("POST %s deprecated = %v, want %v", path, got, want)
-		}
-	}
-	for _, method := range []string{"get", "head"} {
-		if deprecated, ok := decoded.Paths["/v1/sessions/{sessionID}/files/content"][method]["deprecated"]; ok {
-			t.Errorf("%s files/content deprecated = %v, want absent", method, deprecated)
+	for path, want := range map[string]any{"/v1/sessions/{sessionID}/old": true, "/v1/sessions/{sessionID}/new": nil} {
+		if got := decoded.Paths[path]["get"]["deprecated"]; got != want {
+			t.Errorf("GET %s deprecated = %v, want %v", path, got, want)
 		}
 	}
 }

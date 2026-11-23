@@ -744,7 +744,7 @@ struct FilePane: View {
     @State private var revision = 0
     @State private var position = SourceEditorState()
     private var entry: FilePreviewCache.Entry? { workspace.filePreviews.entries[path] }
-    private var preview: WireWorkspaceFileRead? { entry?.preview }
+    private var preview: WorkspaceFile? { entry?.preview }
     private var error: String? { entry?.error }
     private var loading: Bool { entry?.loading == true }
     private var workspace: WorkspaceState { state.ui.workspace }
@@ -847,7 +847,7 @@ struct FilePane: View {
                         AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
                             client: client, session: state.selectedID, canAnnotate: annotatable,
                             lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)
-                            .id(preview.workspace.workspaceId + preview.revision + ":" + String(preview.returnedBytes)).clipped()
+                            .id(preview.workspace.workspaceId + preview.revision + ":" + String(preview.content.utf8.count)).clipped()
                     } else {
                         ReadOnlyFileEditor(path: path, source: preview.content, position: $position,
                                            lineReveal: workspace.lineReveal(for: pane), lineRevealed: finishLineReveal, find: find)

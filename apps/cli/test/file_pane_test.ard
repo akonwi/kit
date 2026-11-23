@@ -18,7 +18,7 @@ use go:strings
 use go:time
 
 // A read of a whole file, as a download that fits returns it.
-fn whole(file: protocol::WorkspaceFileRead) filedownload::Read!Error {
+fn whole(file: filedownload::File) filedownload::Read!Error {
   Result::ok(filedownload::Read{File: file})
 }
 
@@ -75,9 +75,9 @@ fn show_file(width: Int, height: Int, file_path: Str, content: Str, line: Int) S
         tab: tabs.current().expect("the file tab"),
         stale: false,
         shown: true,
-        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+        read: Maybe::new(fn(input: protocol::DownloadFileInput, held: Str) filedownload::Read!Error {
           whole(
-            protocol::WorkspaceFileRead{
+            filedownload::File{
               Path: input.Path,
               Content: content,
               Size: Int64::from(content.size()),
@@ -218,9 +218,9 @@ fn annotated_tab(
         tab: tabs.current().expect("the file tab"),
         stale: false,
         shown: true,
-        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput, held: Str) filedownload::Read!Error {
+        read: Maybe::new(fn(input: protocol::DownloadFileInput, held: Str) filedownload::Read!Error {
           whole(
-            protocol::WorkspaceFileRead{
+            filedownload::File{
               Workspace: protocol::WorkspaceRef{WorkspaceID: "workspace_a"},
               Path: input.Path,
               Revision: "rev-1",
@@ -639,7 +639,7 @@ test fn a_host_file_shows_its_text_by_absolute_path_without_annotations() Void!S
       let content = "127.0.0.1 localhost\n::1 localhost\n"
       Result::ok(
         hostfilebridge::File{
-          Text: protocol::WorkspaceFileRead{
+          Text: filedownload::File{
             Path: file_path,
             Content: content,
             Size: Int64::from(content.size()),
@@ -680,7 +680,7 @@ test fn a_host_image_fills_the_pane_keeping_its_proportions() Void!Str {
       }
       Result::ok(
         hostfilebridge::File{
-          Text: protocol::WorkspaceFileRead{Path: file_path, Size: Int64::from(2048)},
+          Text: filedownload::File{Path: file_path, Size: Int64::from(2048)},
           Image: true,
           MediaType: "image/png",
           Width: 800,
@@ -841,7 +841,7 @@ test fn a_host_markdown_file_shows_rendered() Void!Str {
       let content = "## Guide\n\n> Read me.\n"
       Result::ok(
         hostfilebridge::File{
-          Text: protocol::WorkspaceFileRead{
+          Text: filedownload::File{
             Path: file_path,
             Content: content,
             Size: Int64::from(content.size()),

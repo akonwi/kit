@@ -36,7 +36,7 @@ final class FileReader {
     let onServer: Bool
     /// The workspace file as downloaded, which comments anchor to; nil for
     /// a host file, or a copy that changed while it downloaded.
-    private(set) var file: WireWorkspaceFileRead?
+    private(set) var file: WorkspaceFile?
     private(set) var text: Text?
     /// An image elsewhere on the server.
     private(set) var image: UIImage?
@@ -147,7 +147,7 @@ final class FileReader {
                 try Task.checkCancellation()
                 guard self.token == token else { return }
                 self.longest = longest
-                show(downloaded, lines: lines, session: session, workspace: workspace)
+                show(downloaded, lines: lines, workspace: workspace)
             }
         } catch is CancellationError {
         } catch {
@@ -156,7 +156,7 @@ final class FileReader {
         }
     }
 
-    private func show(_ downloaded: FileContent.Text, lines: [String], session: String, workspace: WireWorkspaceRef?) {
+    private func show(_ downloaded: FileContent.Text, lines: [String], workspace: WireWorkspaceRef?) {
         shown = downloaded
         shownRevision = downloaded.revision
         size = downloaded.size
@@ -167,11 +167,9 @@ final class FileReader {
         // A copy without a revision, such as one that changed while it
         // downloaded, can't anchor comments.
         if let workspace, let revision = downloaded.revision {
-            file = WireWorkspaceFileRead(
-                content: downloaded.content, encoding: "utf-8", modifiedAt: downloaded.modifiedAt, path: path,
-                returnedBytes: downloaded.content.utf8.count, returnedLines: lines.count,
-                revision: revision, sessionId: session, size: size ?? Int64(downloaded.content.utf8.count), truncated: downloaded.limited,
-                truncationReason: downloaded.limited ? "byte_limit" : nil, workspace: workspace)
+            file = WorkspaceFile(
+                workspace: workspace, path: path, revision: revision, content: downloaded.content,
+                size: size ?? Int64(downloaded.content.utf8.count), modifiedAt: downloaded.modifiedAt, truncated: downloaded.limited)
         } else {
             file = nil
         }

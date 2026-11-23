@@ -18,7 +18,7 @@ import (
 type File struct {
 	// Text is the text of a text file, with the absolute path that was
 	// read.
-	Text protocol.WorkspaceFileRead
+	Text filedownload.File
 	// Image reports that the file is an image; Text then carries only the
 	// path and size.
 	Image bool

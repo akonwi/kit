@@ -105,7 +105,7 @@ func binary(err error) bool {
 func TestAFileWithinTheLimitsDownloadsWhole(t *testing.T) {
 	session := &fakeSession{versions: []version{{"file_1", "package main\n\nfunc main() {}\n"}}}
 	read, err := workspace(t.Context(), session, input, "")
-	want := protocol.WorkspaceFileRead{
+	want := File{
 		SessionID: "s", Workspace: protocol.WorkspaceRef{SessionID: "s", WorkspaceID: "w"}, Path: "main.go", Revision: "file_1", Size: 29, ModifiedAt: "2026-01-02T03:04:05Z",
 		Encoding: "utf-8", Content: "package main\n\nfunc main() {}\n", ReturnedBytes: 29, ReturnedLines: 3,
 	}

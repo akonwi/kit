@@ -28,8 +28,12 @@ type openMembers interface{ OpenMembers() bool }
 
 // Emit returns the deterministic OpenAPI 3.1 session contract.
 func Emit() ([]byte, error) {
+	return emit(httpapi.Catalog())
+}
+
+// emit returns the contract that describes descriptors.
+func emit(descriptors []httpapi.Descriptor) ([]byte, error) {
 	components := map[string]any{}
-	descriptors := httpapi.Catalog()
 	for _, descriptor := range descriptors {
 		for _, typ := range []reflect.Type{descriptor.Input, descriptor.Output} {
 			if typ == reflect.TypeOf(httpapi.NoBody{}) {

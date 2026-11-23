@@ -235,15 +235,15 @@ func TestDecodeOperationErrorAcceptsLongMessages(t *testing.T) {
 }
 
 func TestAnUnroutedNotFoundIsAnOperationTheServerDoesNotServe(t *testing.T) {
-	if err := DecodeOperationError(ReadHostFile, http.StatusNotFound, []byte("404 page not found\n")); !errors.Is(err, ErrOperationNotServed) {
+	if err := DecodeOperationError(DownloadFile, http.StatusNotFound, []byte("404 page not found\n")); !errors.Is(err, ErrOperationNotServed) {
 		t.Fatalf("unrouted 404 = %v", err)
 	}
-	declared := DecodeOperationError(ReadHostFile, http.StatusNotFound, []byte(`{"error":{"code":"not_found","message":"file does not exist"}}`))
+	declared := DecodeOperationError(DownloadFile, http.StatusNotFound, []byte(`{"error":{"code":"not_found","message":"file does not exist"}}`))
 	var apiError *APIError
 	if !errors.As(declared, &apiError) || apiError.Code != "not_found" || errors.Is(declared, ErrOperationNotServed) {
 		t.Fatalf("declared 404 = %v", declared)
 	}
-	if err := DecodeOperationError(ReadHostFile, http.StatusNotFound, []byte(`{"error":{}}`)); errors.Is(err, ErrOperationNotServed) {
+	if err := DecodeOperationError(DownloadFile, http.StatusNotFound, []byte(`{"error":{}}`)); errors.Is(err, ErrOperationNotServed) {
 		t.Fatalf("a malformed JSON error is not an unrouted request: %v", err)
 	}
 }

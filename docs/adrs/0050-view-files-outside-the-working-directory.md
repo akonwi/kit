@@ -2,12 +2,12 @@
 
 ## Status
 
-Accepted. Extends the workspace file preview of the session API and the
-connection model of [ADR 0045](0045-connect-clients-to-local-ssh-and-network-servers.md).
+Accepted. Extends the workspace files of the session API and the connection
+model of [ADR 0045](0045-connect-clients-to-local-ssh-and-network-servers.md).
 
 ## Context
 
-Workspace reads are confined to the session's working directory: paths are
+Workspace files are confined to the session's working directory: paths are
 canonical and relative, and symbolic links may not leave the directory. The
 model and its tools routinely name files elsewhere, such as a log under
 `/var/log`, a file in another checkout, or a screenshot in the home
@@ -21,30 +21,21 @@ look at a file on the Mac itself.
 
 ## Decision
 
-### The server reads host files for any session
+### The server serves host files for any session
 
-`readHostFile` (`POST /v1/sessions/{sessionID}/host-files/read`) reads one
-file anywhere on the server's machine. The path is absolute, or `~` or `~/…`
-for the server user's home directory, which only the server can resolve. The
-response is the `HostFileRead` union:
+A client downloads a file anywhere on the server's machine with the file
+content route of [ADR 0074](0074-download-file-content-to-clients.md),
+naming no workspace. The path is absolute, or `~` or `~/…` for the server
+user's home directory, which only the server can resolve. The path is cleaned
+as text, then symbolic links are followed. Directories, devices, sockets, and
+FIFOs fail with `not_file` before they are opened, so opening one cannot
+block or have side effects. A file's size is what the file reports, which for
+some files, such as those under `/proc`, is not the length of their content.
 
-- `text`: a UTF-8 preview with the workspace preview bounds (1,000,000 bytes
-  and 5,000 lines, truncated past either).
-- `image`: a complete PNG, JPEG, GIF, or WebP file of at most 16 MiB and
-  24,000,000 pixels, validated as `show_image` validates images, carried as
-  base64 in the response.
-
-Anything else fails with `binary_file`. Images larger than the bounds fail
-with `limit_exceeded`. Directories, devices, sockets, and FIFOs fail with
-`not_file` before they are opened, so opening one cannot block or have side
-effects. The path is cleaned as text, then symbolic links are followed. A
-text file's size is what the file reports, which for some files, such as
-those under `/proc`, is not the length of their content. A file that changes
-while it is read fails with `unavailable` and may be retried.
-
-Reads are view-only and keep no state. They share the per-session and daemon
-admission of workspace reads. An image also holds one of a small number of
-daemon-wide image admissions from reading it until its response is written.
+Clients classify what they download: UTF-8 text, a PNG, JPEG, GIF, or WebP
+image of at most 16 MiB and 24,000,000 pixels, or a file they don't show.
+Downloads are view-only and keep no state on the server, and they share the
+per-session and daemon admission of other workspace work.
 
 ### The access policy is the server user's
 
@@ -72,7 +63,7 @@ annotations are anchored to workspace file revisions.
 
 - Clients show files from anywhere on the server without a tool call, and
   never read transcript paths from the client's own disk.
-- An older server, without the operation, cannot open host files. Clients
-  report that the server must be updated, and workspace files are unaffected.
-- Formats that the server does not validate, such as HEIC or PDF, are not
-  shown from the server. Supporting them means adding a validated kind.
+- A server without the download route cannot open host files or workspace
+  files. Clients report that the server must be updated.
+- Formats that clients don't classify, such as HEIC or PDF, are not shown.
+  Supporting one means teaching the clients to show it.

@@ -398,7 +398,7 @@ import Testing
     }
 
     private struct AnnotatedHarness: View {
-        let file: WireWorkspaceFileRead
+        let file: WorkspaceFile
         let find: FileFind
         @State private var position = SourceEditorState()
         @State private var annotations = AnnotationState()

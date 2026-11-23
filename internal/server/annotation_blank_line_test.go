@@ -128,7 +128,7 @@ func TestCreateWorkingTreeAnnotationRangesEndingOnBlankLines(t *testing.T) {
 		t.Fatalf("edited file response = %d %s", response.Code, response.Body.String())
 	}
 
-	read, err := workspaces.Read(t.Context(), sessionID, dir, protocol.ReadWorkspaceFileInput{WorkspaceID: workspaceID, Path: "README.md"})
+	read, err := workspaces.ReadLineRange(t.Context(), sessionID, dir, kitworkspace.LineRangeInput{WorkspaceID: workspaceID, Path: "README.md", StartLine: 1, EndLine: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

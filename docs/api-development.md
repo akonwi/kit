@@ -51,6 +51,15 @@ For wire changes:
    accepted shapes, and changing required values or union behavior are breaking
    and require a `SessionProtocolVersion` bump.
 
+An operation is retired in two steps. First mark it `Deprecated` in the
+catalog, which the OpenAPI document publishes, and move every maintained client
+off it. Once no maintained client calls it, remove it from the server, the
+catalog, the Go client, and the generated clients. Removing a deprecated
+operation needs no protocol bump, and the compatibility gate accepts it: every
+other operation still matches exactly, and an older client that still calls the
+removed one gets an unrouted `404` for it alone. The release notes say which
+released clients lose what.
+
 Use stable error codes and closed discriminated unions. Clients must not infer
 behavior from error strings or unknown union shapes.
 

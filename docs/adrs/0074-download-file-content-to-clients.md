@@ -3,17 +3,15 @@
 ## Status
 
 Accepted. Extends the workspace file contract of
-[ADR 0019](0019-expose-session-workspace-files.md) and the host file reads of
-[ADR 0050](0050-view-files-outside-the-working-directory.md), and deprecates
-their bounded reads, `readWorkspaceFile` and `readHostFile`. Research:
+[ADR 0019](0019-expose-session-workspace-files.md) and the host files of
+[ADR 0050](0050-view-files-outside-the-working-directory.md). Research:
 [`docs/research/stream-file-content.md`](../research/stream-file-content.md).
 
 ## Context
 
-A file read returns one JSON preview of at most 1,000,000 bytes and 5,000
-lines. That suits a quick look and server highlighting, but no operation
-returns the rest of a longer file. For source code the line cap applies
-first, at about 170 KB.
+A client that shows a file needs all of it, however long. A JSON response
+that carries file content has to be bounded: at 1,000,000 bytes and 5,000
+lines, source code is cut off at about 170 KB.
 
 A client that shows a file wants what a web browser does with a URL: download
 the bytes once, keep them in a local cache, check cheaply whether the cache is
@@ -33,12 +31,11 @@ kind of file:
 - **Workspace file:** the query has `workspaceId` and `path`. `path` is
   always a canonical workspace path (ADR 0019), including paths such as `~`
   or `~/notes` that name entries in the workspace. Resolution, containment,
-  and symbolic link rules are those of `readWorkspaceFile`.
+  and symbolic link rules are those of ADR 0019.
 - **Host file:** the query has `path` and no `workspaceId`. `path` is
-  absolute, `~`, or `~/…` (ADR 0050), normalized exactly as `readHostFile`
-  normalizes it, so both operations name the same file. Other forms,
-  including relative paths and `~user`, are `invalid_path`. The access
-  policy is that of `readHostFile`.
+  absolute, `~`, or `~/…`, and is cleaned as text before symbolic links are
+  followed (ADR 0050). Other forms, including relative paths and `~user`,
+  are `invalid_path`. The access policy is that of ADR 0050.
 
 A parameter counts as present even when it's empty, so `workspaceId=` is
 a workspace request with an invalid ID. A repeated `workspaceId` or `path`
@@ -54,8 +51,7 @@ such as UTF-8 text or a supported image, is the client's job. Directories,
 devices, sockets, and FIFOs fail with `not_file`. The server checks the path's
 type before opening it, opens with `O_NONBLOCK` and `O_NOCTTY`, and checks the
 type and identity of the opened descriptor before sending anything. These
-steps narrow a replacement race but don't remove it, which is also true of
-`readHostFile`.
+steps narrow a replacement race but don't remove it.
 
 ### HTTP semantics
 
@@ -154,8 +150,7 @@ downloaded. If they differ, or `HEAD` fails with `stale_workspace` or
 `not_found`, the client keeps what it has, marks it as changed while loading,
 and may download again. A resumed download is exactly as reliable as the
 revision. A change that leaves the revision unchanged isn't detected by a
-resume or by `HEAD`, just as it isn't detected by `readWorkspaceFile` or by
-annotations.
+resume or by `HEAD`, just as it isn't detected by annotations.
 
 ### Admission, backpressure, and cancellation
 
@@ -171,8 +166,8 @@ A download moves through admission in this order:
    is full, the request releases whatever it took and fails with
    `capacity_exceeded`, with `scope` naming the first gate that was full.
 4. It releases its read admission, then sends headers and body. A slow
-   download therefore never holds one of the read slots that previews and
-   annotations use.
+   download therefore never holds one of the read slots that directory
+   listings and annotations use.
 5. When the body is complete, or the client cancels, or a write fails or
    misses its deadline, it releases the download slots and closes the
    descriptor, exactly once.
@@ -222,11 +217,9 @@ matching read:
 responses. They carry no error body, and the catalog declares them as such.
 
 The route requires the same Host, Origin, credential, instance, and
-session-protocol checks as every session route. It grants no authority
-beyond `readWorkspaceFile` and `readHostFile`. As ADR 0050 decides, any
+session-protocol checks as every session route. As ADR 0050 decides, any
 authenticated caller may read any regular file the server's OS user can
-read. Downloads keep that boundary and change only how much of a file one
-request returns.
+read, and downloads keep that boundary.
 
 ### Contract
 
@@ -239,8 +232,8 @@ them:
 - the bodiless responses `304`, `412`, and `416`; and
 - `206` as an additional success.
 
-With `workspaceId`, the query is validated as `ReadWorkspaceFileInput`;
-without it, as `ReadHostFileInput`. Neither takes the highlight flag.
+With `workspaceId`, the query is validated as a workspace file request
+(ADR 0019); without it, as a host path (ADR 0050).
 `api.Session` exposes a download as a reader that carries the response
 metadata. The Go client validates the metadata headers as it validates
 response records.
@@ -264,12 +257,8 @@ characters.
 
 ### Clients show files with downloads alone
 
-`readWorkspaceFile` and `readHostFile` are deprecated. The contract marks
-both operations `deprecated`, and neither the Go client nor KitClient offers
-them. Servers keep serving them until the next session protocol version
-removes them ([#298](https://github.com/akonwi/kit/issues/298)). Clients show workspace
-and host files with this route alone and don't fall back to the bounded
-reads.
+This route is the only way the session API returns a file's content.
+Clients show workspace and host files with it alone.
 
 A client classifies what it downloads:
 

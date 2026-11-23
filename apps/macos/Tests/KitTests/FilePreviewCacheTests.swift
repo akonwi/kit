@@ -90,7 +90,7 @@ private actor LongFileClient: FileDownloadClient {
         await cache.load("a", session: "s", cwd: "/tmp", client: client)
         let preview = cache.entries["a"]?.preview
         #expect(preview?.content == "one\ntwo\nthree\n")
-        #expect(preview?.truncated == false && preview?.returnedBytes == 14 && preview?.revision == LongFileClient.revision("B"))
+        #expect(preview?.truncated == false && preview?.size == 14 && preview?.revision == LongFileClient.revision("B"))
         #expect(preview?.workspace.workspaceId == LongFileClient.workspace && preview?.path == "a")
         #expect(cache.entries["a"]?.whole?.content == "one\ntwo\nthree\n")
         #expect(cache.downloads["a"]?.state == .idle)
@@ -148,7 +148,7 @@ private actor LongFileClient: FileDownloadClient {
         await cache.load("a", session: "s", cwd: "/tmp", client: client)
         let preview = cache.entries["a"]?.preview
         #expect(preview?.content.utf8.count == limit - 1)
-        #expect(preview?.truncated == true && preview?.returnedLines == 1)
+        #expect(preview?.truncated == true && FileFind.searchedLines(preview?.content, truncated: true) == 1)
         #expect(cache.entries["a"]?.whole?.limited == true)
     }
 

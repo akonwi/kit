@@ -116,7 +116,7 @@ public struct AnnotationDocument {
     public let revision: String
     public let workspaceID: String
     public let diff: DiffDocument?
-    public init(file: WireWorkspaceFileRead) {
+    public init(file: WorkspaceFile) {
         content = file.content; path = file.path; revision = file.revision
         workspaceID = file.workspace.workspaceId; diff = nil
     }

@@ -1,14 +1,11 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -24,7 +21,6 @@ import (
 	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/serveraccess"
 	"github.com/akonwi/kit/internal/version"
-	kitworkspace "github.com/akonwi/kit/internal/workspace"
 )
 
 // countingHighlighter counts the requests that reach it, delegating to inner
@@ -218,119 +214,5 @@ func TestHighlightCodeAnswersPlainWhenTheHighlighterCannot(t *testing.T) {
 	}
 	if want := (protocol.HighlightCodeResult{Blocks: make([]protocol.HighlightedCode, 6)}); !reflect.DeepEqual(result, want) {
 		t.Fatalf("HighlightCode() = %+v, want every block plain", result)
-	}
-}
-
-type highlightReadService struct {
-	sessionService
-	workspaces *kitworkspace.Service
-}
-
-const highlightTestWorkspaceID = "workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-
-func (highlightReadService) ReadWorkspaceFile(_ context.Context, sessionID string, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
-	content := "package main\n\nfunc main() {}\n"
-	if strings.HasSuffix(input.Path, ".txt") {
-		content = "plain notes\n"
-	}
-	return protocol.WorkspaceFileRead{
-		SessionID: sessionID, Workspace: protocol.WorkspaceRef{SessionID: sessionID, CWD: "/workspace", WorkspaceID: highlightTestWorkspaceID, State: protocol.WorkspaceReady, Limits: protocol.DefaultWorkspaceLimits()},
-		Path: input.Path, Revision: "file_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Size: int64(len(content)), Encoding: "utf-8",
-		Content: content, ReturnedBytes: len(content), ReturnedLines: strings.Count(content, "\n"),
-	}, nil
-}
-
-func (s highlightReadService) ReadHostFile(ctx context.Context, sessionID string, input protocol.ReadHostFileInput) (protocol.HostFileRead, func(), error) {
-	return s.workspaces.ReadHostFile(ctx, sessionID, input)
-}
-
-func postJSON(t *testing.T, handler http.Handler, target string, input any) *httptest.ResponseRecorder {
-	t.Helper()
-	body, _ := json.Marshal(input)
-	request := httptest.NewRequest(http.MethodPost, target, bytes.NewReader(body))
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("POST %s = %d %s", target, response.Code, response.Body.String())
-	}
-	return response
-}
-
-func TestWorkspaceFileReadsCarryHighlightOnlyWhenAsked(t *testing.T) {
-	mux := http.NewServeMux()
-	service := highlightReadService{}
-	registerSessionRoutes(mux, service)
-	target := "/v1/sessions/session_test/workspace/files/read"
-
-	// A client that does not ask, such as one built before ADR 0062, gets
-	// exactly the bytes it always did.
-	plain := postJSON(t, mux, target, protocol.ReadWorkspaceFileInput{WorkspaceID: highlightTestWorkspaceID, Path: "main.go"})
-	read, _ := service.ReadWorkspaceFile(t.Context(), "session_test", protocol.ReadWorkspaceFileInput{Path: "main.go"})
-	want, _ := json.Marshal(read)
-	if got := strings.TrimSuffix(plain.Body.String(), "\n"); got != string(want) {
-		t.Fatalf("unhighlighted read = %s\nwant %s", got, want)
-	}
-
-	highlighted := postJSON(t, mux, target, protocol.ReadWorkspaceFileInput{WorkspaceID: highlightTestWorkspaceID, Path: "main.go", Highlight: true})
-	var decoded protocol.WorkspaceFileRead
-	if err := json.Unmarshal(highlighted.Body.Bytes(), &decoded); err != nil || decoded.Validate() != nil {
-		t.Fatalf("highlighted read = %s, %v", highlighted.Body.String(), err)
-	}
-	wantHighlight := &protocol.Highlight{Language: "go", Lines: [][]int{{0, 7, 0}, {}, {0, 4, 0, 5, 4, 1}}, Roles: []string{"keyword", "function"}}
-	if !reflect.DeepEqual(decoded.Highlight, wantHighlight) {
-		t.Fatalf("highlight = %+v, want %+v", decoded.Highlight, wantHighlight)
-	}
-	decoded.Highlight = nil
-	if !reflect.DeepEqual(decoded, read) {
-		t.Fatalf("highlighting changed the read: %+v", decoded)
-	}
-
-	unsupported := postJSON(t, mux, target, protocol.ReadWorkspaceFileInput{WorkspaceID: highlightTestWorkspaceID, Path: "notes.txt", Highlight: true})
-	read, _ = service.ReadWorkspaceFile(t.Context(), "session_test", protocol.ReadWorkspaceFileInput{Path: "notes.txt"})
-	want, _ = json.Marshal(read)
-	if got := strings.TrimSuffix(unsupported.Body.String(), "\n"); got != string(want) {
-		t.Fatalf("unsupported language read = %s\nwant %s", got, want)
-	}
-}
-
-func TestHostTextReadsCarryHighlightOnlyWhenAsked(t *testing.T) {
-	root := t.TempDir()
-	source := filepath.Join(root, "main.go")
-	if err := os.WriteFile(source, []byte("package main\r\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	image := filepath.Join(root, "dot.gif")
-	gif := []byte("GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;")
-	if err := os.WriteFile(image, gif, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	mux := http.NewServeMux()
-	registerSessionRoutes(mux, highlightReadService{workspaces: kitworkspace.NewService()})
-	target := "/v1/sessions/session_test/host-files/read"
-
-	plain := postJSON(t, mux, target, protocol.ReadHostFileInput{Path: source})
-	if strings.Contains(plain.Body.String(), "highlight") {
-		t.Fatalf("unhighlighted read = %s", plain.Body.String())
-	}
-	var decoded protocol.HostFileRead
-	highlighted := postJSON(t, mux, target, protocol.ReadHostFileInput{Path: source, Highlight: true})
-	if err := json.Unmarshal(highlighted.Body.Bytes(), &decoded); err != nil || decoded.Validate() != nil {
-		t.Fatalf("highlighted read = %s, %v", highlighted.Body.String(), err)
-	}
-	want := &protocol.Highlight{Language: "go", Lines: [][]int{{0, 7, 0}}, Roles: []string{"keyword"}}
-	if text := decoded.Text(); text == nil || !reflect.DeepEqual(text.Highlight, want) {
-		t.Fatalf("highlighted read = %s", highlighted.Body.String())
-	}
-	var plainDecoded protocol.HostFileRead
-	_ = json.Unmarshal(plain.Body.Bytes(), &plainDecoded)
-	text := decoded.Text()
-	text.Highlight = nil
-	if !reflect.DeepEqual(*text, *plainDecoded.Text()) {
-		t.Fatalf("highlighting changed the read: %+v", text)
-	}
-
-	images := postJSON(t, mux, target, protocol.ReadHostFileInput{Path: image, Highlight: true})
-	if err := json.Unmarshal(images.Body.Bytes(), &decoded); err != nil || decoded.Image() == nil {
-		t.Fatalf("image read = %s, %v", images.Body.String(), err)
 	}
 }

@@ -358,19 +358,15 @@ final class FakeFileClient: FileBrowsingClient, @unchecked Sendable {
     }
 
     /// A workspace file as comments anchor to it.
-    static func file(_ path: String, _ content: String, revision: String = "file_test", session: String = "s") throws -> WireWorkspaceFileRead {
+    static func file(_ path: String, _ content: String, revision: String = "file_test", session: String = "s") throws -> WorkspaceFile {
         let limits: [String: Any] = [
             "maxPathBytes": 4096, "maxPathComponents": 64, "defaultDirectoryPageSize": 100, "maxDirectoryPageSize": 200,
             "maxDirectoryEntries": 10000, "maxDirectoryResponseBytes": 524_288, "maxDirectoryObservationBytes": 8_388_608,
             "maxPreviewBytes": 1_000_000, "maxPreviewLines": 5000, "maxActiveRequests": 1, "maxPendingRequests": 0,
         ]
-        let payload: [String: Any] = [
-            "sessionId": session, "path": path, "revision": revision, "encoding": "utf-8", "content": content,
-            "size": content.utf8.count, "returnedBytes": content.utf8.count,
-            "returnedLines": content.split(separator: "\n").count, "truncated": false,
-            "workspace": ["sessionId": session, "cwd": "/repo", "workspaceId": "workspace_test", "state": "ready", "limits": limits],
-        ]
-        return try JSONDecoder().decode(WireWorkspaceFileRead.self, from: JSONSerialization.data(withJSONObject: payload))
+        let payload: [String: Any] = ["sessionId": session, "cwd": "/repo", "workspaceId": "workspace_test", "state": "ready", "limits": limits]
+        let workspace = try JSONDecoder().decode(WireWorkspaceRef.self, from: JSONSerialization.data(withJSONObject: payload))
+        return WorkspaceFile(workspace: workspace, path: path, revision: revision, content: content, size: Int64(content.utf8.count))
     }
 
     private static func parts(_ target: FileDownloadTarget) -> (path: String, workspace: String?) {

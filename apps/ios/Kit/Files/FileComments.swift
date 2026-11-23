@@ -4,7 +4,7 @@ import SwiftUI
 /// How a file's lines become a comment's range, and where its comments sit.
 enum FileComments {
     /// The anchor for `lines` of the file as read.
-    static func anchor(_ file: WireWorkspaceFileRead, lines: ClosedRange<Int>) -> WireAnnotationAnchor {
+    static func anchor(_ file: WorkspaceFile, lines: ClosedRange<Int>) -> WireAnnotationAnchor {
         WireAnnotationAnchor(kind: .value0, workspaceFile: .init(
             workspaceId: file.workspace.workspaceId, path: file.path, fileRevision: file.revision,
             startLine: lines.lowerBound, endLine: lines.upperBound), workingTreeDiff: nil)
@@ -42,7 +42,7 @@ enum FileComments {
 /// what sits below the selection steps aside, so the lines stay put under
 /// the finger.
 struct CommentableFile: View {
-    let file: WireWorkspaceFileRead
+    let file: WorkspaceFile
     let lines: [String]
     var longest: Int?
     var colored: [AttributedString]?

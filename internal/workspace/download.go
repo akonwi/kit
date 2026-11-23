@@ -68,8 +68,9 @@ func (s *Service) OpenWorkspaceDownload(ctx context.Context, sessionID, cwd stri
 }
 
 // OpenHostDownload opens a file on this machine to download. The path is
-// normalized as ReadHostFile normalizes it, so both name the same file. The
-// caller closes the download.
+// absolute, or "~" or "~/…" for the server user's home, and is cleaned as
+// text, as filepath.Clean does, before symbolic links are followed; the final
+// file must be regular. The caller closes the download.
 func (s *Service) OpenHostDownload(ctx context.Context, sessionID string, input protocol.DownloadFileInput) (*Download, error) {
 	if input.HasWorkspace {
 		return nil, &Error{Code: InvalidPath, Message: "host download names no workspace"}

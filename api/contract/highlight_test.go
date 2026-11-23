@@ -129,60 +129,20 @@ func TestHighlightCodeResultMatchesItsRequest(t *testing.T) {
 
 // Clients that do not ask for highlighting, including every client built
 // before ADR 0062, must see exactly the JSON they did before (#238).
-func TestUnhighlightedReadsKeepTheirWireShape(t *testing.T) {
+func TestUnhighlightedDiffsKeepTheirWireShape(t *testing.T) {
 	t.Parallel()
-	read := WorkspaceFileRead{SessionID: "s", Workspace: WorkspaceRef{SessionID: "s", CWD: "/w", WorkspaceID: "workspace_A", State: WorkspaceReady, Limits: DefaultWorkspaceLimits()}, Path: "a.go", Revision: "file_A", Size: 2, Encoding: "utf-8", Content: "hi", ReturnedBytes: 2, ReturnedLines: 1}
-	encoded, _ := json.Marshal(read)
-	want := `{"sessionId":"s","workspace":{"sessionId":"s","cwd":"/w","workspaceId":"workspace_A","state":"ready","limits":{"maxPathBytes":4096,"maxPathComponents":64,"defaultDirectoryPageSize":100,"maxDirectoryPageSize":200,"maxDirectoryEntries":10000,"maxDirectoryResponseBytes":524288,"maxDirectoryObservationBytes":8388608,"maxPreviewBytes":1000000,"maxPreviewLines":5000,"maxActiveRequests":4,"maxPendingRequests":16}},"path":"a.go","revision":"file_A","size":2,"encoding":"utf-8","content":"hi","returnedBytes":2,"returnedLines":1,"truncated":false}`
-	if string(encoded) != want {
-		t.Fatalf("workspace read = %s\nwant %s", encoded, want)
-	}
-	text, _ := json.Marshal(HostFileRead{Payload: HostTextFile{SessionID: "s", Path: "/a", Size: 2, Encoding: "utf-8", Content: "hi", ReturnedBytes: 2, ReturnedLines: 1}})
-	if string(text) != `{"kind":"text","sessionId":"s","path":"/a","size":2,"encoding":"utf-8","content":"hi","returnedBytes":2,"returnedLines":1}` {
-		t.Fatalf("host text read = %s", text)
-	}
 	old, newLine := 1, 1
 	page, _ := json.Marshal(FileDiffPage{Observation: validObservation(), File: DiffFileSummary{Path: "a", Change: "modified", Old: DiffSide{Kind: "regular", Mode: 0100644}, New: DiffSide{Kind: "regular", Mode: 0100644}, ContentState: "text"}, Computation: DiffComputation{State: "complete"}, Hunks: []DiffHunk{{OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1, Lines: []DiffLine{{Kind: "context", OldLine: &old, NewLine: &newLine, Content: "x"}}}}})
 	if strings.Contains(string(page), "highlight") {
 		t.Fatalf("file diff page = %s carries a highlight it was not asked for", page)
 	}
 	for name, input := range map[string]any{
-		"readWorkspaceFile": ReadWorkspaceFileInput{WorkspaceID: "workspace_A", Path: "a.go"},
-		"readHostFile":      ReadHostFileInput{Path: "/a"},
-		"readFileDiff":      ReadFileDiffInput{TargetID: "t", TargetRevision: "r", Path: "a"},
+		"readFileDiff": ReadFileDiffInput{TargetID: "t", TargetRevision: "r", Path: "a"},
 	} {
 		encoded, _ := json.Marshal(input)
 		if strings.Contains(string(encoded), "highlight") {
 			t.Errorf("%s request = %s sends a highlight flag it was not given", name, encoded)
 		}
-	}
-}
-
-func TestHighlightedHostTextReadRoundTripsAndValidates(t *testing.T) {
-	t.Parallel()
-	highlight := Highlight{Language: "go", Lines: [][]int{{0, 2, 0}}, Roles: []string{"keyword"}}
-	read := HostFileRead{Payload: HostTextFile{SessionID: "s", Path: "/a.go", Size: 2, Encoding: "utf-8", Content: "go", ReturnedBytes: 2, ReturnedLines: 1, Highlight: &highlight}}
-	if err := read.Validate(); err != nil {
-		t.Fatalf("Validate() = %v", err)
-	}
-	encoded, _ := json.Marshal(read)
-	want := `{"kind":"text","sessionId":"s","path":"/a.go","size":2,"encoding":"utf-8","content":"go","returnedBytes":2,"returnedLines":1,"highlight":{"language":"go","lines":[[0,2,0]],"roles":["keyword"]}}`
-	if string(encoded) != want {
-		t.Fatalf("wire = %s\nwant %s", encoded, want)
-	}
-	var decoded HostFileRead
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if again, _ := json.Marshal(decoded); string(again) != want {
-		t.Fatalf("round trip = %s", again)
-	}
-	if err := json.Unmarshal([]byte(`{"kind":"image","sessionId":"s","path":"/a.gif","size":1,"mediaType":"image/gif","width":1,"height":1,"data":"aA==","highlight":{"language":"go","lines":[],"roles":[]}}`), &decoded); err == nil {
-		t.Fatal("decoded an image read carrying a highlight")
-	}
-	highlight.Lines[0][1] = 3
-	if err := read.Validate(); err == nil {
-		t.Fatal("Validate() accepted a highlight past its text")
 	}
 }
 

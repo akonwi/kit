@@ -36,12 +36,30 @@ const (
 	sniffBytes = 512
 )
 
+// File is the text of a file a File tab shows. Truncated, with
+// "byte_limit" or "line_limit", says it stops before the file's end. A
+// workspace file's Workspace names only its session and workspace; a host
+// file's is empty.
+type File struct {
+	SessionID        string
+	Workspace        protocol.WorkspaceRef
+	Path             string
+	Revision         string
+	Size             int64
+	ModifiedAt       string
+	Encoding         string
+	Content          string
+	ReturnedBytes    int
+	ReturnedLines    int
+	Truncated        bool
+	TruncationReason string
+}
+
 // Read is a file as a File tab shows it.
 type Read struct {
-	// File is the text as a preview read reports it: Truncated, with
-	// "byte_limit" or "line_limit", when it stops before the file's end. An
-	// image's File carries only its path and size.
-	File protocol.WorkspaceFileRead
+	// File is the file's text. An image's File carries only its path and
+	// size.
+	File File
 	// Image is a supported image's encoded bytes, when the caller asked for
 	// images and the file is one; MediaType names its format, Width and
 	// Height its size in pixels, and Pixels the image decoded to fit the
@@ -62,7 +80,7 @@ type Read struct {
 // caller shows, or empty for none. A binary file fails with a
 // binary_file WorkspaceError, and a server that predates downloads with an
 // UnsupportedError.
-func Workspace(session *kit.Session, ctx context.Context, input protocol.ReadWorkspaceFileInput, held string) (Read, error) {
+func Workspace(session *kit.Session, ctx context.Context, input protocol.DownloadFileInput, held string) (Read, error) {
 	if session == nil {
 		return Read{}, errors.New("session is unavailable")
 	}
@@ -135,7 +153,7 @@ func fetch(ctx context.Context, source Downloader, input protocol.DownloadFileIn
 		return Read{}, false, err
 	}
 	info := response.Info
-	file := protocol.WorkspaceFileRead{
+	file := File{
 		SessionID: info.SessionID, Path: info.Path, Revision: info.Revision, Size: info.Size, ModifiedAt: info.ModifiedAt,
 	}
 	if input.HasWorkspace {
