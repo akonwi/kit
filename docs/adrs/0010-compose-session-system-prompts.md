@@ -148,7 +148,10 @@ root. It then discovers:
 The global file is first. Repository files are ordered from the worktree root
 to the session cwd. Kit never searches above the resolved worktree root. Git
 worktree discovery is best-effort; inability to resolve one safely falls back
-to cwd-only project context. Duplicate resolved paths are included once.
+to cwd-only project context. Duplicate resolved paths are included once. A cwd
+that is not an existing directory contributes no project context, skills,
+prompt commands, or agents
+([ADR 0075](0075-keep-sessions-usable-without-their-working-directory.md)).
 
 Kit does not scan sibling or descendant directories for additional context. A
 nested `AGENTS.md` becomes automatic context when the session cwd is within its
@@ -227,7 +230,10 @@ not duplicate its own result as another boundary. The mutation does not change
 process-global cwd, rebuild the droid, replace
 the event stream, or rediscover context, skills, and prompt commands. The native
 TUI warns after a successful move and suggests explicit reload when the user
-wants those configuration snapshots refreshed.
+wants those configuration snapshots refreshed. The exception is a runtime built
+while its cwd was missing: a change to an existing directory also reloads it,
+so project discovery resumes
+([ADR 0075](0075-keep-sessions-usable-without-their-working-directory.md)).
 
 There is no filesystem watcher in the initial implementation. File edits and
 cwd-relative configuration changes become effective after explicit reload,

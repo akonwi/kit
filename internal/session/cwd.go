@@ -23,6 +23,10 @@ type workspaceScope struct {
 	mutationMu sync.Mutex
 	state      atomic.Pointer[workspaceState]
 	mutations  map[string]CWDMutation
+	// rediscovered holds the mutations whose change reloaded this runtime
+	// because it was built while its cwd was missing, so a replay reports
+	// the same outcome. Guarded by mutationMu.
+	rediscovered map[string]struct{}
 }
 
 type workspaceState struct {
@@ -31,7 +35,7 @@ type workspaceState struct {
 }
 
 func newWorkspaceScope(cwd string) *workspaceScope {
-	scope := &workspaceScope{mutations: make(map[string]CWDMutation)}
+	scope := &workspaceScope{mutations: make(map[string]CWDMutation), rediscovered: make(map[string]struct{})}
 	scope.state.Store(&workspaceState{cwd: filepath.Clean(cwd)})
 	return scope
 }
@@ -58,10 +62,16 @@ type ChangeCWDResult struct {
 	PreviousCWD string
 	CWD         string
 	Changed     bool
+	// Rediscovered reports that the change reloaded project context, skills,
+	// prompt commands, and tools because the runtime had been built while its
+	// working directory was missing.
+	Rediscovered bool
 }
 
 // ChangeCWD changes the filesystem scope used by subsequent relative coding
-// tool and direct bash executions. It does not reload session context.
+// tool and direct bash executions. It reloads session context only when the
+// runtime was built while its working directory was missing, so project
+// discovery resumes in the new, existing directory.
 func (m *Manager) ChangeCWD(ctx context.Context, sessionID, targetPath string) (ChangeCWDResult, error) {
 	mutationID, err := identifier.New("cwd_")
 	if err != nil {
@@ -92,24 +102,67 @@ func (m *Manager) changeCWDWithID(ctx context.Context, sessionID, mutationID, ta
 	if err != nil {
 		return ChangeCWDResult{}, err
 	}
-	if informDroid {
-		loaded.transitionMu.Lock()
-		defer loaded.transitionMu.Unlock()
-		loaded.mu.Lock()
-		defer loaded.mu.Unlock()
-	}
-	loaded.workspace.mutationMu.Lock()
-	defer loaded.workspace.mutationMu.Unlock()
-	result, err := m.changeRuntimeCWD(ctx, sessionID, loaded, mutationID, targetPath)
-	if err != nil || !informDroid || !result.Changed {
+	if !informDroid {
+		// The model's change_cwd runs inside its own turn, so it neither waits
+		// for a runtime transition nor reports its move as a boundary.
+		loaded.workspace.mutationMu.Lock()
+		result, err := m.changeRuntimeCWD(ctx, sessionID, loaded, mutationID, targetPath)
+		_, result.Rediscovered = loaded.workspace.rediscovered[mutationID]
+		loaded.workspace.mutationMu.Unlock()
+		if err == nil && !result.Rediscovered && m.projectReturned(loaded, result.CWD) && loaded.transitionMu.TryLock() {
+			result.Rediscovered = m.rediscover(ctx, sessionID, loaded, mutationID)
+			loaded.transitionMu.Unlock()
+		}
 		return result, err
 	}
+	loaded.transitionMu.Lock()
+	defer loaded.transitionMu.Unlock()
+	loaded.mu.Lock()
+	loaded.workspace.mutationMu.Lock()
+	result, err := m.changeRuntimeCWD(ctx, sessionID, loaded, mutationID, targetPath)
+	_, result.Rediscovered = loaded.workspace.rediscovered[mutationID]
+	loaded.workspace.mutationMu.Unlock()
+	loaded.mu.Unlock()
+	if err != nil {
+		return result, err
+	}
+	if !result.Rediscovered && m.projectReturned(loaded, result.CWD) {
+		result.Rediscovered = m.rediscover(ctx, sessionID, loaded, mutationID)
+	}
+	if !result.Changed {
+		return result, nil
+	}
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
+	loaded.workspace.mutationMu.Lock()
+	defer loaded.workspace.mutationMu.Unlock()
 	informContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if err := informDroidOfCWDChange(informContext, sessionID, loaded, mutationID, result); err != nil {
 		return result, fmt.Errorf("inform droid of cwd change: %w", err)
 	}
 	return result, nil
+}
+
+// rediscover reloads loaded after mutationID moved it from a missing cwd and
+// records the outcome for replays. The caller holds loaded.transitionMu.
+func (m *Manager) rediscover(ctx context.Context, sessionID string, loaded *runtime, mutationID string) bool {
+	if _, err := m.reloadTransitioning(ctx, sessionID, loaded); err != nil {
+		return false
+	}
+	loaded.workspace.mutationMu.Lock()
+	loaded.workspace.rediscovered[mutationID] = struct{}{}
+	loaded.workspace.mutationMu.Unlock()
+	return true
+}
+
+// projectReturned reports whether loaded's runtime bundle omitted project
+// discovery because its cwd was missing, and cwd now exists to discover from.
+func (m *Manager) projectReturned(loaded *runtime, cwd string) bool {
+	loaded.mu.Lock()
+	unavailable := loaded.bundle.ProjectUnavailable
+	loaded.mu.Unlock()
+	return unavailable && existingDirectory(cwd)
 }
 
 func (m *Manager) changeRuntimeCWD(ctx context.Context, sessionID string, loaded *runtime, mutationID, targetPath string) (ChangeCWDResult, error) {
@@ -300,9 +353,13 @@ func informDroidOfCWDChange(ctx context.Context, sessionID string, loaded *runti
 	if err != nil {
 		return err
 	}
+	reloaded := "Session context, skills, and prompt commands have not been reloaded."
+	if result.Rediscovered {
+		reloaded = "Session context, skills, and prompt commands were reloaded from " + result.CWD + "."
+	}
 	message := fmt.Sprintf(
-		"The user changed this session's working directory from %s to %s. Relative filesystem operations now resolve from %s. Session context, skills, and prompt commands have not been reloaded.",
-		result.PreviousCWD, result.CWD, result.CWD,
+		"The user changed this session's working directory from %s to %s. Relative filesystem operations now resolve from %s. %s",
+		result.PreviousCWD, result.CWD, result.CWD, reloaded,
 	)
 	return informBoundary(ctx, loaded.droid, loaded.events, sessionID, droids.BoundaryMessage{
 		ID: "cwd:" + mutationID, Kind: "cwd", Source: "user",
@@ -347,6 +404,9 @@ func (m *Manager) changeCWDTool(sessionID string, scope *workspaceScope) droids.
 			text := "Already in directory: " + result.CWD
 			if result.Changed {
 				text = "Changed session cwd to " + result.CWD
+			}
+			if result.Rediscovered {
+				text += ". Reloaded project context, skills, and prompt commands from " + result.CWD + "."
 			}
 			return droids.ToolResult{Content: []droids.ResultContent{droids.TextContent{Text: text}}, Details: details}, nil
 		},

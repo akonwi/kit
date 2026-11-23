@@ -195,15 +195,24 @@ type loadedContextFile struct {
 }
 
 func (b *ContextBuilder) contextSection(ctx context.Context, cwd string) (Section, error) {
-	cwd, err := canonicalDirectory(cwd)
-	if err != nil {
-		return Section{}, fmt.Errorf("resolve session cwd: %w", err)
+	if strings.TrimSpace(cwd) == "" || !filepath.IsAbs(cwd) {
+		return Section{}, fmt.Errorf("resolve session cwd: %q is not absolute", cwd)
 	}
-
 	diagnostics := make([]Diagnostic, 0)
-	projectDirectories := []string{cwd}
-	root, rootErr := b.resolver.ResolveWorktreeRoot(ctx, cwd)
+	// An unavailable cwd only omits project context: a session's working
+	// directory may be removed while the session remains usable. The session
+	// runtime reports that once for all project discovery.
+	cwd, err := canonicalDirectory(cwd)
+	var projectDirectories []string
+	var root string
+	var rootErr error
+	if err == nil {
+		projectDirectories = []string{cwd}
+		root, rootErr = b.resolver.ResolveWorktreeRoot(ctx, cwd)
+	}
 	switch {
+	case err != nil:
+		// Without a cwd there is no project to resolve.
 	case rootErr == nil:
 		root, err = canonicalDirectory(root)
 		if err != nil {

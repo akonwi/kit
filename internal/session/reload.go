@@ -39,6 +39,12 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 		return ReloadResult{}, ErrReloadBusy
 	}
 	defer loaded.transitionMu.Unlock()
+	return m.reloadTransitioning(ctx, sessionID, loaded)
+}
+
+// reloadTransitioning rebuilds and applies loaded's runtime bundle. The caller
+// holds loaded.transitionMu and none of the locks ordered after it.
+func (m *Manager) reloadTransitioning(ctx context.Context, sessionID string, loaded *runtime) (ReloadResult, error) {
 	if m.sessionDeleting(sessionID) {
 		return ReloadResult{}, ErrDeleteBusy
 	}

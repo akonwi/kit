@@ -46,7 +46,9 @@ Stdio transports are supervised child processes. Kit gives each server its own
 process group and tears down the group, so a launcher that forks a long-lived
 child does not leak servers past session shutdown. Kit retains a bounded stderr
 tail for diagnostics and resolves the working directory from explicit session
-cwd or configuration rather than process-global cwd.
+cwd or configuration rather than process-global cwd. A server without a
+configured `cwd` starts in the user's home directory while the session cwd is
+missing ([ADR 0075](0075-keep-sessions-usable-without-their-working-directory.md)).
 
 A stdio server inherits Kit's process environment, overlaid with its configured
 `env`. This matches how Kit launches plugin processes, keeps servers that depend

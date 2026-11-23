@@ -76,14 +76,6 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 	if strings.TrimSpace(cwd) == "" || !filepath.IsAbs(cwd) {
 		return LoadResult{}, errors.New("skill discovery requires an absolute cwd")
 	}
-	canonicalCWD, err := filepath.EvalSymlinks(filepath.Clean(cwd))
-	if err != nil {
-		return LoadResult{}, fmt.Errorf("resolve skill discovery cwd: %w", err)
-	}
-	info, err := os.Stat(canonicalCWD)
-	if err != nil || !info.IsDir() {
-		return LoadResult{}, errors.New("skill discovery requires an existing directory cwd")
-	}
 	if l == nil || l.userHome == "" {
 		return LoadResult{}, errors.New("skill loader is not initialized")
 	}
@@ -93,7 +85,11 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 		seenDirectories: make(map[string]struct{}),
 	}
 	state.scanRoot(ctx, l.userHome, l.userHomeInfo, "skills", SourceUser)
-	state.scanRoot(ctx, canonicalCWD, info, projectSkillsPath, SourceProject)
+	// An unavailable cwd only omits project skills: a session's working
+	// directory may be removed while the session remains usable.
+	if canonicalCWD, info, ok := projectDirectory(cwd); ok {
+		state.scanRoot(ctx, canonicalCWD, info, projectSkillsPath, SourceProject)
+	}
 	if err := ctx.Err(); err != nil {
 		return LoadResult{}, err
 	}
@@ -111,6 +107,19 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 		return LoadResult{}, err
 	}
 	return LoadResult{Registry: registry, Diagnostics: state.diagnostics}, nil
+}
+
+// projectDirectory resolves cwd when it is an existing directory.
+func projectDirectory(cwd string) (string, os.FileInfo, bool) {
+	canonical, err := filepath.EvalSymlinks(filepath.Clean(cwd))
+	if err != nil {
+		return "", nil, false
+	}
+	info, err := os.Stat(canonical)
+	if err != nil || !info.IsDir() {
+		return "", nil, false
+	}
+	return canonical, info, true
 }
 
 type discoveryState struct {

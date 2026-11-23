@@ -75,18 +75,13 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 	if strings.TrimSpace(cwd) == "" || !filepath.IsAbs(cwd) {
 		return LoadResult{}, errors.New("subagent discovery requires an absolute cwd")
 	}
-	canonicalCWD, err := filepath.EvalSymlinks(filepath.Clean(cwd))
-	if err != nil {
-		return LoadResult{}, fmt.Errorf("resolve subagent discovery cwd: %w", err)
-	}
-	cwdInfo, err := os.Stat(canonicalCWD)
-	if err != nil || !cwdInfo.IsDir() {
-		return LoadResult{}, errors.New("subagent discovery requires an existing directory cwd")
-	}
-
 	state := discoveryState{seen: make(map[string]string)}
 	state.scanRoot(ctx, l.userHome, l.userHomeInfo, "agents", SourceUser)
-	state.scanRoot(ctx, canonicalCWD, cwdInfo, projectAgentsPath, SourceProject)
+	// An unavailable cwd only omits project agents: a session's working
+	// directory may be removed while the session remains usable.
+	if canonicalCWD, cwdInfo, ok := projectDirectory(cwd); ok {
+		state.scanRoot(ctx, canonicalCWD, cwdInfo, projectAgentsPath, SourceProject)
+	}
 	if err := ctx.Err(); err != nil {
 		return LoadResult{}, err
 	}
@@ -95,6 +90,19 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 		return LoadResult{}, err
 	}
 	return LoadResult{Catalog: catalog, Diagnostics: append([]Diagnostic(nil), state.diagnostics...)}, nil
+}
+
+// projectDirectory resolves cwd when it is an existing directory.
+func projectDirectory(cwd string) (string, os.FileInfo, bool) {
+	canonical, err := filepath.EvalSymlinks(filepath.Clean(cwd))
+	if err != nil {
+		return "", nil, false
+	}
+	info, err := os.Stat(canonical)
+	if err != nil || !info.IsDir() {
+		return "", nil, false
+	}
+	return canonical, info, true
 }
 
 type discoveryState struct {

@@ -144,25 +144,34 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (*Registry, err
 	if strings.TrimSpace(cwd) == "" || !filepath.IsAbs(cwd) {
 		return nil, errors.New("prompt discovery requires an absolute cwd")
 	}
-	canonicalCWD, err := filepath.EvalSymlinks(filepath.Clean(cwd))
-	if err != nil {
-		return nil, fmt.Errorf("resolve prompt discovery cwd: %w", err)
-	}
-	cwdInfo, err := os.Stat(canonicalCWD)
-	if err != nil || !cwdInfo.IsDir() {
-		return nil, errors.New("prompt discovery requires an existing directory cwd")
-	}
 	seen := make(map[string]struct{})
 	commands := make([]Command, 0)
 	commands = l.scanRoot(ctx, l.userHome, l.userHomeInfo, "prompts", SourceUser, commands, seen)
-	commands = l.scanRoot(ctx, canonicalCWD, cwdInfo, projectPromptsPath, SourceProject, commands, seen)
-	if l.ReadClaudeCommands != nil && l.ReadClaudeCommands() {
-		commands = l.scanRoot(ctx, canonicalCWD, cwdInfo, claudeCommandsPath, SourceClaudeProject, commands, seen)
+	// An unavailable cwd only omits project commands: a session's working
+	// directory may be removed while the session remains usable.
+	if canonicalCWD, cwdInfo, ok := projectDirectory(cwd); ok {
+		commands = l.scanRoot(ctx, canonicalCWD, cwdInfo, projectPromptsPath, SourceProject, commands, seen)
+		if l.ReadClaudeCommands != nil && l.ReadClaudeCommands() {
+			commands = l.scanRoot(ctx, canonicalCWD, cwdInfo, claudeCommandsPath, SourceClaudeProject, commands, seen)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return NewRegistry(commands...)
+}
+
+// projectDirectory resolves cwd when it is an existing directory.
+func projectDirectory(cwd string) (string, os.FileInfo, bool) {
+	canonical, err := filepath.EvalSymlinks(filepath.Clean(cwd))
+	if err != nil {
+		return "", nil, false
+	}
+	info, err := os.Stat(canonical)
+	if err != nil || !info.IsDir() {
+		return "", nil, false
+	}
+	return canonical, info, true
 }
 
 func (l *FilesystemLoader) scanRoot(ctx context.Context, rootPath string, expected os.FileInfo, relative string, source Source, commands []Command, seen map[string]struct{}) []Command {

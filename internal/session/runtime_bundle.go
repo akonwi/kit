@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -41,6 +43,10 @@ type RuntimeBundle struct {
 	Subagents      subagent.LoadResult
 	MCPServers     []MCPServerInfo
 	MCPWarnings    []string
+	// ProjectUnavailable reports that the session cwd was not an existing
+	// directory when the bundle was built, so project skills, context, prompt
+	// commands, agents, and MCP configuration were omitted.
+	ProjectUnavailable bool
 	// MCP is the session's configured MCP namespaces, or nil when none are
 	// configured. The owning session runtime closes it; subagents of that session
 	// borrow its tools and must not close it.
@@ -174,13 +180,24 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 	}
 	registry := b.registry
 	var discoveryDiagnostics []systemprompt.Diagnostic
+	// A session outlives its working directory: when the cwd is unavailable,
+	// only project discovery is skipped and the session stays usable.
+	cwdProblem := directoryProblem(record.CWD)
+	projectUnavailable := cwdProblem != ""
+	if projectUnavailable {
+		discoveryDiagnostics = append(discoveryDiagnostics, systemprompt.Diagnostic{
+			Severity: systemprompt.DiagnosticWarning, Code: "session.cwd_unavailable",
+			Message: "The session's working directory " + cwdProblem + ", so project skills, context, prompt commands, agents, and MCP servers were not loaded",
+			Source:  systemprompt.Source{ID: "session-cwd", Path: filepath.Clean(record.CWD)},
+		})
+	}
 	if b.skillLoader != nil {
 		loaded, err := b.skillLoader.Load(ctx, record.CWD)
 		if err != nil {
 			return RuntimeBundle{}, err
 		}
 		registry = loaded.Registry
-		discoveryDiagnostics = loaded.Diagnostics
+		discoveryDiagnostics = append(discoveryDiagnostics, loaded.Diagnostics...)
 	}
 	catalog, err := registry.CatalogSection()
 	if err != nil {
@@ -290,8 +307,31 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 			Diagnostics: append(append([]systemprompt.Diagnostic(nil), result.Diagnostics...), diagnostics...),
 		},
 		Tools: tools, PromptCommands: commands, Subagents: subagents, MCP: manager,
-		MCPServers: mcpServers, MCPWarnings: mcpWarnings,
+		MCPServers: mcpServers, MCPWarnings: mcpWarnings, ProjectUnavailable: projectUnavailable,
 	}, nil
+}
+
+// existingDirectory reports whether path currently names a directory.
+func existingDirectory(path string) bool {
+	return directoryProblem(path) == ""
+}
+
+// directoryProblem describes why path is not a usable directory, or returns
+// empty when it is one.
+func directoryProblem(path string) string {
+	info, err := os.Stat(path)
+	switch {
+	case err == nil && info.IsDir():
+		return ""
+	case err == nil:
+		return "is not a directory"
+	case errors.Is(err, fs.ErrNotExist):
+		return "does not exist"
+	case errors.Is(err, fs.ErrPermission):
+		return "is not accessible"
+	default:
+		return "could not be inspected (" + err.Error() + ")"
+	}
 }
 
 // buildMCP resolves configured MCP servers for one session cwd. Configuration

@@ -31,4 +31,13 @@ Changing cwd is filesystem navigation. It does not rebuild the droid, replace th
 - project skills under `.agents/skills/`; or
 - project prompt commands under `.agents/prompts/`.
 
-Run **reload** from the command palette after moving when those agent-configuration snapshots should be refreshed from the new cwd. Reload may run during an active turn: a provider request already in flight keeps its captured configuration, and the next provider request uses the refreshed prompt and tools. `change_cwd` remains safe as an in-run sequential tool because it changes only the synchronized filesystem scope.
+Run **reload** from the command palette after moving when those agent-configuration snapshots should be refreshed from the new cwd. Moving away from a working directory that no longer exists is the exception: it reloads them automatically (see below). Reload may run during an active turn: a provider request already in flight keeps its captured configuration, and the next provider request uses the refreshed prompt and tools. `change_cwd` remains safe as an in-run sequential tool because it changes only the synchronized filesystem scope.
+
+## When the working directory is missing
+
+A session keeps working when its directory is deleted, for example a worktree removed after its work merged ([ADR 0075](../adrs/0075-keep-sessions-usable-without-their-working-directory.md)). It opens and shows its transcript, and the model can keep working:
+
+- Only user-level `AGENTS.md`, skills, prompt commands, agents, and MCP servers load. MCP stdio servers without a configured `cwd` start in your home directory.
+- File panes show the workspace as unavailable.
+- Shell commands, and tools given relative paths, fail with `the working directory <path> does not exist` and suggest changing it. Absolute paths still work, and a relative write never recreates the removed directory.
+- `/cd` or `change_cwd` to an existing directory moves the session and reloads its project context, skills, and prompt commands from there. If the directory is restored, `/cd` to it or `/reload` picks its project configuration up again.
