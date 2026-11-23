@@ -52,11 +52,12 @@ func (f *clientToolFeed) Attach(droid *droids.Droid, offering *skills.Offering) 
 
 // install gives droid the feed's tools and offering the feed's tool names.
 func (f *clientToolFeed) install(droid *droids.Droid, offering *skills.Offering) error {
-	skillPrompt := offering.SetClientTools(f.names)
+	skillPrompt := offering.Prepare(f.names)
 	if err := droid.SetAdditionalTools(f.tools, f.prompt+skillPrompt); err != nil {
 		offering.SetClientTools(nil)
 		return err
 	}
+	offering.SetClientTools(f.names)
 	return nil
 }
 

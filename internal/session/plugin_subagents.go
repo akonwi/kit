@@ -55,6 +55,12 @@ func (s *pluginContributionState) setDroid(droid *droids.Droid) { s.droid.Store(
 func (s *pluginContributionState) setBase(base subagent.LoadResult, offering *skills.Offering) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A request still running on the replaced tools keeps the replaced
+	// activate_skill, which no refresh reaches again, so it offers no
+	// skill that needs client tools from now on.
+	if s.skills != offering {
+		s.skills.SetClientTools(nil)
+	}
 	s.skills = offering
 	s.base = cloneSubagentLoadResult(base)
 	s.effective = cloneSubagentLoadResult(base)

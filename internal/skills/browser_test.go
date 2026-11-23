@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -45,6 +46,14 @@ func activate(t *testing.T, offering *Offering, name string) (string, activateDe
 	return toolResultText(t, result), details
 }
 
+// connect connects names to offering as an agent does, and returns the
+// prompt text that lists the skills they make available.
+func connect(offering *Offering, names []string) string {
+	prompt := offering.Prepare(names)
+	offering.SetClientTools(names)
+	return prompt
+}
+
 func TestTheBrowserSkillIsListedWhileTheBrowserToolsAreConnected(t *testing.T) {
 	base := t.TempDir()
 	result := browserRegistry(t, filepath.Join(base, "project"), apphome.FromHome(filepath.Join(base, "kit-home")))
@@ -64,7 +73,7 @@ func TestTheBrowserSkillIsListedWhileTheBrowserToolsAreConnected(t *testing.T) {
 	want := "\n\nConnected client tools make these skills available too, through activate_skill:\n" +
 		"<available_skills>\n  <skill>\n    <name>kit-browser</name>\n    <description>" + escapeXML(browser.Description) +
 		"</description>\n    <source>built-in</source>\n  </skill>\n</available_skills>"
-	if got := offering.SetClientTools(append([]string{"other__tool"}, browserTools...)); got != want {
+	if got := connect(offering, append([]string{"other__tool"}, browserTools...)); got != want {
 		t.Fatalf("connected catalog = %q, want %q", got, want)
 	}
 	text, details := activate(t, offering, KitBrowserName)
@@ -74,7 +83,7 @@ func TestTheBrowserSkillIsListedWhileTheBrowserToolsAreConnected(t *testing.T) {
 
 	// Disconnecting, or losing any one of the tools, withdraws the skill.
 	for _, connected := range [][]string{nil, browserTools[:4]} {
-		if got := offering.SetClientTools(connected); got != "" {
+		if got := connect(offering, connected); got != "" {
 			t.Fatalf("catalog with %v = %q, want none", connected, got)
 		}
 		text, details = activate(t, offering, KitBrowserName)
@@ -89,11 +98,93 @@ func TestTheBrowserSkillIsListedWhileTheBrowserToolsAreConnected(t *testing.T) {
 	}
 
 	// Reconnecting offers it again.
-	if got := offering.SetClientTools(browserTools); got != want {
+	if got := connect(offering, browserTools); got != want {
 		t.Fatalf("reconnected catalog = %q, want %q", got, want)
 	}
 	if text, _ = activate(t, offering, "missing"); text != `Unknown skill "missing". Available skills: kit-browser, kit-customization, kit-figures.` {
 		t.Fatalf("unknown activation while connected = %q", text)
+	}
+}
+
+func TestActivationOffersTheBrowserSkillOnlyOnceItsToolsAreInstalled(t *testing.T) {
+	base := t.TempDir()
+	result := browserRegistry(t, filepath.Join(base, "project"), apphome.FromHome(filepath.Join(base, "kit-home")))
+	offering := result.Registry.NewOffering()
+	unavailable := func() bool {
+		_, details := activate(t, offering, KitBrowserName)
+		return !details.Found
+	}
+
+	if prompt := offering.Prepare(browserTools); !strings.Contains(prompt, "<name>kit-browser</name>") || !unavailable() {
+		t.Fatalf("after Prepare: prompt %q, available %v", prompt, !unavailable())
+	}
+	offering.SetClientTools(browserTools)
+	if unavailable() {
+		t.Fatal("the skill is unavailable once its tools are installed")
+	}
+	// Preparing to remove a tool withdraws the skill before the tools change.
+	if prompt := offering.Prepare(browserTools[1:]); prompt != "" || !unavailable() {
+		t.Fatalf("after preparing to remove a tool: prompt %q, available %v", prompt, !unavailable())
+	}
+	var none *Offering
+	if prompt := none.Prepare(browserTools); prompt != "" {
+		t.Fatalf("nil offering prompt = %q", prompt)
+	}
+	none.SetClientTools(browserTools)
+}
+
+func TestTheCatalogLimitCountsSkillsThatClientToolsMakeAvailable(t *testing.T) {
+	// fill builds a registry whose static catalog is exactly size bytes.
+	fill := func(size int) *Registry {
+		additions := make([]Skill, 0, 64)
+		for index := 0; index < cap(additions); index++ {
+			additions = append(additions, Skill{
+				Name: fmt.Sprintf("skill-%d", index), Description: strings.Repeat("d", maxDescriptionBytes),
+				Content: "content", Source: SourceProject, Location: "/" + strings.Repeat("l", maxSkillLocationBytes-1),
+			})
+		}
+		registry, err := newRegistry([]Skill{kitBrowserSkill()}, additions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var static []Skill
+		for _, skill := range registry.Skills() {
+			if len(skill.ClientTools) == 0 {
+				static = append(static, skill)
+			}
+		}
+		var catalog strings.Builder
+		writeSkillList(&catalog, static)
+		// The catalog's three-line preamble.
+		preamble := 0
+		for _, line := range []string{
+			"The following skills provide specialized instructions for specific tasks.\n",
+			"Call the activate_skill tool with the skill name to activate it when the task matches its description.\n",
+			"When a skill's instructions reference a relative path, resolve it against the skill directory and use that absolute path in tool commands.\n\n",
+		} {
+			preamble += len(line)
+		}
+		excess := preamble + catalog.Len() - size
+		for index := range additions {
+			cut := min(excess, len(additions[index].Location)-1)
+			additions[index].Location = additions[index].Location[:len(additions[index].Location)-cut]
+			excess -= cut
+		}
+		if excess != 0 {
+			t.Fatalf("could not trim the catalog to %d bytes", size)
+		}
+		registry, err = newRegistry([]Skill{kitBrowserSkill()}, additions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return registry
+	}
+	browser := len(clientToolCatalog([]Skill{kitBrowserSkill()}))
+	if _, err := fill(maxSkillCatalogBytes - browser).CatalogSection(); err != nil {
+		t.Fatalf("CatalogSection() rejected a catalog at the limit: %v", err)
+	}
+	if _, err := fill(maxSkillCatalogBytes - browser + 1).CatalogSection(); err == nil {
+		t.Fatal("CatalogSection() accepted a catalog over the limit with the browser skill listed")
 	}
 }
 
@@ -122,7 +213,7 @@ func TestYourOwnKitBrowserSkillReplacesKits(t *testing.T) {
 		t.Fatalf("catalog names = %#v, want %#v", got, want)
 	}
 	offering := result.Registry.NewOffering()
-	if got := offering.SetClientTools(browserTools); got != "" {
+	if got := connect(offering, browserTools); got != "" {
 		t.Fatalf("connected catalog = %q, want none", got)
 	}
 	if text, details := activate(t, offering, KitBrowserName); !strings.Contains(text, "my body") || details.Source != SourceUser {

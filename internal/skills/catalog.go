@@ -28,7 +28,9 @@ func (r *Registry) CatalogSection() (systemprompt.Section, error) {
 	catalog.WriteString("Call the activate_skill tool with the skill name to activate it when the task matches its description.\n")
 	catalog.WriteString("When a skill's instructions reference a relative path, resolve it against the skill directory and use that absolute path in tool commands.\n\n")
 	writeSkillList(&catalog, skills)
-	if catalog.Len() > maxSkillCatalogBytes {
+	// The skills that client tools make available join the catalog while
+	// they're connected, so the limit counts them too.
+	if catalog.Len()+len(clientToolCatalog(conditionalSkills(r, nil))) > maxSkillCatalogBytes {
 		return systemprompt.Section{}, fmt.Errorf("skill catalog exceeds the %d-byte limit", maxSkillCatalogBytes)
 	}
 	sources := make([]systemprompt.Source, 0, len(skills))

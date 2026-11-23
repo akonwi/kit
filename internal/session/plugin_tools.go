@@ -140,8 +140,9 @@ func (r *runtime) refreshPluginContributions() {
 			err = fmt.Errorf("plugin contribution droid is unavailable")
 		} else {
 			// Skills that need client tools are offered while they're
-			// connected, and the prompt lists them.
-			skillPrompt := r.pluginContributions.skills.SetClientTools(clientNames)
+			// connected, and the prompt lists them. Activation offers them
+			// once the tools and prompt are installed.
+			skillPrompt := r.pluginContributions.skills.Prepare(clientNames)
 			err = droid.SetAdditionalTools(tools, toolPrompt+subagentPrompt+skillPrompt)
 		}
 	}
@@ -158,6 +159,7 @@ func (r *runtime) refreshPluginContributions() {
 		r.pluginContributions.plugins = nil
 		r.pluginContributions.fingerprint = [32]byte{}
 	} else {
+		r.pluginContributions.skills.SetClientTools(clientNames)
 		r.pluginToolState.warning.Store(nil)
 		r.clientTools.publish(clientTools, clientPrompt, clientNames)
 		r.pluginContributions.effective = effective

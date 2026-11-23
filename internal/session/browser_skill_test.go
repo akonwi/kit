@@ -184,12 +184,6 @@ func TestTheBrowserSkillReachesSubagentsWithTheBrowserTools(t *testing.T) {
 	if prompt := childPrompt(); !strings.Contains(prompt, "\n\n"+browserCatalogEntry) {
 		t.Fatalf("child prompt with the browser connected:\n%s", prompt)
 	}
-	// The child's offering follows the feed: it lists the skill again only
-	// when told the browser tools are connected.
-	if got := offering.SetClientTools(nil); got != "" {
-		t.Fatalf("offering catalog without tools = %q", got)
-	}
-
 	host.mu.Lock()
 	host.tools = nil
 	host.mu.Unlock()
