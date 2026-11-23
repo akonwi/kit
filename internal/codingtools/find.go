@@ -78,7 +78,10 @@ func executeFind(ctx context.Context, cwd string, args findArgs) (droids.ToolRes
 	if err != nil {
 		return droids.ToolResult{}, err
 	}
-	root := optionalPath(cwd, args.Path)
+	root, err := optionalPath(cwd, args.Path)
+	if err != nil {
+		return droids.ToolResult{}, err
+	}
 	if _, err := os.Stat(root); err != nil {
 		return droids.ToolResult{}, fmt.Errorf("path not found: %s", root)
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/attachment"
+	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/identifier"
 )
 
@@ -108,7 +109,7 @@ func execute(ctx context.Context, options Options, args arguments) (droids.ToolR
 	if !identifier.Valid(id, attachment.IDPrefix) {
 		return failure(fmt.Sprintf("%q is not an attachment ID", args.Attachment)), nil
 	}
-	path, err := destination(options, args.Path)
+	path, anchor, err := destination(options, args.Path)
 	if err != nil {
 		return failure(err.Error()), nil
 	}
@@ -123,7 +124,7 @@ func execute(ctx context.Context, options Options, args arguments) (droids.ToolR
 		return droids.ToolResult{}, fmt.Errorf("open attachment: %w", err)
 	}
 	defer reader.Close()
-	if err := write(ctx, options, path, args.Overwrite, record, reader); err != nil {
+	if err := write(ctx, options, path, anchor, args.Overwrite, record, reader); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return droids.ToolResult{}, ctxErr
 		}
@@ -141,32 +142,38 @@ func execute(ctx context.Context, options Options, args arguments) (droids.ToolR
 
 // destination resolves the requested path against the session cwd and refuses
 // protected directories, following symbolic links in its existing ancestors.
-func destination(options Options, requested string) (string, error) {
+// anchor is the cwd a relative request resolved against, and empty otherwise.
+func destination(options Options, requested string) (path, anchor string, err error) {
 	if strings.TrimSpace(requested) == "" {
-		return "", errors.New("path is required")
+		return "", "", errors.New("path is required")
 	}
 	if strings.IndexByte(requested, 0) >= 0 {
-		return "", errors.New("path contains NUL")
+		return "", "", errors.New("path contains NUL")
 	}
-	path := requested
+	path = requested
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("resolve home directory: %w", err)
+			return "", "", fmt.Errorf("resolve home directory: %w", err)
 		}
 		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
 	}
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(options.CWD(), path)
+		// Writing beneath a removed cwd would silently recreate it.
+		anchor = options.CWD()
+		if err := codingtools.CheckCWD(anchor, "use an absolute path"); err != nil {
+			return "", "", err
+		}
+		path = filepath.Join(anchor, path)
 	}
 	path = filepath.Clean(path)
 	if path == string(filepath.Separator) {
-		return "", errors.New("path names a directory")
+		return "", "", errors.New("path names a directory")
 	}
 	if err := checkProtected(options.Protected, path); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return path, nil
+	return path, anchor, nil
 }
 
 func checkProtected(protected []string, path string) error {
@@ -224,7 +231,7 @@ func within(root, path string) bool {
 // write stages the attachment beside path and publishes it with a rename, so
 // a reader never sees a partial file. Without overwrite, publication fails if
 // anything exists at path; with it, only a regular file is replaced.
-func write(ctx context.Context, options Options, path string, overwrite bool, record attachment.Record, content io.Reader) (resultErr error) {
+func write(ctx context.Context, options Options, path, anchor string, overwrite bool, record attachment.Record, content io.Reader) (resultErr error) {
 	if info, err := os.Lstat(path); err == nil {
 		switch {
 		case info.Mode()&os.ModeSymlink != 0:
@@ -238,7 +245,7 @@ func write(ctx context.Context, options Options, path string, overwrite bool, re
 		return fmt.Errorf("inspect path: %w", err)
 	}
 	parent := filepath.Dir(path)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
+	if err := codingtools.CreateParents(anchor, path); err != nil {
 		return fmt.Errorf("create parent directories: %w", err)
 	}
 	// Re-check after creating directories: a link created meanwhile must not

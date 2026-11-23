@@ -440,3 +440,87 @@ func TestBashToolTellsTheModelAboutItsSessionsID(t *testing.T) {
 		t.Fatalf("description = %q, want %q", got, want)
 	}
 }
+
+// A session can outlive its working directory. Relative paths and commands
+// then fail with an explanation instead of a misleading missing-file error,
+// and a relative write does not recreate the removed directory.
+func TestToolsExplainARemovedWorkingDirectory(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "removed")
+	current := func() string { return cwd }
+	pathError := "Error: the working directory " + cwd + " does not exist; change the working directory or use an absolute path"
+	commandError := "Error: the working directory " + cwd + " does not exist; change the working directory"
+	content := "text"
+	executions := []struct {
+		name string
+		run  func() (droids.ToolResult, error)
+		want string
+	}{
+		{"bash", func() (droids.ToolResult, error) {
+			return newBashToolWithCWD(current, "").Execute(t.Context(), droids.ToolContext{}, bashArgs{Command: "pwd"}, nil)
+		}, commandError},
+		{"read", func() (droids.ToolResult, error) {
+			return newReadToolWithCWD(current).Execute(t.Context(), droids.ToolContext{}, readArgs{Path: "notes.txt"}, nil)
+		}, pathError},
+		{"write", func() (droids.ToolResult, error) {
+			return newWriteToolWithCWD(current).Execute(t.Context(), droids.ToolContext{}, writeArgs{Path: "notes.txt", Content: &content}, nil)
+		}, pathError},
+		{"edit", func() (droids.ToolResult, error) {
+			return newEditToolWithCWD(current).Execute(t.Context(), droids.ToolContext{}, editArgs{Path: "notes.txt", OldText: &content, NewText: &content}, nil)
+		}, pathError},
+		{"ls", func() (droids.ToolResult, error) {
+			return newListToolWithCWD(current).Execute(t.Context(), droids.ToolContext{}, listArgs{}, nil)
+		}, pathError},
+		{"grep", func() (droids.ToolResult, error) {
+			return newGrepToolWithCWD(current).Execute(t.Context(), droids.ToolContext{}, grepArgs{Pattern: "text"}, nil)
+		}, pathError},
+		{"find", func() (droids.ToolResult, error) {
+			return newFindToolWithCWD(current).Execute(t.Context(), droids.ToolContext{}, findArgs{Pattern: "*.txt"}, nil)
+		}, pathError},
+	}
+	for _, execution := range executions {
+		result, err := execution.run()
+		if err != nil || !result.IsError || resultText(t, result) != execution.want {
+			t.Errorf("%s in a removed cwd = %q (error result %v), %v; want %q", execution.name, resultText(t, result), result.IsError, err, execution.want)
+		}
+	}
+	if _, err := os.Stat(cwd); !os.IsNotExist(err) {
+		t.Fatalf("a tool recreated the removed cwd: %v", err)
+	}
+
+	absolute := filepath.Join(t.TempDir(), "notes.txt")
+	result, err := newWriteToolWithCWD(current).Execute(t.Context(), droids.ToolContext{}, writeArgs{Path: absolute, Content: &content}, nil)
+	if err != nil || result.IsError {
+		t.Fatalf("absolute write in a removed cwd = %q, %v", resultText(t, result), err)
+	}
+	result, err = newReadToolWithCWD(current).Execute(t.Context(), droids.ToolContext{}, readArgs{Path: absolute}, nil)
+	if err != nil || resultText(t, result) != content {
+		t.Fatalf("absolute read in a removed cwd = %q, %v", resultText(t, result), err)
+	}
+}
+
+// A cwd removed after a relative path was resolved against it is not
+// recreated when the write creates its parent directories.
+func TestCreateParentsDoesNotRecreateARemovedCWD(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "removed")
+	if err := os.Mkdir(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateParents(cwd, filepath.Join(cwd, "docs", "notes", "file.txt")); err != nil {
+		t.Fatalf("CreateParents() in an existing cwd: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(cwd, "docs", "notes")); err != nil || !info.IsDir() {
+		t.Fatalf("parents were not created: %v", err)
+	}
+	if err := os.RemoveAll(cwd); err != nil {
+		t.Fatal(err)
+	}
+	want := "the working directory " + cwd + " does not exist; change the working directory or use an absolute path"
+	for _, path := range []string{filepath.Join(cwd, "file.txt"), filepath.Join(cwd, "docs", "file.txt")} {
+		if err := CreateParents(cwd, path); err == nil || err.Error() != want {
+			t.Errorf("CreateParents(%q) = %v, want %q", path, err, want)
+		}
+	}
+	if _, err := os.Stat(cwd); !os.IsNotExist(err) {
+		t.Fatalf("CreateParents recreated the removed cwd: %v", err)
+	}
+}

@@ -61,7 +61,10 @@ func newListToolWithCWD(currentCWD CWDProvider) droids.Tool[listArgs] {
 			if err := ctx.Err(); err != nil {
 				return droids.ToolResult{}, err
 			}
-			path := optionalPath(currentCWD(), args.Path)
+			path, err := optionalPath(currentCWD(), args.Path)
+			if err != nil {
+				return errorResult(err, listDetails{Path: args.Path}), nil
+			}
 			file, err := openDirectory(path)
 			if err != nil {
 				return errorResult(err, listDetails{Path: path}), nil

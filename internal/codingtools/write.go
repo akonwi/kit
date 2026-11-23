@@ -3,7 +3,6 @@ package codingtools
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -47,7 +46,8 @@ func newWriteToolWithCWD(currentCWD CWDProvider) droids.Tool[writeArgs] {
 			if len(content) > maxWriteBytes {
 				return errorResult(fmt.Errorf("content exceeds %d MiB limit", maxWriteBytes>>20), writeDetails{Path: args.Path}), nil
 			}
-			path, err := resolvePath(currentCWD(), args.Path)
+			cwd := currentCWD()
+			path, err := resolvePath(cwd, args.Path)
 			if err != nil {
 				return errorResult(err, writeDetails{Path: args.Path}), nil
 			}
@@ -55,7 +55,11 @@ func newWriteToolWithCWD(currentCWD CWDProvider) droids.Tool[writeArgs] {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				anchor := ""
+				if !filepath.IsAbs(args.Path) {
+					anchor = cwd
+				}
+				if err := CreateParents(anchor, path); err != nil {
 					return fmt.Errorf("create parent directories: %w", err)
 				}
 				return writeRegularFile(ctx, path, []byte(content), 0o666)

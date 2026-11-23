@@ -153,6 +153,9 @@ func RunCommand(ctx context.Context, shell, command, cwd, sessionID string, time
 	if err := ctx.Err(); err != nil {
 		return CommandExecution{}, err
 	}
+	if err := CheckCWD(cwd, ""); err != nil {
+		return CommandExecution{}, err
+	}
 	capture := &commandCapture{limit: outputLimit}
 	lifetimeRead, lifetimeWrite, err := os.Pipe()
 	if err != nil {

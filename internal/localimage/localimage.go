@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/akonwi/kit/internal/attachment"
+	"github.com/akonwi/kit/internal/codingtools"
 )
 
 // CWDProvider returns one session's current working directory.
@@ -32,7 +33,11 @@ func Persist(ctx context.Context, options Options, requestedPath string) (attach
 	}
 	path := requestedPath
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(options.CWD(), path)
+		cwd := options.CWD()
+		if err := codingtools.CheckCWD(cwd, "use an absolute path"); err != nil {
+			return attachment.Record{}, err
+		}
+		path = filepath.Join(cwd, path)
 	}
 	path = filepath.Clean(path)
 	file, err := os.Open(path)

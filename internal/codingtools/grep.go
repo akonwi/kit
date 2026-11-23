@@ -126,7 +126,10 @@ func executeGrep(ctx context.Context, cwd string, args grepArgs) (droids.ToolRes
 		}
 	}
 
-	root := optionalPath(cwd, args.Path)
+	root, err := optionalPath(cwd, args.Path)
+	if err != nil {
+		return droids.ToolResult{}, err
+	}
 	rootInfo, err := os.Stat(root)
 	if err != nil {
 		return droids.ToolResult{}, fmt.Errorf("path not found: %s", root)

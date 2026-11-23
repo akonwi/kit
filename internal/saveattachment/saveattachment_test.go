@@ -123,6 +123,23 @@ func TestSaveAttachmentCopiesTheBytesToARelativePath(t *testing.T) {
 	}
 }
 
+// Saving beneath a session cwd that was removed would silently recreate it.
+func TestSaveAttachmentRefusesARelativePathInARemovedCWD(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	if err := os.Remove(f.cwd); err != nil {
+		t.Fatal(err)
+	}
+	result := f.run(t, arguments{Attachment: f.record.ID, Path: "docs/screenshot.png"})
+	want := "Error: the working directory " + f.cwd + " does not exist; change the working directory or use an absolute path"
+	if !result.IsError || resultText(t, result) != want {
+		t.Fatalf("result = %q, want %q", resultText(t, result), want)
+	}
+	if _, err := os.Stat(f.cwd); !os.IsNotExist(err) {
+		t.Fatalf("saving recreated the removed cwd: %v", err)
+	}
+}
+
 func TestSaveAttachmentRequiresOverwriteToReplaceAFile(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
