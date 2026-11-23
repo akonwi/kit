@@ -56,19 +56,16 @@ struct InteractionDock: View {
     @ViewBuilder
     private var header: some View {
         if flow.guided {
-            HStack(spacing: 10) {
-                Text("QUESTION \(flow.step + 1) OF \(flow.questions.count)")
-                    .font(.system(size: 12, weight: .medium))
-                    .tracking(0.6)
-                    .foregroundStyle(Theme.muted)
-                    .accessibilityHidden(true)
-                Spacer(minLength: 8)
+            // The set's title, then under it what it says and each question.
+            HStack(alignment: .top, spacing: 10) {
+                DockTitle(text: flow.title)
                 StepTrail(flow: flow)
+                    .padding(.top, 9)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Question \(flow.step + 1) of \(flow.questions.count)")
                 CollapseButton { interactions.collapsed = true }
+                    .padding(.top, -3)
             }
-            DockTitle(text: flow.question.prompt)
         } else {
             HStack(alignment: .top, spacing: 10) {
                 Text("?")
@@ -127,12 +124,31 @@ struct InteractionDock: View {
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.danger)
         } else {
-            let detail = flow.guided ? flow.question.detail : flow.detail
-            if !detail.isEmpty {
+            if !flow.detail.isEmpty {
                 // Wide code and tables scroll sideways inside it.
-                CappedScroll(maxHeight: detailHeight) {
-                    MarkdownBlocks(source: detail)
+                CappedScroll(maxHeight: flow.guided ? 160 : detailHeight) {
+                    MarkdownBlocks(source: flow.detail)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            if flow.guided {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("QUESTION \(flow.step + 1) OF \(flow.questions.count)")
+                        .font(.system(size: 12, weight: .medium))
+                        .tracking(0.6)
+                        .foregroundStyle(Theme.muted)
+                        .accessibilityHidden(true)
+                    Text(flow.question.prompt)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !flow.question.detail.isEmpty {
+                    CappedScroll(maxHeight: detailHeight) {
+                        MarkdownBlocks(source: flow.question.detail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             if let url = flow.authorizationURL {
