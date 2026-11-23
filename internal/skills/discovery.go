@@ -93,7 +93,10 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 	if err := ctx.Err(); err != nil {
 		return LoadResult{}, err
 	}
-	var optional []Skill
+	optional := []Skill{kitBrowserSkill()}
+	if location, ok := state.seenNames[KitBrowserName]; ok {
+		state.note("skills.builtin_replaced", "Kit's built-in browser skill was replaced by this skill", location)
+	}
 	if l.findRex != nil {
 		if path := l.findRex(); path != "" {
 			optional = append(optional, rexSkill(path))

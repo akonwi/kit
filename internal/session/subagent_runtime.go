@@ -259,7 +259,7 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 	if f.ClientTools != nil {
 		feed, err := f.ClientTools(ctx, conversation.OwnerSessionID)
 		if err == nil {
-			detachClientTools, err = feed.Attach(droid)
+			detachClientTools, err = feed.Attach(droid, bundle.Skills)
 		}
 		if err != nil {
 			_ = droid.Close()

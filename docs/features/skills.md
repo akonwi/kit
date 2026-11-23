@@ -6,7 +6,9 @@ Skills are Markdown instruction bundles that Kit advertises to the model and loa
 
 For each session runtime, Kit discovers skills in this order:
 
-1. the embedded, reserved `kit-customization` and `kit-figures` skills;
+1. the embedded, reserved `kit-customization` and `kit-figures` skills, and the
+   embedded [`rex`](#the-rex-skill) and [`kit-browser`](#the-browser-skill)
+   skills where they apply;
 2. user-global skill directories under the resolved Kit home's `skills/` directory; and
 3. project skill directories under `<session-cwd>/.agents/skills/`.
 
@@ -35,6 +37,26 @@ also shows how a job in a pane can start a turn when it ends, with
 A user or project skill named `rex` replaces Kit's, with an informational
 reload diagnostic.
 
+## The browser skill
+
+While the macOS app shows a session, it hosts the in-app browser's tools
+(`browser__tabs`, `browser__navigate`, `browser__snapshot`, `browser__act`,
+and `browser__screenshot`; see
+[ADR 0051](../adrs/0051-let-attached-clients-host-session-plugins.md#the-macos-browser-plugin)).
+While all five are connected, Kit also offers the built-in `kit-browser`
+skill. It covers when to use the browser instead of curl or fetching, the
+snapshot→act loop, screenshots, the user's tabs and sign-ins, untrusted pages,
+downloads, and showing the user what was done.
+
+The skill appears in the model's catalog when the app connects and leaves it
+when the app disconnects, with no reload. Subagents that receive the browser
+tools get it too. Asking `activate_skill` for it while the tools aren't
+connected returns a message saying it isn't available.
+
+A user or project skill named `kit-browser` replaces Kit's, with an
+informational reload diagnostic, and is offered all the time like any other
+skill.
+
 ## Directory and file format
 
 A skill is a directory containing an exact `SKILL.md` file. Discovery recursively visits ordinary subdirectories in deterministic name order, skipping hidden directories, `node_modules`, and symlinks. Once a directory containing `SKILL.md` is found, Kit treats it as a skill root and does not recurse below it.
@@ -58,6 +80,6 @@ The catalog contains each visible skill's absolute `SKILL.md` location. When act
 
 ## Lifecycle and diagnostics
 
-Discovery occurs when a session runtime is first loaded and on explicit reload. Add, remove, or edit skills, then run **reload** from the native command palette to update both the advertised catalog and `activate_skill` atomically. Reload remains available during active work; an in-flight provider request keeps its captured catalog and the next request uses the replacement. Changing the session cwd retargets relative filesystem tools but does not implicitly replace the skill registry; reload after moving when project skills from the destination should apply.
+Discovery occurs when a session runtime is first loaded and on explicit reload. Only the listing of `kit-browser` changes between reloads, as the browser tools come and go. Add, remove, or edit skills, then run **reload** from the native command palette to update both the advertised catalog and `activate_skill` atomically. Reload remains available during active work; an in-flight provider request keeps its captured catalog and the next request uses the replacement. Changing the session cwd retargets relative filesystem tools but does not implicitly replace the skill registry; reload after moving when project skills from the destination should apply.
 
 Unreadable, malformed, invalid, duplicate, reserved, oversized, escaped, and over-limit definitions are omitted with bounded structured diagnostics. One skill file is limited to 256 KiB, a registry to 128 skills including the embedded skills, and the model-visible catalog to 256 KiB.

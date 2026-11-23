@@ -2618,7 +2618,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		runs: make(map[string]*liveRun), interactions: interactions,
 		pluginImages: pluginImageStore{sessionID: record.ID, store: m.attachments},
 	}
-	loaded.pluginContributions.initialize(bundle.Subagents, droid)
+	loaded.pluginContributions.initialize(bundle.Subagents, bundle.Skills, droid)
 	interactions.setDroid(droid)
 	quiescent, err := droid.WaitQuiescent(ctx)
 	if err != nil {

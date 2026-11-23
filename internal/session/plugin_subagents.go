@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/subagent"
 )
 
@@ -33,12 +34,16 @@ type pluginContributionState struct {
 	base        subagent.LoadResult
 	effective   subagent.LoadResult
 	plugins     []PluginSubagent
-	droid       atomic.Pointer[droids.Droid]
+	// skills is the applied bundle's skill offering, told which client tools
+	// are connected.
+	skills *skills.Offering
+	droid  atomic.Pointer[droids.Droid]
 }
 
-func (s *pluginContributionState) initialize(base subagent.LoadResult, droid *droids.Droid) {
+func (s *pluginContributionState) initialize(base subagent.LoadResult, offering *skills.Offering, droid *droids.Droid) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.skills = offering
 	s.base = cloneSubagentLoadResult(base)
 	s.effective = cloneSubagentLoadResult(base)
 	s.plugins = nil
@@ -47,9 +52,10 @@ func (s *pluginContributionState) initialize(base subagent.LoadResult, droid *dr
 
 func (s *pluginContributionState) setDroid(droid *droids.Droid) { s.droid.Store(droid) }
 
-func (s *pluginContributionState) setBase(base subagent.LoadResult) {
+func (s *pluginContributionState) setBase(base subagent.LoadResult, offering *skills.Offering) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.skills = offering
 	s.base = cloneSubagentLoadResult(base)
 	s.effective = cloneSubagentLoadResult(base)
 	s.plugins = nil

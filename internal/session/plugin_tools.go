@@ -114,11 +114,13 @@ func (r *runtime) refreshPluginContributions() {
 	tools, toolPrompt, err := projectPluginTools(toolHost, toolsCatalog, primaryPluginToolCall, r.pluginImages)
 	var clientTools []droids.AnyTool
 	var clientPrompt string
+	var clientNames []string
 	if err == nil {
 		var clientCatalog []PluginTool
 		for _, tool := range toolsCatalog {
 			if tool.Client {
 				clientCatalog = append(clientCatalog, tool)
+				clientNames = append(clientNames, tool.ModelName)
 			}
 		}
 		clientTools, clientPrompt, err = projectPluginTools(toolHost, clientCatalog, subagentPluginToolCall, r.pluginImages)
@@ -137,23 +139,27 @@ func (r *runtime) refreshPluginContributions() {
 		if droid == nil {
 			err = fmt.Errorf("plugin contribution droid is unavailable")
 		} else {
-			err = droid.SetAdditionalTools(tools, toolPrompt+subagentPrompt)
+			// Skills that need client tools are offered while they're
+			// connected, and the prompt lists them.
+			skillPrompt := r.pluginContributions.skills.SetClientTools(clientNames)
+			err = droid.SetAdditionalTools(tools, toolPrompt+subagentPrompt+skillPrompt)
 		}
 	}
 	if err != nil {
 		// Never leave revoked or incoherent contributions advertised.
+		r.pluginContributions.skills.SetClientTools(nil)
 		if droid := r.pluginContributions.droid.Load(); droid != nil {
 			_ = droid.SetAdditionalTools(nil, "")
 		}
 		warning := pluginContributionWarning(err)
 		r.pluginToolState.warning.Store(&warning)
-		r.clientTools.publish(nil, "")
+		r.clientTools.publish(nil, "", nil)
 		r.pluginContributions.effective = cloneSubagentLoadResult(r.pluginContributions.base)
 		r.pluginContributions.plugins = nil
 		r.pluginContributions.fingerprint = [32]byte{}
 	} else {
 		r.pluginToolState.warning.Store(nil)
-		r.clientTools.publish(clientTools, clientPrompt)
+		r.clientTools.publish(clientTools, clientPrompt, clientNames)
 		r.pluginContributions.effective = effective
 		r.pluginContributions.plugins = append([]PluginSubagent(nil), subagentCatalog...)
 		r.pluginContributions.fingerprint = fingerprint

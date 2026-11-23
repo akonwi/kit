@@ -94,7 +94,7 @@ func (m *Manager) reloadTransitioning(ctx context.Context, sessionID string, loa
 	}
 	loaded.model = model
 	loaded.bundle = cloneRuntimeBundle(replacement)
-	loaded.pluginContributions.setBase(replacement.Subagents)
+	loaded.pluginContributions.setBase(replacement.Subagents, replacement.Skills)
 	if loaded.plugins != nil {
 		if host, ok := loaded.plugins.(PluginSubagentBaseHost); ok {
 			host.SetSubagentBase(pluginSubagentNames(replacement.Subagents))

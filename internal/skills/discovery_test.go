@@ -31,7 +31,7 @@ func TestFilesystemLoaderDiscoversGlobalAndProjectSkillsWithPrecedence(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := skillNames(result.Registry.Skills()), []string{"debug", KitCustomizationName, KitFiguresName, "review"}; !reflect.DeepEqual(got, want) {
+	if got, want := skillNames(result.Registry.Skills()), []string{"debug", KitBrowserName, KitCustomizationName, KitFiguresName, "review"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("skill names = %#v, want %#v", got, want)
 	}
 	review, _ := result.Registry.Lookup("review")
@@ -124,7 +124,7 @@ func TestFilesystemLoaderReportsInvalidAndReservedDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Registry.Skills()) != len(builtinSkills()) || !hasSkillDiagnostic(result, "skills.reserved_name", reserved) ||
+	if len(result.Registry.Skills()) != len(builtinSkills())+1 || !hasSkillDiagnostic(result, "skills.reserved_name", reserved) ||
 		!hasSkillDiagnostic(result, "skills.reserved_name", reservedFigures) ||
 		!hasSkillDiagnostic(result, "skills.name_mismatch", mismatch) || !hasSkillDiagnostic(result, "skills.invalid_frontmatter", invalid) {
 		t.Fatalf("invalid discovery result = skills:%#v diagnostics:%#v", result.Registry.Skills(), result.Diagnostics)

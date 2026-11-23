@@ -25,12 +25,22 @@ type activateDetails struct {
 	Location string `json:"location,omitempty"`
 }
 
-// ActivateTool returns the skill activation tool bound to this registry.
+// ActivateTool returns the skill activation tool bound to this registry,
+// with no client tools connected.
 func (r *Registry) ActivateTool() droids.AnyTool {
-	return droids.MustTool(r.newActivateTool())
+	return r.NewOffering().ActivateTool()
 }
 
 func (r *Registry) newActivateTool() droids.Tool[activateArgs] {
+	return r.NewOffering().newActivateTool()
+}
+
+// ActivateTool returns the skill activation tool bound to this offering.
+func (o *Offering) ActivateTool() droids.AnyTool {
+	return droids.MustTool(o.newActivateTool())
+}
+
+func (o *Offering) newActivateTool() droids.Tool[activateArgs] {
 	return droids.Tool[activateArgs]{
 		Name:        ActivateToolName,
 		Description: "Load the full instructions for an available skill by its stable name.",
@@ -53,9 +63,14 @@ func (r *Registry) newActivateTool() droids.Tool[activateArgs] {
 			if err := ctx.Err(); err != nil {
 				return droids.ToolResult{}, err
 			}
-			skill, ok := r.Lookup(args.Name)
+			skill, ok := o.registry.Lookup(args.Name)
+			if ok && !o.offered(skill) {
+				message := fmt.Sprintf("Skill %q isn't available now: it needs the tools %s, which a connected Kit app provides, and they aren't connected.",
+					skill.Name, strings.Join(skill.ClientTools, ", "))
+				return activationResult(message, activateDetails{Name: args.Name})
+			}
 			if !ok {
-				available := r.modelInvocableSkills()
+				available := o.offeredSkills()
 				names := make([]string, 0, len(available))
 				for _, candidate := range available {
 					names = append(names, candidate.Name)

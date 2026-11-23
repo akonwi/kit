@@ -74,7 +74,7 @@ func TestTheRexSkillIsOfferedWhereRexIsInstalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := skillNames(result.Registry.Skills()), []string{KitCustomizationName, KitFiguresName, RexName}; !reflect.DeepEqual(got, want) {
+	if got, want := skillNames(result.Registry.Skills()), []string{KitBrowserName, KitCustomizationName, KitFiguresName, RexName}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("skill names = %#v, want %#v", got, want)
 	}
 	rex, _ := result.Registry.Lookup(RexName)

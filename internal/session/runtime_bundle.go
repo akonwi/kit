@@ -41,8 +41,13 @@ type RuntimeBundle struct {
 	Tools          []droids.AnyTool
 	PromptCommands *promptcommands.Registry
 	Subagents      subagent.LoadResult
-	MCPServers     []MCPServerInfo
-	MCPWarnings    []string
+	// Skills is the offering behind the bundle's activate_skill tool. The
+	// runtime that applies the bundle tells it which client tools are
+	// connected, so skills that need them are listed and activated only
+	// then. Copies of the bundle share it.
+	Skills      *skills.Offering
+	MCPServers  []MCPServerInfo
+	MCPWarnings []string
 	// ProjectUnavailable reports that the session cwd was not an existing
 	// directory when the bundle was built, so project skills, context, prompt
 	// commands, agents, and MCP configuration were omitted.
@@ -269,7 +274,8 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 		}
 		tools = append(tools, tool)
 	}
-	tools = append(tools, registry.ActivateTool())
+	offering := registry.NewOffering()
+	tools = append(tools, offering.ActivateTool())
 	if record.Persistent && b.subagentLoader != nil {
 		tool, toolErr := b.subagentToolFactory.Tool(record.ID, subagents.Catalog)
 		if toolErr != nil {
@@ -306,7 +312,7 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 			Sources:     append([]systemprompt.Source(nil), result.Sources...),
 			Diagnostics: append(append([]systemprompt.Diagnostic(nil), result.Diagnostics...), diagnostics...),
 		},
-		Tools: tools, PromptCommands: commands, Subagents: subagents, MCP: manager,
+		Tools: tools, PromptCommands: commands, Subagents: subagents, Skills: offering, MCP: manager,
 		MCPServers: mcpServers, MCPWarnings: mcpWarnings, ProjectUnavailable: projectUnavailable,
 	}, nil
 }

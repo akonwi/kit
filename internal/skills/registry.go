@@ -62,6 +62,10 @@ type Skill struct {
 	Source                 Source
 	Location               string
 	DisableModelInvocation bool
+	// ClientTools names the client-hosted tools a skill needs. Kit offers a
+	// skill that names any only while all of them are connected; see
+	// Offering.
+	ClientTools []string
 }
 
 // Registry is the immutable set of skills applicable to one session. Skill
@@ -122,6 +126,7 @@ func (r *Registry) Lookup(name string) (Skill, bool) {
 		return Skill{}, false
 	}
 	skill, ok := r.byName[name]
+	skill.ClientTools = append([]string(nil), skill.ClientTools...)
 	return skill, ok
 }
 
@@ -130,7 +135,11 @@ func (r *Registry) Skills() []Skill {
 	if r == nil {
 		return nil
 	}
-	return append([]Skill(nil), r.skills...)
+	skills := append([]Skill(nil), r.skills...)
+	for index := range skills {
+		skills[index].ClientTools = append([]string(nil), skills[index].ClientTools...)
+	}
+	return skills
 }
 
 func (r *Registry) modelInvocableSkills() []Skill {
@@ -163,6 +172,10 @@ func normalizeSkill(skill Skill) (Skill, error) {
 	if len(skill.Location) > maxSkillLocationBytes || !validModelText(skill.Location) {
 		return Skill{}, fmt.Errorf("skill %q location must be valid text and at most %d bytes", skill.Name, maxSkillLocationBytes)
 	}
+	if len(skill.ClientTools) > 0 && skill.Source != SourceBuiltin {
+		return Skill{}, fmt.Errorf("skill %q: only embedded skills may need client tools", skill.Name)
+	}
+	skill.ClientTools = append([]string(nil), skill.ClientTools...)
 	return skill, nil
 }
 

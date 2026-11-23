@@ -123,6 +123,16 @@ duplicate, reserved, and over-limit definitions as structured diagnostics. The
 catalog and activation tool are always derived from the same immutable discovery
 snapshot.
 
+An embedded skill may need client-hosted tools (ADR 0051), as `kit-browser`
+needs the macOS browser tools. The snapshot always holds it, but it is offered
+only while every tool it needs is connected. It is left out of the catalog
+section. While the tools are connected, it is listed after them in the prompt
+that the plugin tool contributions carry, and `activate_skill` loads it. At
+other times, `activate_skill` says it isn't available. The listing follows
+clients as they arrive and leave without a reload, and subagents that receive
+the client tools receive it with them. Like `rex`, a user or project skill of
+the same name replaces it.
+
 The runtime bundle also carries an immutable registry of user-global and
 project-local prompt commands, including Claude Code commands (ADR 0042). Prompt templates are not system-prompt sections:
 the server exposes renderer-safe command metadata to clients and expands a
@@ -280,6 +290,8 @@ The implementation must demonstrate:
 - `activate_skill` is available in every normal Kit session;
 - `kit-customization` and `kit-figures` are embedded, advertised, activatable,
   and protected from name shadowing;
+- `kit-browser` is embedded and offered only while the client tools it needs
+  are connected;
 - user-global and project `SKILL.md` definitions are discovered deterministically,
   bounded safely, surfaced in diagnostics, and refreshed atomically on reload;
 - attaching a client does not reload an existing runtime;

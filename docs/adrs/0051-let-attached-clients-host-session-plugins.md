@@ -264,8 +264,10 @@ upload; a page cannot steer it to the rest of the Mac.
 - The agent can act on the user's own tabs, with their sign-ins and the Mac's
   network, even when the server is remote.
 - There is one plugin model. Client-hosted tools get the same naming,
-  validation, fencing, and catalog behavior as process plugin tools, and the
-  server holds no browser-specific code.
+  validation, fencing, and catalog behavior as process plugin tools. The
+  server's only browser-specific code is the embedded `kit-browser` skill
+  (ADR 0010), which names the browser tools it teaches and is offered while
+  they're connected.
 - Adding or changing a browser action changes the app, not the server.
 - The tools exist only while a capable client shows the session. A session with
   no such client, such as one driven from the TUI or by a plugin with nobody

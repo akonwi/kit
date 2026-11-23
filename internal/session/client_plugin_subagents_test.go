@@ -47,7 +47,7 @@ func TestClientPluginToolsFollowTheOwnerIntoAttachedSubagents(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer child.Close()
-	detach, err := feed.Attach(child)
+	detach, err := feed.Attach(child, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
