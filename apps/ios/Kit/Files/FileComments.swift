@@ -44,6 +44,7 @@ enum FileComments {
 struct CommentableFile: View {
     let file: WireWorkspaceFileRead
     let lines: [String]
+    var longest: Int?
     var colored: [AttributedString]?
     let wrap: Bool
     var marked: ClosedRange<Int>?
@@ -73,7 +74,7 @@ struct CommentableFile: View {
         let selected = selected
         let placed = FileComments.placement(annotations.records, path: file.path, count: lines.count,
                                             except: editor?.editing)
-        FileLines(lines: lines, colored: colored, wrap: wrap, marked: marked, selected: selected,
+        FileLines(lines: lines, longest: longest, colored: colored, wrap: wrap, marked: marked, selected: selected,
                   handle: annotations.pending || editor == nil ? nil : selected?.upperBound,
                   findMarks: findMarks, reveal: reveal, viewport: viewport,
                   tap: select, drag: drag, drop: drop) { line in

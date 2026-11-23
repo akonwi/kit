@@ -280,6 +280,7 @@ struct FileScreen: View {
                 }
                 ZoomableImage(image: Image(uiImage: image))
                     .accessibilityIdentifier("file-image")
+                if let notice = reader.notice { FileNote(text: notice) }
             }
         } else if let file = reader.text {
             VStack(spacing: 0) {
@@ -302,7 +303,7 @@ struct FileScreen: View {
                                     openLink(file)
                                     return .handled
                                 })
-                            if let notice = reader.truncationNotice { FileNote(text: notice).padding(.horizontal, -20) }
+                            if let notice = reader.notice { FileNote(text: notice).padding(.horizontal, -20) }
                         }
                         .padding(.horizontal, 20)
                         .padding(.top, 12)
@@ -324,7 +325,7 @@ struct FileScreen: View {
                 } else if onServer || reader.file == nil {
                     // View-only: comments anchor to the session's own files.
                     ScrollViewReader { proxy in
-                        FileLines(lines: reader.lines, colored: colored?.revision == file.revision ? colored?.lines : nil,
+                        FileLines(lines: reader.lines, longest: reader.longest, colored: colored?.revision == file.revision ? colored?.lines : nil,
                                   wrap: wrapLines || markdown, marked: focus,
                                   findMarks: marking(.source) ? { findMarks($0) } : { _ in [] },
                                   reveal: findReveal, viewport: viewport,
@@ -336,10 +337,10 @@ struct FileScreen: View {
                         }
                         .accessibilityIdentifier("file-lines")
                     }
-                    if let notice = reader.truncationNotice { FileNote(text: notice) }
+                    if let notice = reader.notice { FileNote(text: notice) }
                 } else if let workspaceFile = reader.file {
                     ScrollViewReader { proxy in
-                        CommentableFile(file: workspaceFile, lines: reader.lines,
+                        CommentableFile(file: workspaceFile, lines: reader.lines, longest: reader.longest,
                                         colored: colored?.revision == file.revision ? colored?.lines : nil,
                                         wrap: wrapLines || markdown, marked: focus,
                                         findMarks: marking(.source) ? { findMarks($0) } : { _ in [] },
@@ -364,7 +365,7 @@ struct FileScreen: View {
                             proxy.scrollTo(focus.lowerBound, anchor: UnitPoint(x: 0, y: 0.35))
                         }
                     }
-                    if let notice = reader.truncationNotice { FileNote(text: notice) }
+                    if let notice = reader.notice { FileNote(text: notice) }
                 }
             }
         } else if let error = reader.error {
@@ -374,7 +375,14 @@ struct FileScreen: View {
                 Button("Try Again") { Task { await load() } }
             }
         } else {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if let progress = reader.progress {
+                    ProgressView(value: progress).frame(maxWidth: 200)
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

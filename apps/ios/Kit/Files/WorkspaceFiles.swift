@@ -1,9 +1,9 @@
 import Foundation
 import KitClient
 
-/// What a session's files are read through: its file index, its workspace
-/// files, and files elsewhere on its server.
-protocol FileBrowsingClient: WorkspaceFileClient, HostFileClient {
+/// What a session's files are read through: its file index, and downloads
+/// of its workspace files and files elsewhere on its server.
+protocol FileBrowsingClient: FileDownloadClient {
     func fileIndex(_ session: String, refresh: Bool) async throws -> FileIndex
 }
 

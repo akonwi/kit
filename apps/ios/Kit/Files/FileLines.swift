@@ -15,6 +15,9 @@ import UIKit
 /// into view, sideways too, unless it's on screen.
 struct FileLines<Below: View>: View {
     let lines: [String]
+    /// The length of the longest line, when already known, since measuring
+    /// megabytes of lines on every scroll is slow.
+    var longest: Int?
     /// Each line colored by syntax, once highlighting finishes.
     var colored: [AttributedString]?
     let wrap: Bool
@@ -49,7 +52,7 @@ struct FileLines<Below: View>: View {
 
     var body: some View {
         let gutter = FileLineMetrics.gutterWidth(lines.count)
-        let width = wrap ? nil : max(screenWidth, gutter + CGFloat(FileLineMetrics.longest(lines)) * Self.advance + 16)
+        let width = wrap ? nil : max(screenWidth, gutter + CGFloat(longest ?? FileLineMetrics.longest(lines)) * Self.advance + 16)
         ScrollViewReader { proxy in
             Group {
                 if let width {
