@@ -52,6 +52,10 @@ final class PairingUITests: XCTestCase {
         attach(app, "Confirm")
         pair.tap()
 
+        // Pairing opens the new server's sessions; its row is under Servers.
+        XCTAssertTrue(app.staticTexts["No sessions yet"].waitForExistence(timeout: 15), "The paired server's sessions open")
+        attach(app, "Sessions")
+        app.buttons["Servers"].tap()
         let row = app.staticTexts[host]
         XCTAssertTrue(row.waitForExistence(timeout: 15), "The paired server is listed")
         let online = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "http://\(host)")).firstMatch
