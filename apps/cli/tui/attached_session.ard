@@ -2152,11 +2152,9 @@ impl Controller {
       lifetime => {
         match self.session {
           session => {
-            Maybe::new(
-              fn(input: protocol::DownloadFileInput, held: Str) filedownload::Read!Error {
-                filedownload::Workspace(session, lifetime.Context, input, held)
-              },
-            )
+            Maybe::new(fn(input: protocol::DownloadFileInput, held: Str) filedownload::Read!Error {
+              filedownload::Workspace(session, lifetime.Context, input, held)
+            })
           },
           _ => Maybe::new<fn(protocol::DownloadFileInput, Str) filedownload::Read!Error>(),
         }

@@ -807,7 +807,11 @@ impl Pane {
               self.generation =+ 1
               let generation = self.generation
               self.loading = true
-              let input = protocol::DownloadFileInput{HasWorkspace: true, WorkspaceID: self.props.tab.workspace_id, Path: self.props.tab.path}
+              let input = protocol::DownloadFileInput{
+                HasWorkspace: true,
+                WorkspaceID: self.props.tab.workspace_id,
+                Path: self.props.tab.path,
+              }
               let dispatch = context.dispatch
               let wanted = is_markdown(self.props.tab.path)
               let held = self.revision
