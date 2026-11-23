@@ -78,33 +78,11 @@ private func client(_ port: Int, _ script: @escaping @Sendable (String) -> Statu
                           serverID: "test", configuration: configuration)
 }
 
-private let workspace = #"{"sessionId":"s","cwd":"/tmp/repo","workspaceId":"workspace_test","state":"ready","limits":{"maxPathBytes":4096,"maxPathComponents":64,"defaultDirectoryPageSize":100,"maxDirectoryPageSize":200,"maxDirectoryEntries":10000,"maxDirectoryResponseBytes":524288,"maxDirectoryObservationBytes":8388608,"maxPreviewBytes":1000000,"maxPreviewLines":5000,"maxActiveRequests":4,"maxPendingRequests":16}}"#
-
 private let snapshot = #"{"session":{"id":"s","name":"Test","cwd":"/tmp","model":"m","thinkingLevel":"high","configurationRevision":0,"createdAt":"","updatedAt":""},"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"followUps":{"count":0},"messages":[],"eventStreamId":"stream","eventCursor":0}"#
-
-private func fileRead(revision: String) -> String {
-    #"{"sessionId":"s","workspace":\#(workspace),"path":"main.swift","revision":"\#(revision)","size":5,"encoding":"utf-8","content":"hello","returnedBytes":5,"returnedLines":1,"truncated":false}"#
-}
 
 /// Errors the server documents arrive as their status, so callers can tell a
 /// refusal from a broken answer.
 struct ResponseStatusTests {
-    private func readStatus(_ port: Int, _ reply: StatusResponse.Reply) async throws -> Int? {
-        let client = try client(port) { line in
-            line.hasSuffix("/workspace") ? .init(status: 200, body: workspace) : reply
-        }
-        do { _ = try await client.readWorkspaceFile("s", path: "main.swift"); return nil }
-        catch WorkspaceFileError.response(let status) { return status }
-    }
-
-    @Test func aRefusedReadSaysWhy() async throws {
-        #expect(try await readStatus(19801, .init(status: 415, body: refusal("binary_file"))) == 415)
-        #expect(WorkspaceFileError.response(415).errorDescription == "Binary files cannot be previewed.")
-        let stale = #"{"error":{"code":"stale_file","message":"Changed.","details":{}}}"#
-        #expect(try await readStatus(19802, .init(status: 409, body: stale)) == 409)
-        #expect(try await readStatus(19803, .init(status: 418, body: "")) == 418)
-    }
-
     @Test func aHistoryPageTheServerRefusesKeepsItsStatus() async throws {
         let stale = try client(19805) { _ in .init(status: 409, body: refusal("conflict")) }
         let conflict = await status { _ = try await stale.history("s", before: "5") }

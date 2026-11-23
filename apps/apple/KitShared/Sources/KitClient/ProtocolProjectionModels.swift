@@ -1567,18 +1567,6 @@ public struct WireSessionFileIndex: Codable, Sendable {
     }
 }
 
-public struct WireReadWorkspaceFileInput: Codable, Sendable {
-    public let `workspaceId`: String
-    public let `path`: String
-    public let `expectedFileRevision`: String?
-
-    public init(`workspaceId`: String, `path`: String, `expectedFileRevision`: String?) {
-        self.`workspaceId` = `workspaceId`
-        self.`path` = `path`
-        self.`expectedFileRevision` = `expectedFileRevision`
-    }
-}
-
 public typealias WireWorkspaceFileRead = Components.Schemas.WorkspaceFileRead
 
 public struct WireAttachmentInfo: Codable, Sendable {

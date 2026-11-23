@@ -225,25 +225,4 @@ private actor LongFileClient: FileDownloadClient {
         cache.clear()
         #expect(cache.entries.isEmpty)
     }
-    @Test func gateSerializesReads() async throws {
-        actor Counter {
-            var active = 0, peak = 0
-            func begin() { active += 1; peak = max(peak, active) }
-            func end() { active -= 1 }
-        }
-        let gate = WorkspaceReadGate(), counter = Counter()
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for _ in 0..<4 {
-                group.addTask {
-                    try await gate.read {
-                        await counter.begin()
-                        try await Task.sleep(for: .milliseconds(30))
-                        await counter.end()
-                    }
-                }
-            }
-            try await group.waitForAll()
-        }
-        #expect(await counter.peak == 1)
-    }
 }

@@ -1,9 +1,9 @@
 import Foundation
 import ImageIO
 
-/// A file Kit shows from outside the session's workspace: one on the session's
-/// server, read through the session API (ADR 0050), or one on this Mac, read
-/// by the app. Both are bounded the same way and view-only.
+/// A file Kit shows from outside the session's workspace, view-only: an image
+/// downloaded from the session's server (ADR 0074), or a file on this Mac,
+/// read by the app.
 public struct ViewedFile: Equatable, Sendable {
     public enum Content: Equatable, Sendable {
         /// A UTF-8 preview, cut at `ViewedFile.maxTextBytes` or `maxTextLines`.
@@ -33,9 +33,7 @@ public struct ViewedFile: Equatable, Sendable {
 
 /// Why a file outside the workspace can't be shown.
 public enum ViewedFileError: LocalizedError, Equatable {
-    case notFound, notFile, permissionDenied, unsupported, imageTooLarge, invalidPath, busy, changed, unavailable
-    /// The server predates host file reads.
-    case serverNeedsUpdate
+    case notFound, notFile, permissionDenied, unsupported, imageTooLarge, invalidPath, changed, unavailable
 
     public var errorDescription: String? {
         switch self {
@@ -45,50 +43,15 @@ public enum ViewedFileError: LocalizedError, Equatable {
         case .unsupported: "Kit shows text files and PNG, JPEG, GIF, or WebP images."
         case .imageTooLarge: "This image is larger than Kit shows (16 MB or 24 megapixels)."
         case .invalidPath: "This isn’t a path Kit can open."
-        case .busy: "The server is busy. Try again shortly."
         case .changed: "The file changed while it was read. Refresh to try again."
         case .unavailable: "Couldn’t read this file."
-        case .serverNeedsUpdate: "This server’s Kit is too old to open files outside the working directory."
         }
-    }
-}
-
-/// Reads files on a session's server, anywhere on its machine.
-public protocol HostFileClient: SessionClient {
-    func readHostFile(_ session: String, path: String) async throws -> ViewedFile
-}
-
-extension ServerClient: HostFileClient {
-    public func readHostFile(_ session: String, path: String) async throws -> ViewedFile {
-        try await resolve().readHostFile(session, path: path)
     }
 }
 
 extension ViewedFile {
-    /// Projects a server read, checking it answers `requested` in `session`
-    /// and keeps within the advertised bounds.
-    public static func project(_ read: Components.Schemas.HostFileRead, session: String, requested: String) throws -> ViewedFile {
-        func matches(_ path: String) -> Bool {
-            FilePaths.hostPath(path, answers: requested)
-        }
-        switch read {
-        case .text(let text):
-            let content = text.content ?? ""
-            guard text.sessionId == session, matches(text.path), text.encoding == "utf-8",
-                  content.utf8.count == (text.returnedBytes ?? 0), content.utf8.count <= maxTextBytes,
-                  (text.returnedLines ?? 0) <= maxTextLines else { throw ClientError.invalidPayload }
-            return ViewedFile(path: text.path, size: text.size ?? 0, content: .text(content, truncated: text.truncated == true))
-        case .image(let image):
-            guard image.sessionId == session, matches(image.path), imageTypes.contains(image.mediaType),
-                  let data = Data(base64Encoded: image.data), data.count == image.size, data.count <= maxImageBytes,
-                  image.width > 0, image.height > 0, image.width <= maxImagePixels / image.height else { throw ClientError.invalidPayload }
-            return ViewedFile(path: image.path, size: image.size,
-                              content: .image(data, mediaType: image.mediaType, width: image.width, height: image.height))
-        }
-    }
-
-    /// Reads a file on this Mac with the bounds a server read has. Blocks;
-    /// call it off the main actor.
+    /// Reads a file on this Mac, within the bounds Kit shows files in.
+    /// Blocks; call it off the main actor.
     public static func readLocal(path: String) throws -> ViewedFile {
         guard path.hasPrefix("/"), !path.contains("\0") else { throw ViewedFileError.invalidPath }
         // Only a regular file is opened: opening a device or socket can have
@@ -143,9 +106,8 @@ extension ViewedFile {
         return nil
     }
 
-    /// A bounded UTF-8 preview of a file's first bytes, as the server cuts
-    /// one: at a character boundary within `maxTextBytes`, then at
-    /// `maxTextLines` complete lines.
+    /// A bounded UTF-8 preview of a file's first bytes: cut at a character
+    /// boundary within `maxTextBytes`, then at `maxTextLines` complete lines.
     public static func preview(_ data: Data, complete: Bool) throws -> (String, truncated: Bool) {
         guard !data.contains(0) else { throw ViewedFileError.unsupported }
         var bytes = data

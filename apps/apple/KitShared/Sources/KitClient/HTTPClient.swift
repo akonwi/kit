@@ -165,7 +165,7 @@ public struct ServerIdentity: Equatable, Sendable {
     }
 }
 
-public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, HostFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, ClientPluginHostingClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionAttentionClient, SessionForkClient, ComposerClient, AttachmentClient, FileDownloadClient {
+public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, ClientPluginHostingClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionAttentionClient, SessionForkClient, ComposerClient, AttachmentClient, FileDownloadClient {
     public let serverID: String
     public let isDemo = false
     public let endpoint: URL
@@ -1080,49 +1080,6 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         return try SessionProjection.summary(result.session)
     }
 
-    public func readWorkspaceFile(_ id: String, path: String, expectedRevision: String?) async throws -> WireWorkspaceFileRead {
-        try await WorkspaceReadGate.shared.read {
-            try await self.readWorkspaceFileNow(id, path: path, expectedRevision: expectedRevision)
-        }
-    }
-
-    public func readHostFile(_ id: String, path: String) async throws -> ViewedFile {
-        let path = FilePaths.normalizedHost(path) ?? path
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
-              path.hasPrefix("/") || path == "~" || path.hasPrefix("~/"), !path.contains("\0"),
-              path.utf8.count <= 4096 else { throw ViewedFileError.invalidPath }
-        let output: Operations.ReadHostFile.Output
-        do {
-            output = try await generatedOperation {
-                try await api.readHostFile(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51),
-                                           body: .json(.init(path: path)))
-            }
-        } catch ClientError.http(404) {
-            // A declared not_found decodes; an older server's unrouted 404 doesn't.
-            throw ViewedFileError.serverNeedsUpdate
-        }
-        switch output {
-        case .ok(let response): return try ViewedFile.project(try response.body.json, session: id, requested: path)
-        case .badRequest(let response):
-            if case .notFile = try response.body.json.error { throw ViewedFileError.notFile }
-            throw ViewedFileError.invalidPath
-        case .forbidden: throw ViewedFileError.permissionDenied
-        case .notFound: throw ViewedFileError.notFound
-        case .contentTooLarge(let response):
-            guard case .limitExceeded(let error) = try response.body.json.error else { throw ViewedFileError.imageTooLarge }
-            throw error.details.additionalProperties["limit"] == "path_bytes" ? ViewedFileError.invalidPath : ViewedFileError.imageTooLarge
-        case .unsupportedMediaType: throw ViewedFileError.unsupported
-        case .tooManyRequests: throw ViewedFileError.busy
-        case .serviceUnavailable: throw ViewedFileError.changed
-        case .unauthorized: throw ClientError.http(401)
-        case .conflict: throw ClientError.http(409)
-        case .misdirectedRequest: throw ClientError.http(421)
-        case .upgradeRequired: throw ClientError.http(426)
-        case .internalServerError: throw ClientError.http(500)
-        case .undocumented(let status, _): throw ClientError.http(status)
-        }
-    }
-
     /// The session's workspace, when it is ready.
     public func workspace(_ id: String) async throws -> WireWorkspaceRef {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
@@ -1131,32 +1088,6 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         let workspace: WireWorkspaceRef = try generated(try response.body.json, as: WireWorkspaceRef.self)
         guard workspace.sessionId == id, workspace.state == "ready" else { throw WorkspaceFileError.unavailable }
         return workspace
-    }
-
-    private func readWorkspaceFileNow(_ id: String, path: String, expectedRevision: String?) async throws -> WireWorkspaceFileRead {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
-              !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { throw ClientError.invalidPayload }
-        let workspace = try await self.workspace(id)
-        do {
-            let input = WireReadWorkspaceFileInput(workspaceId: workspace.workspaceId, path: path, expectedFileRevision: expectedRevision)
-            let body: Components.Schemas.ReadWorkspaceFileInput = try generated(input, as: Components.Schemas.ReadWorkspaceFileInput.self)
-            let output = try await api.readWorkspaceFile(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._51), body: .json(body))
-            guard case let .ok(response) = output else { throw Self.statusFailure(output) }
-            let result: WireWorkspaceFileRead = try generated(try response.body.json, as: WireWorkspaceFileRead.self)
-            guard result.sessionId == id, result.path == path,
-                  result.workspace.workspaceId == workspace.workspaceId, result.workspace.cwd == workspace.cwd,
-                  result.returnedBytes == result.content.utf8.count,
-                  result.returnedBytes <= workspace.limits.maxPreviewBytes else { throw ClientError.invalidPayload }
-            return result
-        } catch ClientError.http(let code) {
-            throw WorkspaceFileError.response(code)
-        } catch {
-            let description = String(describing: error)
-            for status in [400, 403, 404, 409, 413, 415, 429, 503] where description.contains("response: \(status)") {
-                throw WorkspaceFileError.response(status)
-            }
-            throw error
-        }
     }
 
     public func vcs(_ id: String) async throws -> WireSessionVCSStatus {

@@ -144,9 +144,10 @@ extension AnnotationTests {
         try await eventually { await probe.ready }
         #expect(await probe.ready)
         do {
-            let fileRead = try await client.readWorkspaceFile(id, path: "sample.swift")
-            let anchor = WireAnnotationAnchor(kind: .value0, workspaceFile: .init(workspaceId: fileRead.workspace.workspaceId,
-                path: fileRead.path, fileRevision: fileRead.revision, startLine: 1, endLine: 2), workingTreeDiff: nil)
+            let workspace = try await client.workspace(id)
+            let fileRead = try await client.checkFile(id, target: .workspace(id: workspace.workspaceId, path: "sample.swift"))
+            let anchor = WireAnnotationAnchor(kind: .value0, workspaceFile: .init(workspaceId: workspace.workspaceId,
+                path: fileRead.path, fileRevision: try #require(fileRead.revision), startLine: 1, endLine: 2), workingTreeDiff: nil)
             let created = try await client.createAnnotation(id, input: .init(anchor: anchor, body: "Explain this greeting."))
             #expect(created.source == "let greeting = \"🌿\"\nprint(greeting)")
             try await eventually { await probe.bodies.contains("Explain this greeting.") }
@@ -168,9 +169,9 @@ extension AnnotationTests {
                 try await client.disposeSession(id)
                 return
             }
-            let current = try await client.readWorkspaceFile(id, path: "sample.swift")
-            let currentAnchor = WireAnnotationAnchor(kind: .value0, workspaceFile: .init(workspaceId: current.workspace.workspaceId,
-                path: current.path, fileRevision: current.revision, startLine: 1, endLine: 1), workingTreeDiff: nil)
+            let current = try await client.checkFile(id, target: .workspace(id: workspace.workspaceId, path: "sample.swift"))
+            let currentAnchor = WireAnnotationAnchor(kind: .value0, workspaceFile: .init(workspaceId: workspace.workspaceId,
+                path: current.path, fileRevision: try #require(current.revision), startLine: 1, endLine: 1), workingTreeDiff: nil)
             let first = try await client.createAnnotation(id, input: .init(anchor: currentAnchor, body: "Reply only verified; do not use tools."))
             let second = try await client.createAnnotation(id, input: .init(anchor: currentAnchor, body: "This is a disposable verification session."))
             #expect(first.id > created.id)
