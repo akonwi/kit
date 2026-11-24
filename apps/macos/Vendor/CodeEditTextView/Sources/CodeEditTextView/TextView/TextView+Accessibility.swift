@@ -49,8 +49,14 @@ extension TextView {
         string
     }
 
+    override open func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        // A text view that can't be edited doesn't offer its value as settable.
+        if selector == #selector(setAccessibilityValue(_:)) { return isEditable }
+        return super.isAccessibilitySelectorAllowed(selector)
+    }
+
     override open func setAccessibilityValue(_ accessibilityValue: Any?) {
-        guard let string = accessibilityValue as? String else {
+        guard isEditable, let string = accessibilityValue as? String else {
             return
         }
 

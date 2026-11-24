@@ -43,7 +43,12 @@ view its frame is the document's height, so upstream's layout there builds a
 view for every line, which is quadratic in the line count. AppKit lays out
 the visible lines once the view is shown.
 
+A TextView that isn't editable doesn't offer its accessibility value as
+settable and ignores a value set through accessibility. Upstream replaced the
+text whatever `isEditable` said, so an accessibility client could change a
+read-only editor.
+
 When updating, reapply the changes in TextLayoutManager.swift and
 TextLayoutManager+Layout.swift, TextView.swift, TextView+Layout.swift,
-Typesetter.swift, and LineFragmentRenderer.swift and run Kit's editor
-geometry/selection tests.
+TextView+Accessibility.swift, Typesetter.swift, and LineFragmentRenderer.swift
+and run Kit's editor geometry/selection tests and ReadOnlyScratchpadTests.
