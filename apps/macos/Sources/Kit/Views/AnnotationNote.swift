@@ -7,6 +7,8 @@ struct AnnotationNote: View {
     let annotation: FileAnnotation
     var edit: () -> Void = {}
     var delete: () -> Void = {}
+    /// The session's server can't take changes now, so the note offers none.
+    @Environment(\.sessionReadOnly) private var readOnly
     @State private var hovered = false
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -26,15 +28,20 @@ struct AnnotationNote: View {
                     NoteAction(icon: .trash, label: "Delete", action: delete)
                 }
                 .padding(.top, -4).padding(.trailing, -6)
-                .opacity(hovered ? 1 : 0)
+                // Kept in the layout while hidden, so the card doesn't change size.
+                .opacity(hovered && !readOnly ? 1 : 0)
+                .allowsHitTesting(!readOnly)
+                .accessibilityHidden(readOnly)
             }
         }.padding(.horizontal, 12).padding(.vertical, 10).foregroundStyle(theme.text)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
             .onHover { hovered = $0 }
             .contextMenu {
-                Button(annotation.stale ? "Select new range" : "Edit", action: edit)
-                Button("Delete", action: delete)
+                if !readOnly {
+                    Button(annotation.stale ? "Select new range" : "Edit", action: edit)
+                    Button("Delete", action: delete)
+                }
             }
     }
 }

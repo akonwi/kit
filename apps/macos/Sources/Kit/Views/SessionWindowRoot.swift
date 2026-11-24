@@ -141,8 +141,9 @@ struct SessionWindowRoot: View {
     /// The selected tab's content, inset from the window frame. An open
     /// session draws its own tiles; anything else sits in a single tile.
     private func tile(model: SessionWindowModel, tab: SessionTab, theme: MicaTheme) -> some View {
-        // A session draws its own tiles only while its server can show it.
-        let tiled = tab.store?.opening == .open && tab.serverIssue == nil
+        // A session that has been shown draws its own tiles, whether or not
+        // its server can serve it now.
+        let tiled = tab.showsSession
         return VStack(spacing: 0) {
             if let error = windows.restoration.error {
                 HStack {
@@ -162,16 +163,48 @@ struct SessionWindowRoot: View {
 }
 
 /// A tab's content: the launcher, its session, or what its server needs.
-private struct SessionTabContent: View {
+struct SessionTabContent: View {
     let model: SessionWindowModel
     let tab: SessionTab
     /// Where the window lists its tabs, which closing this one follows.
     let placement: SessionTabPlacement
 
+    /// What a tab shows.
+    enum Shown: Equatable {
+        /// The outline, or a launcher's spinner, saying what it waits for.
+        case loading(String)
+        /// The launcher's sessions.
+        case launcher
+        /// The session. `serverState` puts its server's state across the
+        /// tab, over the session as last known, which stays read-only.
+        case session(serverState: Bool)
+        /// The server's state, and what to do, in place of the tab's content.
+        case serverState
+        /// The tab's server isn't saved any more.
+        case unknownServer
+    }
+
+    @MainActor static func shown(_ tab: SessionTab) -> Shown {
+        guard let connection = tab.connection else { return .unknownServer }
+        let status = connection.status
+        if let label = SessionTabLoading.label(status: status, server: connection.isLocal ? nil : connection.name,
+                                               launcher: tab.isLauncher, opening: tab.store?.opening) {
+            return .loading(label)
+        }
+        // A session that has been shown keeps its place whatever its server
+        // says, so its tiles, drafts, and scroll positions are there when
+        // the server is back.
+        if tab.showsSession { return .session(serverState: status.sessionIssue != nil) }
+        switch status {
+        case .connected, .connecting, .reconnecting: return tab.isLauncher ? .launcher : .session(serverState: false)
+        case .unreachable, .incompatible, .signInRequired, .hostKeyChanged, .serverStopped, .needsPairing: return .serverState
+        }
+    }
+
     var body: some View {
         if let connection = tab.connection {
-            if let label = SessionTabLoading.label(status: connection.status, server: connection.isLocal ? nil : connection.name,
-                                                   launcher: tab.isLauncher, opening: tab.store?.opening) {
+            switch Self.shown(tab) {
+            case .loading(let label):
                 if tab.isLauncher {
                     KitSpinner(label)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -182,31 +215,36 @@ private struct SessionTabContent: View {
                     SessionSkeleton(label: label)
                         .task(id: connection.status.isConnected) { if tab.store == nil { model.store(for: tab) } }
                 }
-            } else {
-                switch connection.status {
-                case .connected, .connecting, .reconnecting:
-                    connected(connection)
-                case .unreachable, .incompatible, .signInRequired, .hostKeyChanged, .serverStopped:
-                    ServerStateView(connection: connection, sessionTab: !tab.isLauncher)
-                        .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
-                case .needsPairing(let need):
-                    ServerPairingView(connection: connection, need: need, servers: model.servers, sessionTab: !tab.isLauncher)
-                        .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
+            case .launcher:
+                SessionLauncherView(connection: connection, server: choice(connection), activity: model.activity(on: connection.name),
+                                    create: { model.creatingIn = tab }) { session in
+                    model.show(SessionIdentity(server: connection.name, session: session.id), in: tab)
                 }
+            case .session(let serverState):
+                if let store = tab.store {
+                    VStack(spacing: tileGap) {
+                        if serverState { ServerStateBanner(connection: connection, servers: model.servers) }
+                        SessionScreen(state: store) { model.storeSelected($0, in: tab) }
+                    }
+                }
+            case .serverState:
+                serverState(connection)
+            case .unknownServer:
+                EmptyView()
             }
         } else {
             UnknownServerView(name: tab.identity.server) { model.requestClose(tab, from: placement) }
         }
     }
 
-    @ViewBuilder private func connected(_ connection: ServerConnection) -> some View {
-        if tab.isLauncher {
-            SessionLauncherView(connection: connection, server: choice(connection), activity: model.activity(on: connection.name),
-                                create: { model.creatingIn = tab }) { session in
-                model.show(SessionIdentity(server: connection.name, session: session.id), in: tab)
-            }
-        } else if let store = tab.store {
-            SessionScreen(state: store) { model.storeSelected($0, in: tab) }
+    /// What the server needs, in place of a tab with nothing to show.
+    @ViewBuilder private func serverState(_ connection: ServerConnection) -> some View {
+        if case .needsPairing(let need) = connection.status {
+            ServerPairingView(connection: connection, need: need, servers: model.servers, sessionTab: !tab.isLauncher)
+                .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
+        } else {
+            ServerStateView(connection: connection, sessionTab: !tab.isLauncher)
+                .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
         }
     }
 

@@ -14,6 +14,9 @@ import SwiftUI
 /// many browser tabs builds and attaches only the ones in view.
 struct BrowserPane: View {
     @Environment(\.mica) private var theme
+    /// The session's server can't take comments now: the page works, and
+    /// an annotation underway waits, as it was, until the server is back.
+    @Environment(\.sessionReadOnly) private var readOnly
     let workspace: WorkspaceState
     let tab: BrowserTab
     /// Puts a finished annotation in the session's composer.
@@ -48,6 +51,7 @@ struct BrowserPane: View {
                         .workspaceFocusTarget(pane, when: tab.failure == nil)
                     if let annotation = tab.annotation, tab.failure == nil {
                         BrowserAnnotationOverlay(session: annotation, page: tab.view, attach: attach) { tab.stopAnnotating() }
+                            .disabled(readOnly).allowsHitTesting(!readOnly)
                     }
                     AgentPointerOverlay(pointer: tab.failure == nil ? tab.agentPointer : nil)
                 }
@@ -62,6 +66,8 @@ struct BrowserPane: View {
 
 private struct BrowserToolbar: View {
     @Environment(\.mica) private var theme
+    /// The session's server can't take comments now; the page still works.
+    @Environment(\.sessionReadOnly) private var readOnly
     let workspace: WorkspaceState
     let tab: BrowserTab
     @Binding var draft: String
@@ -86,7 +92,7 @@ private struct BrowserToolbar: View {
             address.padding(.leading, 6)
             BrowserToolbarButton(icon: .cursorClick, help: tab.annotation == nil ? "Annotate" : "Stop Annotating",
                                  active: tab.annotation != nil) { tab.toggleAnnotating() }
-                .disabled(!tab.canAnnotate)
+                .disabled(!tab.canAnnotate || (readOnly && tab.annotation == nil))
                 .padding(.leading, 2)
             BrowserToolbarButton(icon: .copy, size: 13, help: "Copy Address") { tab.copyAddress() }
                 .disabled(tab.copyableAddress == nil)

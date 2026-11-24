@@ -13,6 +13,8 @@ struct AnnotationInput: View {
     @State private var focusAtEndRequest: Int?
     @State private var ownDictation = DictationSlot()
     @Environment(\.dictationSlot) private var givenDictation
+    /// The session's server can't take the comment now; it waits here.
+    @Environment(\.sessionReadOnly) private var readOnly
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -45,7 +47,7 @@ struct AnnotationInput: View {
                 Button("Cancel", action: cancel).buttonStyle(SmallButtonStyle(bordered: true))
                 Button(annotations.editor?.editing == nil ? "Comment" : "Save", action: save)
                     .buttonStyle(SmallButtonStyle(prominent: true))
-                    .disabled(!FileAnnotation.validBody(annotations.draft) || annotations.uncertain || dictating)
+                    .disabled(!FileAnnotation.validBody(annotations.draft) || annotations.uncertain || dictating || readOnly)
             }
         }.padding(.horizontal, 12).padding(.vertical, 10)
             .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
@@ -98,7 +100,7 @@ struct AnnotationInput: View {
     }
 
     private func save() {
-        guard let editor = annotations.editor else { return }
+        guard !readOnly, let editor = annotations.editor else { return }
         Task {
             let saved = await annotations.save(client: client, session: session, anchor: editor.anchor,
                 editing: editor.editing, replacing: editor.replacing)

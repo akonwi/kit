@@ -20,7 +20,10 @@ struct ReviewPane: View {
     @State private var viewAnchor = ComposerPickerAnchor()
     private var model: DiffState { state.ui.workspace.diff }
     private var client: (any DiffClient)? { state.catalogClient as? any DiffClient }
-    private var active: Bool { state.ui.workspace.isVisible(.review) }
+    /// Whether the diff is shown and its server can serve it. Its loading,
+    /// polling, and reading wait while it can't, keeping what it has, and
+    /// pick up again when it can.
+    private var active: Bool { state.ui.workspace.isVisible(.review) && !state.offline }
     private var editing: Bool { state.annotationState.editor != nil }
     /// Side by side, when chosen and the pane is wide enough for it.
     private var sideBySide: Bool { model.layout == .split && DiffState.splitFits(width) }
@@ -35,6 +38,8 @@ struct ReviewPane: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onChange(of: state.selectedID) { popover.dismiss() }
         .onDisappear { popover.dismiss() }
+        // A picker open when the server goes closes; it can't change the target.
+        .onChange(of: state.offline) { if state.offline, openMenu == .target { popover.dismiss() } }
         .onChange(of: state.annotationState.evidenceConflict) {
             guard active, state.annotationState.selectionDraft != nil,
                   state.annotationState.evidenceConflict == .staleTarget || state.annotationState.evidenceConflict == .staleWorkspace,
@@ -91,7 +96,7 @@ struct ReviewPane: View {
                 }
             }
             .background(ComposerPickerAnchorView(anchor: targetAnchor))
-            .disabled(editing || model.catalog == nil)
+            .disabled(editing || model.catalog == nil || state.offline)
             .help("Choose what to compare")
             .accessibilityLabel("Diff target")
             .layoutPriority(-1)
@@ -135,14 +140,15 @@ struct ReviewPane: View {
         }
         let anchor = menu == .target ? targetAnchor : viewAnchor
         guard let frame = anchor.screenFrame, let window = anchor.view?.window else { return }
-        let popover = popover, theme = theme, model = model, session = state.selectedID, client = client
+        let popover = popover, theme = theme, model = model, session = state.selectedID, client = client, state = state
         let content: AnyView
         switch menu {
         case .target:
-            if let client { Task { await model.refreshCatalog(client: client, session: session) } }
+            if let client, !state.offline { Task { await model.refreshCatalog(client: client, session: session) } }
             content = AnyView(DiffTargetPicker(model: model, theme: theme, choose: { target in
                 popover.dismiss()
-                guard let client, target.targetId != model.target?.targetId || model.observation == nil else { return }
+                guard let client, !state.offline,
+                      target.targetId != model.target?.targetId || model.observation == nil else { return }
                 model.collapsed = []
                 Task { await model.select(target, client: client, session: session) }
             }, dismiss: { popover.dismiss() }))
@@ -435,15 +441,15 @@ private struct DiffFileBody: View {
                 if let notice = reader.notice { DiffNoteRow(text: notice) }
                 if reader.lineCursor != nil {
                     DiffNoteRow(text: "Loading more…", loading: true)
-                        .task(id: "\(reader.lineCursor ?? "")\(state.annotationState.editor == nil)\(reader.loading)") {
-                            guard !reader.loading, state.annotationState.editor == nil else { return }
+                        .task(id: "\(reader.lineCursor ?? "")\(state.annotationState.editor == nil)\(reader.loading)\(active)") {
+                            guard active, !reader.loading, state.annotationState.editor == nil else { return }
                             read(more: true)
                         }
                 }
             } else if let error = reader?.error {
                 HStack(spacing: 8) {
                     DiffNoteRow(text: "Could not load changes: " + error).fixedSize(horizontal: true, vertical: false)
-                    Button("Try again") { read(more: false) }.buttonStyle(SmallButtonStyle())
+                    Button("Try again") { read(more: false) }.buttonStyle(SmallButtonStyle()).disabled(!active)
                     Spacer(minLength: 0)
                 }
             } else if let notice = reader?.notice, reader?.loading == false {
@@ -460,7 +466,7 @@ private struct DiffFileBody: View {
     }
 
     private func read(more: Bool) {
-        guard let reader, let client = state.catalogClient as? any DiffClient else { return }
+        guard active, let reader, let client = state.catalogClient as? any DiffClient else { return }
         let session = state.selectedID
         Task { await reader.read(file, client: client, session: session, more: more) }
     }

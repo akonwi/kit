@@ -138,7 +138,7 @@ struct CommandPalette: View {
     private var modelRefreshUnavailableReason: String? {
         if !(state.catalogClient is any ModelCatalogRefreshClient) { return "Unavailable for this connection" }
         if state.unavailable { return "Session unavailable" }
-        if state.connectionState != .connected { return "Connect to refresh" }
+        if !state.live { return "Connect to refresh" }
         if state.running { return "idle only" }
         if state.modelCatalogRefreshPending { return "Refreshing model catalog" }
         return nil
@@ -147,7 +147,7 @@ struct CommandPalette: View {
     private var configurationUnavailableReason: String? {
         if state.composerClient == nil { return "Unavailable for this connection" }
         if state.unavailable { return "Session unavailable" }
-        if state.connectionState != .connected { return "Connect to change" }
+        if !state.live { return "Connect to change" }
         if state.configuration.changing { return "Wait for the current change" }
         return nil
     }

@@ -24,7 +24,7 @@ final class SessionStore {
     var pluginCommandUnavailableReason: String? {
         if !(catalogClient is any PluginCommandClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
-        if connectionState != .connected { return "Connect to execute" }
+        if !live { return "Connect to execute" }
         if pluginCommandRunning { return "Command running" }
         return nil
     }
@@ -88,7 +88,7 @@ final class SessionStore {
     var compactionUnavailableReason: String? {
         if !(catalogClient is any SessionCompactionClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
-        if connectionState != .connected { return "Connect to compact" }
+        if !live { return "Connect to compact" }
         if running { return "idle only" }
         if compactionOperation.pending || selected?.activeCompactionID != nil { return "Compaction in progress" }
         if directoryChange.pending || reloadOperation.pending || configuration.changing { return "Wait for the current change" }
@@ -131,7 +131,7 @@ final class SessionStore {
     var reloadUnavailableReason: String? {
         if !(catalogClient is any SessionReloadClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
-        if connectionState != .connected { return "Connect to reload" }
+        if !live { return "Connect to reload" }
         if directoryChange.pending || compactionOperation.pending || configuration.changing { return "Wait for the current change" }
         if compactionOperation.pending { return "Wait for compaction" }
         if reloadOperation.pending { return "Reloading session context" }
@@ -179,7 +179,7 @@ final class SessionStore {
     var directoryUnavailableReason: String? {
         if !(catalogClient is any SessionDirectoryClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
-        if connectionState != .connected && directoryChange.request == nil { return "Connect to change directory" }
+        if !live && directoryChange.request == nil { return "Connect to change directory" }
         if compactionOperation.pending { return "Wait for compaction" }
         if reloadOperation.pending { return "Wait for session reload" }
         if running { return "idle only" }
@@ -199,7 +199,12 @@ final class SessionStore {
     /// Closes a workspace tab, saving the scratchpad first so a draft isn't lost.
     func closePane(_ pane: WorkspacePane) {
         let workspace = ui.workspace
-        if pane == .scratchpad, let client = scratchpadClient {
+        if pane == .scratchpad, offline, workspace.scratchpadState.dirty {
+            // Its unsaved changes stay open until the server can save them.
+            workspace.select(.scratchpad)
+            feedback.show(title: "Connect to save the scratchpad", detail: "Its unsaved changes stay open until then.",
+                          tone: .warning)
+        } else if pane == .scratchpad, let client = scratchpadClient {
             Task { await workspace.closeScratchpad(client: client, session: selectedID) }
         } else if let terminal = workspace.terminal(pane) {
             // A terminal running a command asks first.
@@ -240,7 +245,7 @@ final class SessionStore {
     }
     var shellMode: BashDraft? { BashDraft(ui.draft) }
     func sendBash() {
-        guard let client = bashClient, connectionState == .connected, !unavailable,
+        guard let client = bashClient, live, !unavailable,
               activeBashID == nil, !reloadOperation.pending, !compactionOperation.pending,
               !directoryChange.pending else { return }
         let id = selectedID, operation = bashOperation, draft = ui.draft, anchor = messages.last?.id
@@ -252,7 +257,7 @@ final class SessionStore {
         }
     }
     func retryBash() {
-        guard let client = bashClient else { return }
+        guard let client = bashClient, !offline else { return }
         let session = selectedID, operation = bashOperation
         Task { [weak self] in
             await operation.retry(session: session, client: client) { text in
@@ -261,7 +266,7 @@ final class SessionStore {
         }
     }
     func stopBash() {
-        guard let client = bashClient, let id = activeBashID else { return }
+        guard let client = bashClient, !offline, let id = activeBashID else { return }
         let session = selectedID, operation = bashOperation
         Task { await operation.abort(session: session, id: id, client: client) }
     }
@@ -319,7 +324,7 @@ final class SessionStore {
         await configuration.load(client: client)
     }
     func refreshModelCatalog() async {
-        guard !modelCatalogRefreshPending,
+        guard !modelCatalogRefreshPending, !offline,
               let client = catalogClient as? any ModelCatalogRefreshClient else { return }
         modelCatalogRefreshPending = true
         defer { modelCatalogRefreshPending = false }
@@ -335,7 +340,7 @@ final class SessionStore {
         }
     }
     func configure(model: String? = nil, thinking: String? = nil) async {
-        guard !unavailable, let client = composerClient, let selected else { return }
+        guard !unavailable, !offline, let client = composerClient, let selected else { return }
         let target = model ?? self.model
         let level = thinking ?? ComposerConfiguration.thinkingLevel(switchingTo: target, from: self.thinking, models: configuration.models)
         await configuration.change(client: client, session: selected, model: target, thinking: level) { [weak self] in
@@ -368,7 +373,7 @@ final class SessionStore {
         return value
     }
     var canDismissSubagent: Bool {
-        subagentClient is any SubagentDismissalClient && !unavailable && connectionState == .connected && !subagentDismissal.pending
+        subagentClient is any SubagentDismissalClient && !unavailable && live && !subagentDismissal.pending
     }
     func dismissSubagent(_ agent: SubagentRoster.Item, session: String) async {
         guard selectedID == session, canDismissSubagent,
@@ -399,7 +404,7 @@ final class SessionStore {
         return value
     }
     var canConfigureSubagent: Bool {
-        subagentClient is any SubagentConfigurationClient && !unavailable && connectionState == .connected
+        subagentClient is any SubagentConfigurationClient && !unavailable && live
     }
     /// Thinking may change while a child runs; a model change requires it to
     /// have no active or queued work. Values are read from the current roster.
@@ -434,7 +439,7 @@ final class SessionStore {
     /// agent, not back to the user who messaged it.
     static let subagentMessagingEnabled = false
     var canSendSubagent: Bool {
-        Self.subagentMessagingEnabled && subagentClient is any SubagentMessagingClient && !isTemporary && !unavailable && connectionState == .connected
+        Self.subagentMessagingEnabled && subagentClient is any SubagentMessagingClient && !isTemporary && !unavailable && live
     }
     func sendToSubagent(_ name: String, conversation: String?) async {
         guard canSendSubagent, let client = subagentClient as? any SubagentMessagingClient else { return }
@@ -507,6 +512,7 @@ final class SessionStore {
     /// Puts a browser element annotation in the composer, uploading its
     /// screenshot now so the message can be sent at once.
     func attachBrowserAnnotation(_ annotation: BrowserElementAnnotation) {
+        guard !offline else { return }
         let session = selectedID
         ui.workspace.browserAnnotations.add(annotation, client: isDemo ? nil : composerClient, session: session,
                                             imageRejectingModel: { [weak self] in
@@ -516,6 +522,16 @@ final class SessionStore {
     }
     var thinking: String { demo?.thinking ?? selected?.thinking ?? "" }
     var connectionState: SessionConnectionState { replica.connectionState }
+    /// Whether the session's server can't serve it now, as when it can't be
+    /// reached or needs the user; the window sets it from the server's
+    /// connection. The session stays on screen, read-only, until it can.
+    @ObservationIgnored var serverUnavailable: @MainActor () -> Bool = { false }
+    /// Whether the tab shows its session as last known, read-only, because
+    /// its server can't serve it.
+    var offline: Bool { !isDemo && serverUnavailable() }
+    /// Whether the session's stream is connected and its server can serve
+    /// it, so changes can be sent.
+    var live: Bool { connectionState == .connected && !offline }
     var connectionStatus: String { replica.connectionStatus }
     var replaying: Bool { demo?.replaying ?? false }
     var notice: String { ui.notice.isEmpty ? demo?.notice ?? "" : ui.notice }
@@ -663,7 +679,7 @@ final class SessionStore {
     var forkUnavailableReason: String? {
         if isDemo || forkClient == nil { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
-        if connectionState != .connected { return "Connect to fork" }
+        if !live { return "Connect to fork" }
         if isTemporary { return "Temporary sessions cannot be forked" }
         // A fork copies the latest settled boundary, so active turns and
         // compaction do not block it; a reload replaces the session runtime.
@@ -674,12 +690,13 @@ final class SessionStore {
     /// Whether `/new` can create a session from this one. When it can't,
     /// the command opens the launcher instead.
     var canCreateSibling: Bool {
-        !isDemo && !unavailable && replica.client is any SessionCreationClient
+        !isDemo && !unavailable && !offline && replica.client is any SessionCreationClient
             && selected?.cwd?.isEmpty == false && !model.isEmpty
     }
     private(set) var siblingCreationPending = false
     var newSessionUnavailableReason: String? {
-        siblingCreationPending ? "Session creation is already in progress" : nil
+        if offline { return "Connect to create" }
+        return siblingCreationPending ? "Session creation is already in progress" : nil
     }
     /// Creates a session in this session's working directory with its model
     /// and thinking level, as the TUI's `/new` does. A failure is reported
@@ -707,7 +724,7 @@ final class SessionStore {
     var renameUnavailableReason: String? {
         if isDemo || !(replica.client is any SessionNamingClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
-        if connectionState != .connected { return "Connect to rename" }
+        if !live { return "Connect to rename" }
         return nil
     }
     func renameSession(_ name: String) async throws { try await replica.rename(name) }
@@ -822,7 +839,8 @@ final class SessionStore {
     /// answer stays docked with its error so it can be sent again.
     @discardableResult
     private func respond(to flow: InteractionFlow, in id: String, cancelled: Bool) -> Bool {
-        guard let client = composerClient, !flow.submitting, let input = flow.response(cancelled: cancelled) else { return false }
+        guard let client = composerClient, !offline, !flow.submitting,
+              let input = flow.response(cancelled: cancelled) else { return false }
         flow.submitting = true; flow.error = nil
         Task { [weak self] in
             do {
@@ -874,7 +892,7 @@ final class SessionStore {
     var palettePromptUnavailableReason: String? {
         if !(catalogClient is any PromptCommandClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
-        if connectionState != .connected { return "Connect to run" }
+        if !live { return "Connect to run" }
         // During a turn a prompt command joins the follow-up queue.
         if operations.sending || operations.uncertain || operations.queuePending { return "Wait for the current message" }
         if directoryChange.pending || reloadOperation.pending || compactionOperation.pending || configuration.changing {
@@ -907,7 +925,7 @@ final class SessionStore {
     }
 
     private func submitLive() {
-        guard let client = mutationClient, connectionState == .connected else { return }
+        guard let client = mutationClient, live else { return }
         guard !operations.queuePending, !operations.sending, !operations.uncertain else { return }
         let browser = ui.workspace.browserAnnotations
         guard ui.uploads.ready, browser.ready, !configuration.changing, !directoryChange.pending, !reloadOperation.pending, !compactionOperation.pending else { return }
@@ -1014,12 +1032,12 @@ final class SessionStore {
     }
 
     func abortRun() {
-        guard !unavailable, let client = mutationClient, let run = selected?.activeRunID else { return }
+        guard !unavailable, !offline, let client = mutationClient, let run = selected?.activeRunID else { return }
         operations.abort(client: client, session: selectedID, turn: run)
     }
 
     func changeQueue(_ action: SessionOperations.QueueAction) {
-        guard !unavailable, let client = mutationClient else { return }
+        guard !unavailable, !offline, let client = mutationClient else { return }
         let id = selectedID
         operations.changeQueue(action, client: client, session: id) { [weak self] messages in
             guard let self else { return }

@@ -10,6 +10,10 @@ struct SessionNavigation {
 
 extension EnvironmentValues {
     @Entry var sessionNavigation = SessionNavigation()
+    /// Whether the session shown is read-only because its server can't
+    /// serve it now: what it shows stays readable, and what would change it,
+    /// such as comments, waits for the server.
+    @Entry var sessionReadOnly = false
 }
 
 /// One session tab's content. The tab owns the store and its stream; this
@@ -69,7 +73,7 @@ struct SessionScreen: View {
             }
         }
         return content
-        .background(SelectionActions(theme: theme, enabled: !state.ui.palette && !state.ui.filePicker,
+        .background(SelectionActions(theme: theme, enabled: !state.ui.palette && !state.ui.filePicker && !state.offline,
                                      comments: state.ui.workspace.textComments))
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
             if let identity = notification.object as? SessionIdentity { state.sessionDeleted(identity) }
@@ -81,6 +85,7 @@ struct SessionScreen: View {
         .foregroundStyle(theme.text)
         .background(tiled ? .clear : theme.surface)
         .environment(\.mica, theme)
+        .environment(\.sessionReadOnly, state.offline)
         .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID, title: { navigation.sessionTitle(SessionIdentity(server: serverID, session: $0)) }) { id in
             navigation.openSession(SessionIdentity(server: serverID, session: id))
         })

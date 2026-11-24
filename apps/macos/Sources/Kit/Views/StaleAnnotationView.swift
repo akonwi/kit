@@ -6,8 +6,21 @@ struct StaleAnnotationView: View {
     @Bindable var annotations: AnnotationState
     let client: (any AnnotationClient)?
     let session: String
+    /// The session's server can't take changes now: the annotation shows
+    /// as last loaded, and can't be deleted or moved.
+    var readOnly = false
     let selectRange: (FileAnnotation) -> Void
     @State private var full: FileAnnotation?
+
+    /// What the sheet offers besides Close.
+    enum Action: String { case delete = "Delete", selectNewRange = "Select new range" }
+
+    /// Delete, and Select New Range for a stale annotation; neither while
+    /// the session is read-only.
+    static func actions(stale: Bool, readOnly: Bool) -> [Action] {
+        if readOnly { return [] }
+        return stale ? [.delete, .selectNewRange] : [.delete]
+    }
     @State private var error: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -30,20 +43,30 @@ struct StaleAnnotationView: View {
             HStack {
                 Button("Close") { annotations.inspected = nil }
                 Spacer()
-                Button("Delete", role: .destructive) {
-                    guard let client else { return }
-                    Task {
-                        await annotations.remove(client: client, session: session, id: note.id)
-                        if !annotations.records.contains(where: { $0.id == note.id }) { annotations.inspected = nil }
+                ForEach(Self.actions(stale: note.stale, readOnly: readOnly), id: \.self) { action in
+                    switch action {
+                    case .delete:
+                        Button(action.rawValue, role: .destructive) {
+                            guard let client else { return }
+                            Task {
+                                await annotations.remove(client: client, session: session, id: note.id)
+                                if !annotations.records.contains(where: { $0.id == note.id }) { annotations.inspected = nil }
+                            }
+                        }.disabled(annotations.pending)
+                    case .selectNewRange:
+                        Button(action.rawValue) { if let full { selectRange(full) } }
+                            .disabled(full == nil || annotations.editor != nil || annotations.pending)
                     }
-                }.disabled(annotations.pending)
-                if note.stale {
-                    Button("Select new range") { if let full { selectRange(full) } }
-                        .disabled(full == nil || annotations.editor != nil || annotations.pending)
                 }
             }
         }.font(.kit(size: 14)).padding(24).frame(width: 600).foregroundStyle(theme.text).background(theme.surface)
             .task {
+                if readOnly {
+                    // What was loaded before the server went; nothing new is asked for.
+                    if let value = annotations.records.first(where: { $0.id == note.id }), value.complete { full = value }
+                    else { error = "Connect to load the captured source." }
+                    return
+                }
                 guard let client else { error = "Annotations unavailable"; return }
                 do {
                     try await annotations.refresh(client: client, session: session)

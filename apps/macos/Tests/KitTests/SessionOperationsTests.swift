@@ -89,6 +89,36 @@ private actor MutationStub: SessionMutationClient {
         try await wait { state.connectionState == .connected }
         return state
     }
+    /// Whether the store's server can't serve it, as the window sets it.
+    @MainActor private final class ServerDown { var value = true }
+
+    @Test func aSessionWhoseServerIsDownSendsNoChangesUntilItIsBack() async throws {
+        _ = NSApplication.shared
+        let client = MutationStub()
+        await client.beginRun()
+        await client.queueFollowUp("Queued prompt")
+        let state = try await store(client)
+        defer { state.detach() }
+        try await wait { state.running }
+        let down = ServerDown()
+        state.serverUnavailable = { down.value }
+        state.ui.draft = "Hello"
+        state.send()
+        state.abortRun()
+        state.changeQueue(.promote)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await client.calls.isEmpty)
+        #expect(await client.aborted.isEmpty)
+        #expect(await client.promotions == 0)
+        #expect(state.ui.draft == "Hello")
+
+        down.value = false
+        state.changeQueue(.promote)
+        try await wait { await client.promotions == 1 }
+        state.abortRun()
+        try await wait { await client.aborted == ["run"] }
+    }
+
     @Test func acknowledgementClearsOnlyTheSubmittedDraftAndDoesNotInventMessages() async throws {
         let client = MutationStub()
         let state = try await store(client)

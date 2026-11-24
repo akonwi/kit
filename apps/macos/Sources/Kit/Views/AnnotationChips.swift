@@ -102,7 +102,7 @@ struct AnnotationNotices: View {
             }
         }.sheet(item: Binding(get: { annotations.inspected }, set: { annotations.inspected = $0 })) { note in
             StaleAnnotationView(note: note, annotations: annotations, client: state.catalogClient as? any AnnotationClient,
-                session: state.selectedID, selectRange: {
+                session: state.selectedID, readOnly: state.offline, selectRange: {
                     annotations.replacement = $0
                     annotations.inspected = nil
                     if $0.isDiff {

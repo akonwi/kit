@@ -6,6 +6,9 @@ import SwiftUI
 /// Source text remains a single native document. Notes occupy layout-only gaps.
 struct AnnotatedFileEditor: NSViewControllerRepresentable {
     @Environment(\.mica) private var theme
+    /// The session's server can't take comments now; saved ones show
+    /// without Edit and Delete.
+    @Environment(\.sessionReadOnly) private var readOnly
     let document: AnnotationDocument
     var canAnnotate = true
     var wrapLines = false
@@ -35,6 +38,9 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
         self.contentHeightChanged = contentHeightChanged
         self.wrapLines = wrapLines; self.splitAlignment = splitAlignment
     }
+
+    /// Whether lines take new comments now.
+    var takesComments: Bool { canAnnotate && !readOnly }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSViewController(context: Context) -> TextViewController {
@@ -88,6 +94,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             let theme: MicaTheme
             let note: FileAnnotation?
             let highlighted: Bool
+            let readOnly: Bool
         }
         var hostConfigurations: [String: HostConfiguration] = [:]
         var blocks: [(key: String, line: Int, height: CGFloat)] = []
@@ -175,7 +182,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
         /// editor can't take one now.
         func commentOnSelection(_ range: NSRange) -> (() -> Void)? {
             let state = parent.annotations
-            guard parent.canAnnotate, !state.pending, !state.uncertain, state.editor == nil,
+            guard parent.takesComments, !state.pending, !state.uncertain, state.editor == nil,
                   let lines = SelectionLineComments.lines(of: range, in: parent.document.content) else { return nil }
             var side = parent.document.diff?.side
             if side == nil, let rows = parent.document.diff?.rows, rows.indices.contains(lines.upperBound) {
@@ -235,10 +242,12 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             blocks = []
             var heights: [Int: CGFloat] = [:]
             for (key, line, view) in contents {
-                let root = AnyView(view.frame(width: width).environment(\.mica, parent.theme))
+                let root = AnyView(view.frame(width: width).environment(\.mica, parent.theme)
+                    .environment(\.sessionReadOnly, parent.readOnly))
                 let host: NSHostingView<AnyView>
                 let configuration = HostConfiguration(width: width, theme: parent.theme,
-                    note: current.first { String($0.id) == key }, highlighted: String(flashing ?? 0) == key)
+                    note: current.first { String($0.id) == key }, highlighted: String(flashing ?? 0) == key,
+                    readOnly: parent.readOnly)
                 if let existing = hosts[key] {
                     host = existing
                     if hostConfigurations[key] != configuration { host.rootView = root }
@@ -258,7 +267,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             manager.blockHeights = heights
             gutter.color = NSColor(parent.theme.accent)
             gutter.symbolColor = NSColor(parent.theme.surface)
-            gutter.enabled = parent.canAnnotate && !state.pending && !state.uncertain && state.editor == nil
+            gutter.enabled = parent.takesComments && !state.pending && !state.uncertain && state.editor == nil
             gutter.sourceLineCount = parent.document.content.isEmpty ? 0 : parent.document.content.components(separatedBy: "\n").count - (parent.document.content.hasSuffix("\n") ? 1 : 0)
             gutter.diffRows = parent.document.diff?.rows
             gutter.fixedSide = parent.document.diff?.side

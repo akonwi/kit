@@ -9,12 +9,15 @@ struct ScratchpadEditor: View {
     @Binding var text: String
     var documentVersion = 0
     @Binding var editorState: SourceEditorState
+    /// Whether the scratchpad takes typing; it reads as last loaded while
+    /// its server can't take changes.
+    var editable = true
     @State private var scrollers = KitScrollerCoordinator(theme: MicaTheme(dark: false))
 
     var body: some View {
         SourceEditor(
             $text, language: .markdown,
-            configuration: FileEditorTheme.configuration(theme, isEditable: true, wrapLines: true),
+            configuration: FileEditorTheme.configuration(theme, isEditable: editable, wrapLines: true),
             state: $editorState,
             coordinators: [painter, scrollers]
         )

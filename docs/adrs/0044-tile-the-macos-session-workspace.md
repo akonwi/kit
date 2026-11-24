@@ -147,6 +147,33 @@ records or shared settings; the application keeps arrangements with its own
 window restoration intent. The server stays authoritative for sessions,
 conversations, subagents, and interactions.
 
+### When a session's server can't serve it
+
+A session tab that has shown its session keeps it on screen when the
+session's server can't serve it: it can't be reached, its Kit server stopped,
+it needs a sign-in, a pairing, or a protocol another side must update to, or
+an SSH host's key changed. The tiles, tabs, transcript as last known, draft,
+comments, and attachments stay where they were. A banner across the tab,
+under the session bar and over every tile, names the server's state and
+offers what the full-tab state would: the reason, the retry countdown and
+Try Now, Server Settings, Start Server, Sign In, the command to run with
+Copy, or a pairing link field. A changed host key's banner has a warning
+border and shows both fingerprints; nothing on screen came from the new key.
+
+The session is read-only meanwhile. It can be read, scrolled, selected, and
+copied, and tabs can be arranged, but nothing that would change it can be
+made: the composer, the queued tray, and a waiting question are disabled
+with their contents kept; saved comments show without Edit and Delete, and no
+new comment can begin on text, lines, a page, or a diagram; the scratchpad
+shows its last copy and takes no typing; File and Diff tabs keep what they
+loaded and don't refresh; and commands that need the server say so. Browser
+and terminal tabs, which run on this Mac, keep working. When the server is
+back the banner goes and the session resynchronizes in place, with nothing
+reset.
+
+A tab with nothing to keep, a launcher or a tab whose session never opened,
+shows the server's state in place of its content.
+
 ## Consequences
 
 ### Positive

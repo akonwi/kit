@@ -97,7 +97,8 @@ struct SessionComposerRegion: View {
                 }
                 .transition(.opacity)
             }
-            if !state.isDemo && !state.unavailable && state.connectionState != .connected {
+            // A server that can't serve the session says so across the tab.
+            if !state.isDemo && !state.unavailable && !state.offline && state.connectionState != .connected {
                 HStack {
                     Text(state.connectionStatus).foregroundStyle(theme.muted)
                     Spacer()
@@ -105,6 +106,9 @@ struct SessionComposerRegion: View {
                 }.font(.kit(size: 12)).padding(.horizontal, 4)
             }
         }
+        // While the server can't serve the session, the draft, its comments,
+        // and a waiting question stay visible but can't be changed or sent.
+        .disabled(state.offline)
         // The composer keeps its column whether or not the transcript fills the pane.
         .frame(maxWidth: TranscriptLayout.composerWidth)
         .padding([.horizontal, .bottom], 14)

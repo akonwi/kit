@@ -147,6 +147,11 @@ Kit: the tab shows the saved and new fingerprints and the `ssh-keygen -R`
 command to run in Terminal. When the host's Kit server isn't running, the tab
 offers **Start Server**; reconnecting never starts it.
 
+A session tab that has already shown its session keeps it on screen while
+its server can't serve it, read-only, with the server's state and these
+actions in a banner across the tab. Its draft, comments, and tabs are there
+when the server is back.
+
 ## Saved servers
 
 `kit servers` lists this home's server and the saved servers with their status:

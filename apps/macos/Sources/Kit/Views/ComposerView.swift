@@ -306,13 +306,13 @@ struct ComposerView: View {
     }
 
     private var primaryActionDisabled: Bool {
-        if state.activeBashID != nil { return state.bashOperation.stopping || state.connectionState != .connected }
+        if state.activeBashID != nil { return state.bashOperation.stopping || !state.live }
         if state.bashOperation.pending { return true }
         if state.shellMode?.command.isEmpty == true { return true }
-        if state.running { return state.operations.abortingRun != nil || state.connectionState != .connected }
+        if state.running { return state.operations.abortingRun != nil || !state.live }
         if state.replaying { return false }
         if !state.ui.uploads.ready || !browserAnnotations.ready || state.hasRejectedImages || state.configuration.changing || state.directoryChange.pending || (state.reloadOperation.pending || state.compactionOperation.pending) { return true }
-        if !state.isDemo && (state.connectionState != .connected || state.operations.sending || state.operations.uncertain || state.operations.queuePending) { return true }
+        if !state.isDemo && (!state.live || state.operations.sending || state.operations.uncertain || state.operations.queuePending) { return true }
         return state.ui.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             state.annotationState.records.isEmpty && state.ui.workspace.notes.isEmpty && state.ui.attachments.isEmpty && state.ui.serverAttachmentIDs.isEmpty && state.ui.uploads.items.isEmpty
             && browserAnnotations.isEmpty && diagramAnnotations.isEmpty && textComments.isEmpty

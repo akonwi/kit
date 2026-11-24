@@ -22,6 +22,9 @@ extension EnvironmentValues {
 /// clicks.
 struct DiagramAnnotationLayer: View {
     @Environment(\.mica) private var theme
+    /// The session's server can't take comments now: the marks stay, and
+    /// annotate mode takes no clicks until it can.
+    @Environment(\.sessionReadOnly) private var readOnly
     let source: String
     let drawing: KitMermaid.Canvas
     let metrics: MermaidScene.Metrics
@@ -55,9 +58,10 @@ struct DiagramAnnotationLayer: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .allowsHitTesting(annotator.annotating)
+        .allowsHitTesting(annotator.annotating && !readOnly)
         .background(DiagramAnchorView(anchor: anchor))
         .onChange(of: annotator.selected) { presentComment() }
+        .onChange(of: readOnly) { if readOnly { popover.dismiss() } }
         .onDisappear { popover.dismiss() }
         .accessibilityHidden(!annotator.annotating)
     }
@@ -66,7 +70,7 @@ struct DiagramAnnotationLayer: View {
     /// open: a flat card below the part, or above it near the screen's
     /// bottom. Closing it, by Esc or a click elsewhere, lets go of the part.
     private func presentComment() {
-        guard let selected = annotator.selected else { popover.dismiss(); return }
+        guard !readOnly, let selected = annotator.selected else { popover.dismiss(); return }
         let bounds = MermaidHighlight(selected, in: drawing, metrics: metrics).bounds
         guard let frame = anchor.screenFrame(of: bounds), let window = anchor.view?.window else { return }
         let roomBelow = frame.minY - (window.screen?.visibleFrame.minY ?? 0)
@@ -209,6 +213,8 @@ struct DiagramCommentBox: View {
 /// or pane's header shows it.
 struct DiagramAnnotateButton: View {
     @Environment(\.mica) private var theme
+    /// The session's server can't take comments now.
+    @Environment(\.sessionReadOnly) private var readOnly
     let annotator: DiagramAnnotator
     var margin: CGFloat = 0
 
@@ -217,6 +223,7 @@ struct DiagramAnnotateButton: View {
             annotator.toggle()
         }
         .buttonStyle(HoverFillButtonStyle(margin: margin))
+        .disabled(readOnly && !annotator.annotating)
         .font(.kit(size: 10))
         .foregroundStyle(annotator.annotating ? theme.accent : theme.muted)
         .help(annotator.annotating ? "Stop annotating" : "Annotate parts of the diagram")

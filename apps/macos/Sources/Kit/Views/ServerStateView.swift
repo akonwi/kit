@@ -38,6 +38,9 @@ struct ServerStatePresentation: Equatable {
     let versions: [Version]
     let action: Action
     let footnote: String
+    /// One line on what happened, for the banner over a session the tab
+    /// keeps showing; `message` says it in full.
+    let summary: String
 
     static let releasesURL = URL(string: "https://github.com/akonwi/kit/releases")!
 
@@ -60,6 +63,8 @@ struct ServerStatePresentation: Equatable {
             source = nil
             reason = nil
             let serverVersion = "Kit \(mismatch.serverKitVersion) · protocol \(mismatch.serverProtocol)"
+            let subject = local ? "The server" : name
+            let versionsLine = "\(subject) runs Kit \(mismatch.serverKitVersion), protocol \(mismatch.serverProtocol); this app speaks protocol \(mismatch.appProtocol)."
             versions = [
                 Version(label: "This app", value: "\(appVersion) · protocol \(mismatch.appProtocol)", outdated: !mismatch.serverIsOlder),
                 Version(label: local ? "Server" : name, value: serverVersion, outdated: mismatch.serverIsOlder),
@@ -67,6 +72,7 @@ struct ServerStatePresentation: Equatable {
             if mismatch.serverIsOlder {
                 title = local ? "The Kit server needs a newer Kit" : "\(name) needs a newer Kit"
                 message = "\(server) runs an older Kit than this app can use. Update kit, then restart the server. Restarting stops work running there, so Kit leaves it to you."
+                summary = versionsLine
                 action = .restart(command: Self.restartCommand(connector: connector),
                                   prompt: Self.runsHere(connector: connector, thisMac: thisMac)
                                       ? "After updating kit, run:" : "After updating kit on \(name), run there:")
@@ -75,6 +81,7 @@ struct ServerStatePresentation: Equatable {
                 message = local
                     ? "The Kit server on this Mac runs a newer Kit than this app. Install the latest Kit for Mac; the server and its work keep running."
                     : "\(name) runs a newer Kit than this app. Install the latest Kit for Mac; \(name) and its work keep running."
+                summary = versionsLine + " \(subject) and its work keep running."
                 action = .update
             }
         case .unreachable(let failure, let retry):
@@ -85,6 +92,7 @@ struct ServerStatePresentation: Equatable {
             source = Self.source(name: name, connector: connector)
             reason = failure
             versions = []
+            summary = failure
             action = .retry(retry)
         case .hostKeyChanged(let change):
             title = "\(name)’s host key changed"
@@ -93,6 +101,7 @@ struct ServerStatePresentation: Equatable {
             reason = nil
             versions = (change.saved.map { [Version(label: "Saved", value: $0, outdated: false)] } ?? [])
                 + [Version(label: "Now", value: change.now, outdated: true)]
+            summary = "A reinstalled host does this, but so does someone intercepting the connection, so Kit stopped connecting."
             action = .removeHostKey(command: change.removeCommand,
                                     prompt: "If you expected this, remove the old key in Terminal, then try again:")
         case .serverStopped:
@@ -101,6 +110,7 @@ struct ServerStatePresentation: Equatable {
             source = Self.source(name: name, connector: connector)
             reason = "kit server status: not running"
             versions = []
+            summary = "Kit reached \(name) over SSH, but its Kit server isn’t running."
             action = .startServer(note: "Runs kit server start on \(name), as kit attach does.")
         case .signInRequired:
             title = "Sign in to \(name)"
@@ -108,6 +118,7 @@ struct ServerStatePresentation: Equatable {
             source = nil
             reason = nil
             versions = []
+            summary = "\(name) asked for something only you can answer, such as a password."
             action = .signIn
         case .connecting, .connected, .reconnecting, .needsPairing:
             title = local ? "Connecting to Kit" : "Connecting to \(name)"
@@ -115,6 +126,7 @@ struct ServerStatePresentation: Equatable {
             source = nil
             reason = nil
             versions = []
+            summary = ""
             action = .retry(nil)
         }
     }
@@ -330,6 +342,199 @@ struct ServerStateView: View {
                     .keyboardShortcut(.defaultAction)
                 Text("Opens the releases page.").font(.kit(size: 12)).foregroundStyle(theme.muted)
             }
+        }
+    }
+}
+
+/// The server's state across a session tab that keeps showing its session
+/// while the server can't serve it, with what to do: one row, and for a
+/// changed host key, its fingerprints and command below.
+struct ServerStateBanner: View {
+    @Environment(\.mica) private var theme
+    @Environment(\.openURL) private var openURL
+    @Environment(\.openSettings) private var openSettings
+    @Environment(\.controlActiveState) private var activeState
+    let connection: ServerConnection
+    let servers: ServerDirectory
+    @State private var signIn = SSHSignIn()
+    /// This banner already signed in once on its own.
+    @State private var askedOnOpen = false
+
+    var body: some View {
+        let presentation = ServerStatePresentation(name: connection.name, connector: connection.connector,
+                                                   status: connection.status, sessionTab: true,
+                                                   thisMac: connection.isThisMac)
+        let hostKey = if case .hostKeyChanged = connection.status { true } else { false }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                IconView(.warning, size: 14).foregroundStyle(theme.warning)
+                Text(title(presentation)).font(.kit(size: 13, weight: .semibold)).lineLimit(1)
+                    .fixedSize().layoutPriority(2)
+                detail(presentation)
+                    .lineLimit(1).truncationMode(.tail).foregroundStyle(theme.muted)
+                    .help(help(presentation))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                actions(presentation).fixedSize().layoutPriority(1)
+            }
+            if hostKey { hostKeyDetails(presentation) }
+        }
+        .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
+        .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(hostKey ? theme.warning : theme.border) }
+        .textSelection(.enabled)
+        .sshSignInSheet(signIn)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title(presentation))
+        // Showing a server waiting for sign-in asks, in the window in use.
+        .onChange(of: activeState, initial: true) { signInOnOpen() }
+        .onChange(of: connection.status) { signInOnOpen() }
+    }
+
+    private func title(_ presentation: ServerStatePresentation) -> String {
+        if case .needsPairing(let need) = connection.status { return ServerPairingView.title(name: connection.name, need: need) }
+        return presentation.title
+    }
+
+    @ViewBuilder private func detail(_ presentation: ServerStatePresentation) -> some View {
+        switch connection.status {
+        case .unreachable:
+            Text(presentation.summary).font(.kit(size: 11, design: .monospaced))
+        case .needsPairing:
+            Text(Self.pairingSummary(name: connection.name)).font(.kit(size: 12))
+        case .incompatible(let mismatch) where mismatch.serverIsOlder:
+            if case .restart(_, let prompt) = presentation.action {
+                Text(presentation.summary + " " + prompt).font(.kit(size: 12))
+            }
+        default:
+            Text(presentation.summary).font(.kit(size: 12))
+        }
+    }
+
+    private func help(_ presentation: ServerStatePresentation) -> String {
+        if case .needsPairing(let need) = connection.status { return ServerPairingView.message(name: connection.name, need: need) }
+        return Self.help(message: presentation.message, reason: presentation.reason)
+    }
+
+    /// The banner's full explanation, for its one-line detail: the message,
+    /// then the reason when it says something more.
+    static func help(message: String, reason: String?) -> String {
+        guard let reason, !reason.isEmpty, reason != message else { return message }
+        return message + "\n\n" + reason
+    }
+
+    /// What a pairing banner says before its link field.
+    static func pairingSummary(name: String) -> String {
+        "Get a link with kit server pair on \(name), or Pair a Device on another paired device."
+    }
+
+    @ViewBuilder private func actions(_ presentation: ServerStatePresentation) -> some View {
+        HStack(spacing: 8) {
+            if case .needsPairing = connection.status {
+                PairingLinkField(placeholder: ServerPairingView.placeholder(connection.connector)) { link in
+                    try await servers.pairAgain(connection.name, link: link)
+                }
+                .frame(width: 360)
+            } else {
+                presentedActions(presentation)
+            }
+        }
+    }
+
+    @ViewBuilder private func presentedActions(_ presentation: ServerStatePresentation) -> some View {
+        switch presentation.action {
+        case .retry(let retry):
+            RetryCountdown(retry: retry).font(.kit(size: 12)).foregroundStyle(theme.muted)
+            Button("Server Settings…") { SettingsSection.servers.open(with: openSettings, server: connection.name) }
+                .buttonStyle(FormButtonStyle())
+            Button("Try Now", action: tryAgain)
+                .buttonStyle(FormButtonStyle(fill: .primary))
+                .disabled(retry == nil || signIn.signingIn)
+        case .restart(let command, _):
+            commandChip(command)
+            copyButton(command)
+            tryAgainButton
+        case .removeHostKey(let command, _):
+            copyButton(command)
+            tryAgainButton
+        case .startServer(let note):
+            Button {
+                Task { await signIn.signIn(connection, start: true) }
+            } label: {
+                if signIn.signingIn { KitSpinner("Starting…") } else { Text("Start Server") }
+            }
+            .buttonStyle(FormButtonStyle(fill: .primary))
+            .disabled(signIn.signingIn)
+            .help(note)
+        case .signIn:
+            Button("Server Settings…") { SettingsSection.servers.open(with: openSettings, server: connection.name) }
+                .buttonStyle(FormButtonStyle())
+            Button {
+                Task { await signIn.signIn(connection) }
+            } label: {
+                if signIn.signingIn { KitSpinner("Signing in…") } else { Text("Sign In…") }
+            }
+            .buttonStyle(FormButtonStyle(fill: .primary))
+            .disabled(signIn.signingIn)
+        case .update:
+            Button("Get the Latest Kit") { openURL(ServerStatePresentation.releasesURL) }
+                .buttonStyle(FormButtonStyle(fill: .primary))
+                .help("Opens the releases page.")
+        }
+    }
+
+    /// A changed host key's fingerprints and the command that removes the
+    /// old one, under the banner's row.
+    private func hostKeyDetails(_ presentation: ServerStatePresentation) -> some View {
+        HStack(spacing: 24) {
+            ForEach(presentation.versions, id: \.label) { version in
+                Text(version.label + "  " + version.value)
+                    .foregroundStyle(version.outdated ? theme.warning : theme.muted)
+            }
+            if case .removeHostKey(let command, _) = presentation.action {
+                Text(command).foregroundStyle(theme.text)
+            }
+        }
+        .font(.kit(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+        .padding(.leading, 24)
+    }
+
+    private func commandChip(_ command: String) -> some View {
+        Text(command).font(.kit(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+            .padding(.horizontal, 10).frame(maxWidth: 320, minHeight: 28)
+            .background(theme.surface, in: RoundedRectangle(cornerRadius: 3))
+            .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border) }
+            .help(command)
+    }
+
+    private func copyButton(_ command: String) -> some View {
+        Button("Copy") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(command, forType: .string)
+        }.buttonStyle(FormButtonStyle())
+    }
+
+    private var tryAgainButton: some View {
+        Button(action: tryAgain) {
+            if signIn.signingIn { KitSpinner() } else { Text("Try Again") }
+        }
+        .buttonStyle(FormButtonStyle(fill: .primary))
+        .disabled(signIn.signingIn)
+    }
+
+    private func signInOnOpen() {
+        guard connection.status == .signInRequired, activeState == .key, !askedOnOpen, !signIn.signingIn else { return }
+        askedOnOpen = true
+        Task { await signIn.signIn(connection) }
+    }
+
+    /// Checks the server again. An SSH server is signed in to, so a question,
+    /// such as a new host key, can be asked in this window.
+    private func tryAgain() {
+        if case .ssh = connection.connector {
+            Task { await signIn.signIn(connection) }
+        } else {
+            connection.checkNow()
         }
     }
 }

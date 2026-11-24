@@ -700,12 +700,13 @@ struct ScratchpadPane: View {
                     Button("Replace shared with mine") {
                         guard let client = state.scratchpadClient else { return }
                         Task { await pad.replaceReviewed(client: client, session: state.selectedID) }
-                    }
+                    }.disabled(state.offline)
                 }.padding(12)
             } else {
                 @Bindable var workspace = workspace
+                // The scratchpad reads as last loaded while its server can't take changes.
                 ScratchpadEditor(text: $workspace.scratchpad, documentVersion: pad.documentVersion,
-                    editorState: $workspace.scratchpadPosition)
+                    editorState: $workspace.scratchpadPosition, editable: !state.offline)
                     .environment(\.textComments, workspace.textComments)
                     .workspaceFocusTarget(.scratchpad)
             }
@@ -724,7 +725,7 @@ struct ScratchpadPane: View {
                         Button("Retry") {
                             guard let client = state.scratchpadClient else { return }
                             Task { _ = await pad.save(client: client, session: state.selectedID) }
-                        }
+                        }.disabled(state.offline)
                     }
                 }.font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
             }
@@ -759,10 +760,12 @@ struct FilePane: View {
         return MarkdownPreviewAnnotations(document: AnnotationDocument(file: preview), state: state.annotationState,
             client: client, session: state.selectedID, canAnnotate: annotatable)
     }
-    /// Whether the file as shown takes comments: it is current, and has a
+    /// Whether the file as shown takes comments: it is current, has a
     /// revision to anchor them to, which a copy that changed while it
-    /// downloaded doesn't.
-    private var annotatable: Bool { !loading && entry?.stale == false && preview?.revision.isEmpty == false }
+    /// downloaded doesn't, and its server can take them now.
+    private var annotatable: Bool {
+        !loading && entry?.stale == false && preview?.revision.isEmpty == false && !state.offline
+    }
     private var request: String {
         state.serverID + "|" + state.selectedID + "|" + (state.selected?.cwd ?? "") + "|" + String(active) + "|" + String(revision) + "|" + String(workspace.filePreviews.revision)
     }
@@ -796,7 +799,7 @@ struct FilePane: View {
                             state.annotationState.pending || state.annotationState.editor != nil)
                 }
                 Button { revision += 1 } label: { IconView(.arrowClockwise, size: 12) }
-                    .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file").disabled(loading)
+                    .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file").disabled(loading || state.offline)
             }.padding(.horizontal, 20).padding(.vertical, 10)
             Rule()
             if let find, find.isOpen {

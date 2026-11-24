@@ -45,6 +45,12 @@ final class SessionTab: Identifiable {
     var reconnecting: Bool {
         if case .reconnecting = connection?.status { true } else { false }
     }
+    /// Whether the tab draws its session's tiles: the session has been shown
+    /// and its server is known. A server that can't serve it keeps them on
+    /// screen, read-only, with the server's state above them.
+    var showsSession: Bool {
+        !isLauncher && connection != nil && store?.opening == .open
+    }
     /// The live session once opened; until then, its catalog entry.
     var session: SessionExcerpt? {
         store?.selected ?? connection?.catalog.sessions.first { $0.id == identity.session }
@@ -710,6 +716,10 @@ final class SessionWindowModel: Identifiable {
         store.serverIsThisMac = { [weak servers = self.servers, weak store] in
             guard let store else { return nil }
             return servers?.isThisMac(store.serverID)
+        }
+        store.serverUnavailable = { [weak servers = self.servers, weak store] in
+            guard let store, let connection = servers?.connection(named: store.serverID) else { return false }
+            return connection.status.sessionIssue != nil
         }
         if let arrangement = tab.savedArrangement { store.ui.workspace.restore(arrangement) }
         tab.savedArrangement = nil
