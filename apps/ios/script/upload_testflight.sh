@@ -1,9 +1,12 @@
 #!/bin/sh
 # Archives the Release app (com.akonwi.kit.ios) and uploads it to App Store
-# Connect for TestFlight, authenticated with an App Store Connect API key:
+# Connect for TestFlight, authenticated with an App Store Connect API key.
+# ~/.apple-developer/env.sh exports ASC_ISSUER_ID, ASC_KEY_ID (R92T47335S
+# unless already set) and ASC_KEY_PATH, the key's .p8 file in
+# ~/.apple-developer/keys:
 #
-#   ASC_KEY_ID=… ASC_ISSUER_ID=… ASC_KEY_PATH=~/Downloads/AuthKey_….p8 \
-#     apps/ios/script/upload_testflight.sh [build-number]
+#   . ~/.apple-developer/env.sh
+#   apps/ios/script/upload_testflight.sh [build-number]
 #
 # The build number defaults to the UTC date and time, YYYYMMDD.HHMM, so each
 # upload is higher than the last. The version is MARKETING_VERSION in the
