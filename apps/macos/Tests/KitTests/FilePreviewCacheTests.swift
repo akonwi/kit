@@ -141,15 +141,29 @@ private actor LongFileClient: FileDownloadClient {
         #expect(cache.entries["a"]?.error == nil && cache.entries["a"]?.binary == false)
     }
 
-    @Test func aFirstLinePastTheLimitIsCutAtACharacter() async {
-        let limit = Int(WholeFileDownload.maxEditorBytes)
-        let client = LongFileClient(whole: String(repeating: "x", count: limit - 1) + "é" + "yy")
+    @Test func aLineTooLongToShowIsMarkedSoThePaneOffersNoRetry() async {
+        let line = String(repeating: "x", count: WholeFileDownload.maxEditorLineBytes)
+        let client = LongFileClient(whole: line + "\n" + line + "y\n")
         let cache = FilePreviewCache(byteLimit: 16 << 20, downloadStore: Self.store())
         await cache.load("a", session: "s", cwd: "/tmp", client: client)
-        let preview = cache.entries["a"]?.preview
-        #expect(preview?.content.utf8.count == limit - 1)
-        #expect(preview?.truncated == true && FileFind.searchedLines(preview?.content, truncated: true) == 1)
-        #expect(cache.entries["a"]?.whole?.limited == true)
+        #expect(cache.entries["a"]?.preview == nil)
+        #expect(cache.entries["a"]?.error == "This file has a line too long to show.")
+        #expect(cache.entries["a"]?.binary == true)
+        // A file whose lines all fit shows once it is read again.
+        await client.change(to: line + "\n" + line + "\n", revision: LongFileClient.revision("C"))
+        await cache.load("a", session: "s", cwd: "/tmp", client: client, force: true)
+        #expect(cache.entries["a"]?.preview?.content.utf8.count == 2 * (WholeFileDownload.maxEditorLineBytes + 1))
+        #expect(cache.entries["a"]?.error == nil && cache.entries["a"]?.binary == false)
+    }
+
+    @Test func aLineIsMeasuredWithoutItsEnding() {
+        let line = String(repeating: "x", count: 4)
+        for ending in ["\n", "\r\n", "\r"] {
+            #expect(!WholeFileDownload.hasLine(longerThan: 4, in: line + ending + line + ending + line), "ending \(ending.debugDescription)")
+            #expect(WholeFileDownload.hasLine(longerThan: 4, in: line + ending + line + "x" + ending), "ending \(ending.debugDescription)")
+        }
+        // A multibyte character counts its UTF-8 bytes.
+        #expect(WholeFileDownload.hasLine(longerThan: 4, in: "xxxé"))
     }
 
     @Test func aFileThatChangesWhileItDownloadsDownloadsAgain() async {

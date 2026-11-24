@@ -29,6 +29,13 @@ public class MinimapView: FlippedNSView {
 
     weak var textView: TextView?
 
+    override public var isHidden: Bool {
+        didSet {
+            // Its content skipped layout while hidden.
+            if oldValue && !isHidden { contentView.needsLayout = true }
+        }
+    }
+
     /// The container scrollview for the minimap contents.
     public let scrollView: ForwardingScrollView
     /// The view text lines are rendered into.

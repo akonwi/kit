@@ -25,6 +25,8 @@ final class WholeFileDownload {
         case image(Image, revision: String?, changed: Bool = false)
         /// The file isn't text, or an image the pane shows.
         case binary
+        /// Text with a line longer than `maxEditorLineBytes`.
+        case lineTooLong
         /// The download was cancelled or failed, which `state` says.
         case stopped
     }
@@ -39,6 +41,11 @@ final class WholeFileDownload {
 
     /// The most text the editor is given.
     static let maxEditorBytes: Int64 = 8 << 20
+    /// The longest line the editor is given, in UTF-8 bytes. A longer one
+    /// makes it too slow to use.
+    nonisolated static let maxEditorLineBytes = 1 << 20
+    /// What a pane says about a file with a line longer than that.
+    static let lineTooLongMessage = "This file has a line too long to show."
 
     private(set) var state = State.idle
     private var task: Task<Outcome, Never>?
@@ -64,13 +71,19 @@ final class WholeFileDownload {
             do {
                 let outcome = try await FileContent.load(target, session: session, textLimit: Self.maxEditorBytes, decodeImage: decode,
                                                          client: client, store: store, progress: progress)
-                self?.finish(generation, .idle)
+                let result: Outcome
                 switch outcome {
-                case .text(let text): return .text(text)
+                case .text(let text):
+                    let scan = Task.detached(priority: .userInitiated) { Self.hasLine(longerThan: Self.maxEditorLineBytes, in: text.content) }
+                    let long = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
+                    try Task.checkCancellation()
+                    result = long ? .lineTooLong : .text(text)
                 case .image(let file, let image, let revision, let changed):
-                    return .image(Image(file: file, loaded: image.loaded), revision: revision, changed: changed)
-                case .binary: return .binary
+                    result = .image(Image(file: file, loaded: image.loaded), revision: revision, changed: changed)
+                case .binary: result = .binary
                 }
+                self?.finish(generation, .idle)
+                return result
             } catch {
                 self?.finish(generation, isCancellation(error) ? .cancelled : .failed(error.localizedDescription))
                 return .stopped
@@ -87,6 +100,20 @@ final class WholeFileDownload {
 
     private nonisolated static func decodeImage(_ data: Data) -> DecodedImage? {
         LoadedImage(data: data).map(DecodedImage.init)
+    }
+
+    /// Whether a line of `content` is longer than `limit` UTF-8 bytes, not
+    /// counting its line ending. A cancelled scan stops early.
+    nonisolated static func hasLine(longerThan limit: Int, in content: String) -> Bool {
+        var length = 0, scanned = 0
+        for byte in content.utf8 {
+            // CR ends a line too, alone or before LF.
+            length = byte == 0x0A || byte == 0x0D ? 0 : length + 1
+            if length > limit { return true }
+            scanned += 1
+            if scanned & 0xFFFF == 0, Task.isCancelled { return false }
+        }
+        return false
     }
 
     /// Stops a download under way.

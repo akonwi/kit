@@ -7,7 +7,8 @@ final class FilePreviewCache {
     struct Entry {
         var preview: WorkspaceFile?
         var error: String?
-        /// The file is binary, so it has no preview to retry for.
+        /// The file is binary, or has a line too long to show, so it has no
+        /// preview to retry for.
         var binary = false
         var loading = false
         var stale = true
@@ -72,8 +73,9 @@ final class FilePreviewCache {
                                               store: downloadStore)
             guard !Task.isCancelled, entries[path]?.token == token else { return }
             switch outcome {
-            case .binary, .image:
-                entries[path]?.error = WorkspaceFileError.response(415).localizedDescription
+            case .binary, .image, .lineTooLong:
+                entries[path]?.error = outcome == .lineTooLong ? WholeFileDownload.lineTooLongMessage
+                    : WorkspaceFileError.response(415).localizedDescription
                 entries[path]?.binary = true
                 entries[path]?.stale = true
             case .stopped:

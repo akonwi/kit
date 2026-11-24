@@ -545,4 +545,14 @@ struct FileDownloadTests {
         await loader.load(.init(attempt: 0, activity: 0), download: .init(path: "/bin/ls", session: Self.session, client: try server.client()))
         #expect(loader.phase == .failed("Kit shows text files and PNG, JPEG, GIF, or WebP images."))
     }
+
+    @MainActor @Test func aHostFileWithALineTooLongSaysSo() async throws {
+        let body = String(repeating: "a", count: WholeFileDownload.maxEditorLineBytes + 1)
+        let server = try await Server([Self.response(headers: Self.hostHeaders("/tmp/one-line.txt"), body: body)])
+        let directory = Self.destination()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let loader = ExternalFileLoader(downloadStore: FileDownloadStore(directory: directory, maxTotalBytes: 4 << 20))
+        await loader.load(.init(attempt: 0, activity: 0), download: .init(path: "/tmp/one-line.txt", session: Self.session, client: try server.client()))
+        #expect(loader.phase == .failed("This file has a line too long to show."))
+    }
 }

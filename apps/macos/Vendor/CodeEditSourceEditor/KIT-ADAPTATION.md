@@ -2,7 +2,9 @@
 
 CodeEditSourceEditor 0.15.2, upstream commit `424453d2232c9912933a3b5a1f3d3df669404ed0`.
 The upstream license is retained. MinimapView.hitTest respects hidden ancestors
-so the disabled minimap cannot intercept document controls. TextViewController
+so the disabled minimap cannot intercept document controls. A hidden minimap
+lays out no lines, because its layout of a long line costs as much as the
+editor's; showing it lays them out. TextViewController
 exposes a gutterWidthOverride for the native old/new diff rail; it changes only
 text insets. Its embedded scroll view can forward vertical wheel events to a
 parent scroll view, allowing native editors to form one continuous diff surface

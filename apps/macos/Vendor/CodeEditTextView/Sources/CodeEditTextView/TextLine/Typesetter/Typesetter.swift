@@ -29,6 +29,9 @@ final public class Typesetter {
     public var documentRange: NSRange?
     public var lineFragments = TextLineStorage<LineFragment>()
 
+    /// The most UTF-16 units typeset as one CTLine in a line that doesn't wrap.
+    static let maxUnwrappedRunLength = 4096
+
     // MARK: - Init & Prepare
 
     public init() { }
@@ -80,25 +83,38 @@ final public class Typesetter {
     func createContentRuns(
         string: NSAttributedString,
         documentRange: NSRange,
-        attachments: [AnyTextAttachment]
+        attachments: [AnyTextAttachment],
+        maxRunLength: Int? = nil
     ) -> [ContentRun] {
         var attachments = attachments
         var currentPosition = 0
         let maxPosition = documentRange.length
         var runs: [ContentRun] = []
 
+        // Appends the text in `range`, in pieces of at most `maxRunLength`
+        // UTF-16 units that don't split a composed character.
+        func appendText(_ range: NSRange) {
+            var start = range.location
+            while start < range.max {
+                var end = range.max
+                if let maxRunLength, end - start > maxRunLength {
+                    end = start + maxRunLength
+                    let composed = (string.string as NSString).rangeOfComposedCharacterSequence(at: end)
+                    // A composed character longer than a piece is a piece of its own.
+                    end = composed.location > start ? composed.location : composed.max
+                }
+                let piece = NSRange(start: start, end: end)
+                let substring = string.attributedSubstring(from: piece)
+                runs.append(ContentRun(range: piece, type: .string(CTTypesetterCreateWithAttributedString(substring))))
+                start = end
+            }
+        }
+
         while currentPosition < maxPosition {
             guard let nextAttachment = attachments.first else {
                 // No attachments, use the remaining length
                 if maxPosition > currentPosition {
-                    let range = NSRange(location: currentPosition, length: maxPosition - currentPosition)
-                    let substring = string.attributedSubstring(from: range)
-                    runs.append(
-                        ContentRun(
-                            range: range,
-                            type: .string(CTTypesetterCreateWithAttributedString(substring))
-                        )
-                    )
+                    appendText(NSRange(location: currentPosition, length: maxPosition - currentPosition))
                 }
                 break
             }
@@ -111,11 +127,7 @@ final public class Typesetter {
 
             // Use the space before the attachment
             if nextAttachment.range.location > currentPosition {
-                let range = NSRange(start: currentPosition, end: attachmentRange.location)
-                let substring = string.attributedSubstring(from: range)
-                runs.append(
-                    ContentRun(range: range, type: .string(CTTypesetterCreateWithAttributedString(substring)))
-                )
+                appendText(NSRange(start: currentPosition, end: attachmentRange.location))
             }
 
             runs.append(ContentRun(range: attachmentRange, type: .attachment(nextAttachment)))
@@ -133,7 +145,15 @@ final public class Typesetter {
         displayData: TextLine.DisplayData,
         attachments: [AnyTextAttachment]
     ) -> (lines: [TextLineStorage<LineFragment>.BuildItem], maxHeight: CGFloat) {
-        let contentRuns = createContentRuns(string: string, documentRange: documentRange, attachments: attachments)
+        // Without wrapping, a line is one fragment, and CoreText finds an offset
+        // in a CTLine in time linear in its length, so a long line is
+        // typeset in pieces.
+        let contentRuns = createContentRuns(
+            string: string,
+            documentRange: documentRange,
+            attachments: attachments,
+            maxRunLength: displayData.maxWidth == .greatestFiniteMagnitude ? Self.maxUnwrappedRunLength : nil
+        )
         var context = TypesetContext(documentRange: documentRange, displayData: displayData)
 
         for run in contentRuns {

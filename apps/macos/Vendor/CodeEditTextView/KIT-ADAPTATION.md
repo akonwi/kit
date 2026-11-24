@@ -22,11 +22,28 @@ reads the break, an offset into the run, as a length from the fragment's start,
 so every fragment after the first also drew the text of the rows below it and
 ran past the wrap width.
 
+A layout pass records the widest line it lays out, so without wrapping the
+document is as wide as its longest line and scrolls horizontally to its end.
+Upstream's `layoutLine` assigns that width to a local copy that shadows its
+`inout` parameter, so the document stayed as wide as the viewport.
+
+Without wrapping, Typesetter sets a line's text in pieces of at most 4,096
+UTF-16 units, cut between composed characters, side by side in its one
+fragment. CoreText finds an offset or a point in a CTLine in time linear in
+its length, so selecting or clicking in a line of millions of characters took
+seconds. Shaping doesn't continue across a cut. A composed character longer
+than a piece is a piece of its own.
+
+LineFragmentRenderer looks for invisible characters only in the text of the
+CTLine it draws, not through the end of its fragment, and doesn't copy or
+scan any text when no characters are configured to show.
+
 TextView doesn't lay out lines when it is created. Before it is in a scroll
 view its frame is the document's height, so upstream's layout there builds a
 view for every line, which is quadratic in the line count. AppKit lays out
 the visible lines once the view is shown.
 
 When updating, reapply the changes in TextLayoutManager.swift and
-TextLayoutManager+Layout.swift, TextView.swift, TextView+Layout.swift, and
-Typesetter.swift and run Kit's editor geometry/selection tests.
+TextLayoutManager+Layout.swift, TextView.swift, TextView+Layout.swift,
+Typesetter.swift, and LineFragmentRenderer.swift and run Kit's editor
+geometry/selection tests.

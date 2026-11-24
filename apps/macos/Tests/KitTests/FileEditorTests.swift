@@ -164,6 +164,102 @@ struct FileEditorTests {
         #expect(shown == Array(lines.prefix(shown.count)))
     }
 
+    @Test func aLineWiderThanTheEditorScrollsToItsEnd() throws {
+        _ = NSApplication.shared
+        let source = (0..<300).map { String(format: "%09d|", $0 * 10) }.joined()
+        let controller = TextViewController(string: source, language: .default,
+            configuration: FileEditorTheme.configuration(MicaTheme(dark: false)), cursorPositions: [], highlightProviders: [])
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 200))
+        window.contentViewController = controller; window.orderFront(nil)
+        defer { window.close() }
+        window.layoutIfNeeded(); window.displayIfNeeded()
+        let clip = controller.scrollView.contentView
+        let document = try #require(controller.scrollView.documentView)
+        clip.scroll(to: NSPoint(x: document.frame.width - clip.bounds.width, y: 0))
+        controller.scrollView.reflectScrolledClipView(clip)
+        window.layoutIfNeeded(); window.displayIfNeeded()
+        // Scrolled to the right, the editor shows the line's last characters.
+        let last = try #require(controller.textView.layoutManager.rectForOffset(source.utf16.count - 1))
+        #expect(clip.bounds.contains(last), "last character at \(last), visible \(clip.bounds)")
+        // The middle of the view is within its last screenful of characters.
+        let middle = try #require(controller.textView.layoutManager.textOffsetAtPoint(NSPoint(x: clip.bounds.midX, y: last.midY)))
+        let shown = Int(clip.bounds.width / last.width)
+        #expect((source.utf16.count - shown)..<source.utf16.count ~= middle, "offset \(middle) at the middle of the view")
+    }
+
+    @Test func theMinimapLaysOutLinesOnlyWhenShown() throws {
+        _ = NSApplication.shared
+        let source = (1...200).map { "line \($0)" }.joined(separator: "\n")
+        let controller = TextViewController(string: source, language: .default,
+            configuration: FileEditorTheme.configuration(MicaTheme(dark: false)), cursorPositions: [], highlightProviders: [])
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 300))
+        window.contentViewController = controller; window.orderFront(nil)
+        defer { window.close() }
+        window.layoutIfNeeded(); window.displayIfNeeded()
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let minimap = try #require(all(controller.view).compactMap { $0 as? MinimapView }.first)
+        func rows() -> Int {
+            minimap.contentView.subviews.compactMap { $0 as? LineFragmentView }.filter { $0.lineFragment != nil }.count
+        }
+        // The file editor hides the minimap, which then costs no layout.
+        #expect(minimap.isHidden)
+        #expect(rows() == 0)
+        controller.configuration.peripherals.showMinimap = true
+        window.layoutIfNeeded(); window.displayIfNeeded()
+        #expect(!minimap.isHidden)
+        #expect(rows() > 20, "\(rows()) minimap rows")
+    }
+
+    @Test func aLongLineMeasuresAndHitTestsEveryCharacterInPlace() throws {
+        _ = NSApplication.shared
+        // Long enough to be typeset in several pieces.
+        let source = (0..<1_000).map { String(format: "%09d|", $0 * 10) }.joined()
+        let controller = TextViewController(string: source, language: .default,
+            configuration: FileEditorTheme.configuration(MicaTheme(dark: false)), cursorPositions: [], highlightProviders: [])
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 200))
+        window.contentViewController = controller; window.orderFront(nil)
+        defer { window.close() }
+        window.layoutIfNeeded(); window.displayIfNeeded()
+        let manager = controller.textView.layoutManager!
+        let first = try #require(manager.rectForOffset(0))
+        // Each character sits one advance after the one before it, and a
+        // point inside it finds it.
+        for offset in [1, 4_095, 4_096, 4_097, 8_191, 8_192, 9_999] {
+            let rect = try #require(manager.rectForOffset(offset))
+            #expect(abs(rect.minX - (first.minX + CGFloat(offset) * first.width)) < 0.5, "offset \(offset) at \(rect.minX)")
+            #expect(manager.textOffsetAtPoint(NSPoint(x: rect.minX + rect.width / 4, y: rect.midY)) == offset)
+        }
+    }
+
+    private final class InvisibleRecorder: InvisibleCharactersDelegate {
+        var found: [Int] = []
+        let triggerCharacters: Set<UInt16> = [0x20]
+        func invisibleStyleShouldClearCache() -> Bool { false }
+        func invisibleStyle(for character: UInt16, at range: NSRange, lineRange: NSRange) -> InvisibleCharacterStyle? {
+            found.append(range.location)
+            return nil
+        }
+    }
+
+    @Test func aLongLineFindsEachInvisibleCharacterOnce() throws {
+        _ = NSApplication.shared
+        // Long enough to be typeset in several pieces, with a space every ten characters.
+        let source = (0..<1_000).map { String(format: "%09d ", $0 * 10) }.joined()
+        let controller = TextViewController(string: source, language: .default,
+            configuration: FileEditorTheme.configuration(MicaTheme(dark: false)), cursorPositions: [], highlightProviders: [])
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 200))
+        window.contentViewController = controller; window.orderFront(nil)
+        defer { window.close() }
+        window.layoutIfNeeded(); window.displayIfNeeded()
+        let recorder = InvisibleRecorder()
+        controller.textView.layoutManager.invisibleCharacterDelegate = recorder
+        let row = try #require(controller.textView.subviews.compactMap { $0 as? LineFragmentView }.first { $0.lineFragment != nil })
+        let context = try #require(CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        try #require(row.renderer).draw(lineFragment: try #require(row.lineFragment), in: context, yPos: 0)
+        #expect(recorder.found == (0..<1_000).map { $0 * 10 + 9 })
+    }
+
     @Test func languagesFollowFilenameAndExtension() {
         #expect(ReadOnlyFileEditor.language(for: "main.go").id == CodeLanguage.go.id)
         #expect(ReadOnlyFileEditor.language(for: "View.swift").id == CodeLanguage.swift.id)

@@ -241,6 +241,8 @@ final class ExternalFileLoader {
                 return (.loaded(image.file, image.loaded), text)
             case .binary:
                 return (.failed(ViewedFileError.unsupported.localizedDescription), nil)
+            case .lineTooLong:
+                return (.failed(WholeFileDownload.lineTooLongMessage), nil)
             case .stopped:
                 guard !Task.isCancelled, self.generation == generation else { return nil }
                 if case .failed(let message) = download.state { return (.failed(message), nil) }

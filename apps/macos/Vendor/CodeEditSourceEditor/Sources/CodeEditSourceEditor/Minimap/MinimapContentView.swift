@@ -26,6 +26,8 @@ public class MinimapContentView: FlippedNSView {
 
     override public func layout() {
         super.layout()
+        // A hidden minimap lays out nothing; it lays out when it is shown.
+        guard !isHiddenOrHasHiddenAncestor else { return }
         layoutManager?.layoutLines()
     }
 }

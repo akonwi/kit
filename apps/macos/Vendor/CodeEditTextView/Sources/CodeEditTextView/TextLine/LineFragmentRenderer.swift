@@ -112,7 +112,9 @@ public final class LineFragmentRenderer {
         position: CGPoint,
         in context: CGContext
     ) {
-        guard let textStorage, let invisibleCharacterDelegate else { return }
+        // With nothing to find, don't copy and scan the fragment's text.
+        guard let textStorage, let invisibleCharacterDelegate,
+              !invisibleCharacterDelegate.triggerCharacters.isEmpty else { return }
 
         let drawingContext = InvisibleDrawingContext(
             lineFragment: lineFragment,
@@ -134,9 +136,11 @@ public final class LineFragmentRenderer {
     }
 
     private func createTextRange(for drawingContext: InvisibleDrawingContext) -> NSRange {
+        // Only this content's text: a fragment may hold several CTLines.
+        let start = drawingContext.lineFragment.documentRange.location + drawingContext.contentOffset
         return NSRange(
-            start: drawingContext.lineFragment.documentRange.location + drawingContext.contentOffset,
-            end: drawingContext.lineFragment.documentRange.max
+            start: start,
+            end: min(start + CTLineGetStringRange(drawingContext.ctLine).length, drawingContext.lineFragment.documentRange.max)
         )
     }
 
