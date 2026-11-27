@@ -17,9 +17,7 @@ The terminal client is written in Ard with Cooper (`tui.ard`, `tui/`).
 
 The directory is a separate Go module (`github.com/akonwi/kit/apps/cli`) that
 replaces `github.com/akonwi/kit` with the repository root, so root
-`go build ./...` and `go test ./...` do not include it. Building requires Ard
-0.49.1 or newer (CI uses the version in `.github/actions/setup-ard/action.yml`)
-and Go 1.27 or newer.
+`go build ./...` and `go test ./...` do not include it.
 
 ## Cooper
 
