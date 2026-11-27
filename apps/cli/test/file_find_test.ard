@@ -642,21 +642,3 @@ test fn rendered_markdown_tints_its_text_code_and_cells() Void!Str {
     "from the heading's: {fills(shown.terminal, 4, 0, 2, colors.primary_text)}",
   )
 }
-
-fn fills(terminal: headless::TestApp, y: Int, from: Int, to: Int, color: ui::Color) Str {
-  mut drawn = ""
-  mut x = from
-  while x <= to {
-    drawn = match terminal.frame().cell(x, y) {
-      found => {
-        match same_color(found.style.background, color) {
-          true => "{drawn}+",
-          false => "{drawn}.",
-        }
-      },
-      _ => "{drawn} ",
-    }
-    x =+ 1
-  }
-  drawn
-}

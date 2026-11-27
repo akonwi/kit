@@ -1241,8 +1241,7 @@ fn navigation(props: Props) Navigation {
 }
 
 fn commands(navigation: Navigation) [keymap::Command] {
-  let commands: [keymap::Command] = [navigation.up, navigation.down]
-  commands
+  [navigation.up, navigation.down]
 }
 
 fn bindings(navigation: Navigation) [keymap::Binding] {

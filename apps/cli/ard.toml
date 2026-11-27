@@ -1,5 +1,5 @@
 name = "kit"
-ard = ">= 0.45.0"
+ard = ">= 0.49.1"
 target = "go"
 
 [build.values]
@@ -11,7 +11,7 @@ commit = { type = "Str", default = "unknown", release = true }
 channel = { type = "Str", default = "" }
 
 [dependencies]
-cooper = { git = "https://github.com/akonwi/cooper.git", commit = "5e31c796b9141e571602dc3fd5d63005834ca5e6" }
+cooper = { git = "https://github.com/akonwi/cooper.git", commit = "ede791e2b8ac44ab9e763bfa081b13149f7c768b" }
 
 [go.imports]
 api = "github.com/akonwi/kit/api"
